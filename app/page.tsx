@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createBrowserClient } from '@supabase/ssr';
 import { 
   ShoppingCart, User, LogOut, Package, Calendar, CreditCard, Clock, Search, Plus, Minus, 
   Trash2, CheckCircle, TrendingUp, Box, DollarSign, Home, LayoutDashboard, RefreshCw,
@@ -24,7 +24,10 @@ export default function WholesalePortal() {
   const [products, setProducts] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   
-  const supabase = createClientComponentClient();
+  const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
   const logoUrl = process.env.NEXT_PUBLIC_LOGO_URL || '';
 
   useEffect(() => {
