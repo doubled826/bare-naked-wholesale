@@ -23,19 +23,22 @@ export async function POST(request: Request) {
       .select('*')
       .eq('id', user.id)
       .single();
-
+    
     if (retailerError) {
       return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
     }
-
+    
+    // Add user email to retailer object
+    const retailerWithEmail = { ...retailer, email: user.email };
+    
     // Calculate totals
     const subtotal = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
-    const total = subtotal; // No additional fees for now
-
+    const total = subtotal;
+    
     // Generate order number
     const { data: orderNumberData } = await supabase.rpc('generate_order_number');
     const orderNumber = orderNumberData || `ORD-${Date.now()}`;
-
+    
     // Create order
     const { data: order, error: orderError } = await supabase
       .from('orders')
@@ -50,12 +53,12 @@ export async function POST(request: Request) {
       })
       .select()
       .single();
-
+    
     if (orderError) {
       console.error('Order creation error:', orderError);
       return NextResponse.json({ error: 'Failed to create order' }, { status: 500 });
     }
-
+    
     // Create order items
     const orderItems = items.map((item: any) => ({
       order_id: order.id,
@@ -64,18 +67,18 @@ export async function POST(request: Request) {
       unit_price: item.price,
       total_price: item.price * item.quantity
     }));
-
+    
     const { error: itemsError } = await supabase
       .from('order_items')
       .insert(orderItems);
-
+    
     if (itemsError) {
       console.error('Order items error:', itemsError);
       return NextResponse.json({ error: 'Failed to create order items' }, { status: 500 });
     }
-
+    
     // Send email notifications
-    await sendOrderEmails(order, orderItems, retailer, items);
+    await sendOrderEmails(order, orderItems, retailerWithEmail, items);
 
     return NextResponse.json({ 
       success: true, 
@@ -138,7 +141,7 @@ Total: $${order.total.toFixed(2)}
   try {
     // Send to info@barenakedpet.com
     await transporter.sendMail({
-      from: `"Bare Naked Pet Co." <${process.env.SMTP_USER}>`,
+      from: `Bare Naked Pet Co. <${process.env.SMTP_USER}>`,
       to: process.env.ORDER_EMAIL_TO,
       subject: 'New Wholesale Order',
       text: internalEmailText,
@@ -146,8 +149,8 @@ Total: $${order.total.toFixed(2)}
 
     // Send confirmation to customer
     await transporter.sendMail({
-      from: `"Bare Naked Pet Co." <${process.env.SMTP_USER}>`,
-      to: user.email,
+      from: `Bare Naked Pet Co. <${process.env.SMTP_USER}>`,
+      to: retailer.email,
       subject: `Order Confirmation - ${order.order_number}`,
       text: `
 Thank you for your order!
