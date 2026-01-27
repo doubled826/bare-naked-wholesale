@@ -138,7 +138,7 @@ Total: $${order.total.toFixed(2)}
   try {
     // Send to info@barenakedpet.com
     await transporter.sendMail({
-      from: process.env.ORDER_EMAIL_FROM,
+      from: `"Bare Naked Pet Co." <${process.env.SMTP_USER}>`,
       to: process.env.ORDER_EMAIL_TO,
       subject: 'New Wholesale Order',
       text: internalEmailText,
@@ -146,8 +146,8 @@ Total: $${order.total.toFixed(2)}
 
     // Send confirmation to customer
     await transporter.sendMail({
-      from: process.env.ORDER_EMAIL_FROM,
-      to: retailer.email,
+      from: `"Bare Naked Pet Co." <${process.env.SMTP_USER}>`,
+      to: user.email,
       subject: `Order Confirmation - ${order.order_number}`,
       text: `
 Thank you for your order!
