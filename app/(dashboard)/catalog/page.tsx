@@ -27,7 +27,7 @@ export default function CatalogPage() {
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [notification, setNotification] = useState('');
 
-  const categories = ['All', ...new Set(products.map(p => p.category))];
+  const categories = ['All', ...Array.from(new Set(products.map(p => p.category)))];
 
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
