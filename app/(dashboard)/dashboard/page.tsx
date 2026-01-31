@@ -14,7 +14,7 @@ import Link from 'next/link';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 
-const statusConfig = {
+const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   pending: { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', label: 'Processing' },
   processing: { icon: Package, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Processing' },
   shipped: { icon: Truck, color: 'text-sky-600', bg: 'bg-sky-100', label: 'Shipped' },
@@ -28,18 +28,20 @@ export default function DashboardPage() {
   // Calculate analytics
   const totalOrders = orders.length;
   const totalItems = orders.reduce((sum, order) => {
-    const items = order.order_items?.reduce((itemSum: number, item: any) => itemSum + item.quantity, 0) || 0;
+    const orderItems = order.order_items as Array<{ quantity: number }> | undefined;
+    const items = orderItems?.reduce((itemSum: number, item) => itemSum + item.quantity, 0) || 0;
     return sum + items;
   }, 0);
-  const totalWholesale = orders.reduce((sum, order) => sum + parseFloat(String(order.total)), 0);
+  const totalWholesale = orders.reduce((sum, order) => sum + Number(order.total), 0);
   
   // Calculate MSRP and profit
   let totalMSRP = 0;
   orders.forEach(order => {
-    order.order_items?.forEach((item: any) => {
+    const orderItems = order.order_items as Array<{ product_id: string; quantity: number }> | undefined;
+    orderItems?.forEach((item) => {
       const product = products.find(p => p.id === item.product_id);
       if (product && product.msrp) {
-        totalMSRP += parseFloat(product.msrp) * item.quantity;
+        totalMSRP += Number(product.msrp) * item.quantity;
       }
     });
   });
@@ -55,7 +57,7 @@ export default function DashboardPage() {
           Welcome back{retailer?.business_name ? `, ${retailer.business_name}` : ''}! 👋
         </h1>
         <p className="text-bark-500/70 mt-1">
-          Here's what's happening with your account
+          Here&apos;s what&apos;s happening with your account
         </p>
       </div>
 
@@ -195,9 +197,10 @@ export default function DashboardPage() {
                   </thead>
                   <tbody className="divide-y divide-cream-200">
                     {recentOrders.map((order) => {
-                      const status = statusConfig[order.status as keyof typeof statusConfig] || statusConfig.pending;
+                      const status = statusConfig[order.status] || statusConfig.pending;
                       const StatusIcon = status.icon;
-                      const itemCount = order.order_items?.reduce((sum: number, item: any) => sum + item.quantity, 0) || 0;
+                      const orderItems = order.order_items as Array<{ quantity: number }> | undefined;
+                      const itemCount = orderItems?.reduce((sum: number, item) => sum + item.quantity, 0) || 0;
                       return (
                         <tr key={order.id} className="hover:bg-cream-200/50 transition-colors">
                           <td className="table-cell px-6 font-medium text-bark-500">
@@ -210,7 +213,7 @@ export default function DashboardPage() {
                             {itemCount} items
                           </td>
                           <td className="table-cell px-6 font-medium">
-                            {formatCurrency(parseFloat(order.total))}
+                            {formatCurrency(Number(order.total))}
                           </td>
                           <td className="table-cell px-6">
                             <span className={cn('inline-flex items-center gap-1.5 text-sm font-medium', status.color)}>
@@ -228,7 +231,7 @@ export default function DashboardPage() {
               {/* Mobile list */}
               <div className="md:hidden divide-y divide-cream-200">
                 {recentOrders.map((order) => {
-                  const status = statusConfig[order.status as keyof typeof statusConfig] || statusConfig.pending;
+                  const status = statusConfig[order.status] || statusConfig.pending;
                   const StatusIcon = status.icon;
                   return (
                     <div key={order.id} className="p-4">
@@ -244,7 +247,7 @@ export default function DashboardPage() {
                       <div className="flex items-center justify-between text-sm text-bark-500/70">
                         <span>{formatDate(order.created_at)}</span>
                         <span className="font-medium text-bark-500">
-                          {formatCurrency(parseFloat(order.total))}
+                          {formatCurrency(Number(order.total))}
                         </span>
                       </div>
                     </div>

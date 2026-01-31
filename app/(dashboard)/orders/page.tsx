@@ -16,7 +16,7 @@ import {
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 
-const statusConfig = {
+const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   pending: { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', label: 'Processing' },
   processing: { icon: Package, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Processing' },
   shipped: { icon: Truck, color: 'text-sky-600', bg: 'bg-sky-100', label: 'Shipped' },
@@ -35,11 +35,12 @@ export default function OrdersPage() {
   let totalMSRP = 0;
 
   orders.forEach(order => {
-    totalWholesale += parseFloat(String(order.total));
-    order.order_items?.forEach((item: any) => {
+    totalWholesale += Number(order.total);
+    const orderItems = order.order_items as Array<{ product_id: string; quantity: number }> | undefined;
+    orderItems?.forEach((item) => {
       const product = products.find(p => p.id === item.product_id);
       if (product && product.msrp) {
-        totalMSRP += parseFloat(product.msrp) * item.quantity;
+        totalMSRP += Number(product.msrp) * item.quantity;
       }
     });
   });
@@ -150,10 +151,11 @@ export default function OrdersPage() {
           </div>
         ) : (
           filteredOrders.map((order) => {
-            const status = statusConfig[order.status as keyof typeof statusConfig] || statusConfig.pending;
+            const status = statusConfig[order.status] || statusConfig.pending;
             const StatusIcon = status.icon;
             const isExpanded = expandedOrder === order.id;
-            const itemCount = order.order_items?.reduce((sum: number, item: any) => sum + item.quantity, 0) || 0;
+            const orderItems = order.order_items as Array<{ product_id: string; quantity: number; total_price: number }> | undefined;
+            const itemCount = orderItems?.reduce((sum: number, item) => sum + item.quantity, 0) || 0;
 
             return (
               <div key={order.id} className="card overflow-hidden">
@@ -176,7 +178,7 @@ export default function OrdersPage() {
                   <div className="flex items-center gap-6">
                     <div className="text-right">
                       <p className="text-sm text-bark-500/70">Total</p>
-                      <p className="font-semibold text-bark-500">{formatCurrency(parseFloat(order.total))}</p>
+                      <p className="font-semibold text-bark-500">{formatCurrency(Number(order.total))}</p>
                     </div>
                     <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center', isExpanded ? 'bg-bark-500' : 'bg-cream-200')}>
                       {isExpanded ? (
@@ -193,7 +195,7 @@ export default function OrdersPage() {
                     <div className="p-4 lg:p-6">
                       <h4 className="text-sm font-semibold text-bark-500/70 mb-4">Order Items</h4>
                       <div className="space-y-3">
-                        {order.order_items?.map((item: any, index: number) => {
+                        {orderItems?.map((item, index: number) => {
                           const product = products.find(p => p.id === item.product_id);
                           return (
                             <div key={index} className="flex items-center justify-between py-3 border-b border-cream-200 last:border-0">
@@ -206,7 +208,7 @@ export default function OrdersPage() {
                                 </p>
                               </div>
                               <p className="font-medium text-bark-500">
-                                {formatCurrency(parseFloat(item.total_price))}
+                                {formatCurrency(Number(item.total_price))}
                               </p>
                             </div>
                           );
@@ -215,7 +217,7 @@ export default function OrdersPage() {
                       <div className="mt-6 pt-4 border-t border-cream-200 space-y-2">
                         <div className="flex justify-between text-sm">
                           <span className="text-bark-500/70">Subtotal</span>
-                          <span className="text-bark-500">{formatCurrency(parseFloat(order.subtotal))}</span>
+                          <span className="text-bark-500">{formatCurrency(Number(order.subtotal))}</span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span className="text-bark-500/70">Shipping</span>
@@ -223,7 +225,7 @@ export default function OrdersPage() {
                         </div>
                         <div className="flex justify-between font-semibold pt-2 border-t border-cream-200">
                           <span className="text-bark-500">Total</span>
-                          <span className="text-bark-500">{formatCurrency(parseFloat(order.total))}</span>
+                          <span className="text-bark-500">{formatCurrency(Number(order.total))}</span>
                         </div>
                       </div>
                     </div>

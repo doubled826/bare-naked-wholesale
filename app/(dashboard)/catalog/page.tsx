@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
+import type { Product } from '@/types';
 
 export default function CatalogPage() {
   const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart } = useAppStore();
@@ -27,7 +28,8 @@ export default function CatalogPage() {
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [notification, setNotification] = useState('');
 
-  const categories = ['All', ...Array.from(new Set(products.map(p => p.category)))];
+  const categorySet = new Set(products.map(p => p.category));
+  const categories = ['All', ...Array.from(categorySet)];
 
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -39,14 +41,14 @@ export default function CatalogPage() {
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  const showNotification = (message: string) => {
+  const showNotificationMessage = (message: string) => {
     setNotification(message);
     setTimeout(() => setNotification(''), 2000);
   };
 
-  const handleAddToCart = (product: any) => {
+  const handleAddToCart = (product: Product) => {
     addToCart(product);
-    showNotification('Added to cart');
+    showNotificationMessage('Added to cart');
   };
 
   const handleSubmitOrder = async () => {
@@ -76,10 +78,10 @@ export default function CatalogPage() {
           setShowCart(false);
         }, 3000);
       } else {
-        showNotification('Order failed: ' + data.error);
+        showNotificationMessage('Order failed: ' + data.error);
       }
     } catch (error) {
-      showNotification('Order submission failed');
+      showNotificationMessage('Order submission failed');
     } finally {
       setIsSubmitting(false);
     }
@@ -106,7 +108,7 @@ export default function CatalogPage() {
               Order Submitted!
             </h2>
             <p className="text-bark-500/70">
-              Check your email for confirmation. We'll send an invoice within 24 hours.
+              Check your email for confirmation. We&apos;ll send an invoice within 24 hours.
             </p>
           </div>
         </div>
