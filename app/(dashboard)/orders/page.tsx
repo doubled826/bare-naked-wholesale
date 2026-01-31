@@ -35,7 +35,7 @@ export default function OrdersPage() {
   let totalMSRP = 0;
 
   orders.forEach(order => {
-    totalWholesale += parseFloat(order.total);
+    totalWholesale += parseFloat(String(order.total));
     order.order_items?.forEach((item: any) => {
       const product = products.find(p => p.id === item.product_id);
       if (product && product.msrp) {

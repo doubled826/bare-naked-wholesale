@@ -31,7 +31,7 @@ export default function DashboardPage() {
     const items = order.order_items?.reduce((itemSum: number, item: any) => itemSum + item.quantity, 0) || 0;
     return sum + items;
   }, 0);
-  const totalWholesale = orders.reduce((sum, order) => sum + parseFloat(order.total), 0);
+  const totalWholesale = orders.reduce((sum, order) => sum + parseFloat(String(order.total)), 0);
   
   // Calculate MSRP and profit
   let totalMSRP = 0;
