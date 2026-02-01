@@ -1,0 +1,488 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { 
+  Search, 
+  Plus,
+  Edit2,
+  Trash2,
+  Package,
+  X,
+  CheckCircle,
+  AlertCircle
+} from 'lucide-react';
+import { formatCurrency, cn } from '@/lib/utils';
+
+interface Product {
+  id: string;
+  name: string;
+  size: string;
+  price: number;
+  category: string;
+  description: string;
+  image_url: string;
+  stock_quantity: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+const emptyProduct = {
+  name: '',
+  size: '',
+  price: 0,
+  category: 'Toppers',
+  description: '',
+  image_url: '',
+  stock_quantity: 100,
+  is_active: true
+};
+
+export default function AdminProductsPage() {
+  const supabase = createClientComponentClient();
+  const [products, setProducts] = useState<Product[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [showModal, setShowModal] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [formData, setFormData] = useState(emptyProduct);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [notification, setNotification] = useState({ message: '', type: '' });
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  useEffect(() => {
+    filterProducts();
+  }, [products, searchQuery, categoryFilter]);
+
+  const fetchProducts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setProducts(data || []);
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const filterProducts = () => {
+    let filtered = [...products];
+
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(product => 
+        product.name.toLowerCase().includes(query) ||
+        product.size.toLowerCase().includes(query)
+      );
+    }
+
+    if (categoryFilter !== 'all') {
+      filtered = filtered.filter(product => product.category === categoryFilter);
+    }
+
+    setFilteredProducts(filtered);
+  };
+
+  const showNotificationMessage = (message: string, type: 'success' | 'error') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification({ message: '', type: '' }), 3000);
+  };
+
+  const handleAddProduct = () => {
+    setIsEditing(false);
+    setSelectedProduct(null);
+    setFormData(emptyProduct);
+    setShowModal(true);
+  };
+
+  const handleEditProduct = (product: Product) => {
+    setIsEditing(true);
+    setSelectedProduct(product);
+    setFormData({
+      name: product.name,
+      size: product.size,
+      price: product.price,
+      category: product.category,
+      description: product.description || '',
+      image_url: product.image_url || '',
+      stock_quantity: product.stock_quantity || 100,
+      is_active: product.is_active !== false
+    });
+    setShowModal(true);
+  };
+
+  const handleDeleteProduct = async () => {
+    if (!selectedProduct) return;
+
+    setIsSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', selectedProduct.id);
+
+      if (error) throw error;
+
+      showNotificationMessage('Product deleted successfully!', 'success');
+      setShowDeleteConfirm(false);
+      setSelectedProduct(null);
+      fetchProducts();
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      showNotificationMessage('Failed to delete product', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!formData.name || !formData.size || !formData.price) {
+      showNotificationMessage('Please fill in all required fields', 'error');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      if (isEditing && selectedProduct) {
+        const { error } = await supabase
+          .from('products')
+          .update({
+            name: formData.name,
+            size: formData.size,
+            price: formData.price,
+            category: formData.category,
+            description: formData.description,
+            image_url: formData.image_url,
+            stock_quantity: formData.stock_quantity,
+            is_active: formData.is_active
+          })
+          .eq('id', selectedProduct.id);
+
+        if (error) throw error;
+        showNotificationMessage('Product updated successfully!', 'success');
+      } else {
+        const { error } = await supabase
+          .from('products')
+          .insert({
+            name: formData.name,
+            size: formData.size,
+            price: formData.price,
+            category: formData.category,
+            description: formData.description,
+            image_url: formData.image_url,
+            stock_quantity: formData.stock_quantity,
+            is_active: formData.is_active
+          });
+
+        if (error) throw error;
+        showNotificationMessage('Product created successfully!', 'success');
+      }
+
+      setShowModal(false);
+      setSelectedProduct(null);
+      fetchProducts();
+    } catch (error) {
+      console.error('Error saving product:', error);
+      showNotificationMessage('Failed to save product', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-bark-500"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Notification */}
+      {notification.message && (
+        <div className={cn(
+          "fixed top-20 right-6 z-50 border rounded-xl p-4 shadow-lg flex items-center gap-3",
+          notification.type === 'success' ? "bg-white border-gray-200" : "bg-red-50 border-red-200"
+        )}>
+          {notification.type === 'success' ? (
+            <CheckCircle className="w-5 h-5 text-emerald-600" />
+          ) : (
+            <AlertCircle className="w-5 h-5 text-red-600" />
+          )}
+          <span className={notification.type === 'success' ? 'text-gray-900' : 'text-red-900'}>
+            {notification.message}
+          </span>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+        <div className="flex flex-col lg:flex-row gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+            />
+          </div>
+          
+          <div className="flex gap-2">
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+            >
+              <option value="all">All Categories</option>
+              <option value="Toppers">Toppers</option>
+              <option value="Treats">Treats</option>
+            </select>
+
+            <button
+              onClick={handleAddProduct}
+              className="flex items-center gap-2 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add Product
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Products grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {filteredProducts.length === 0 ? (
+          <div className="col-span-full bg-white rounded-xl p-12 text-center border border-gray-100">
+            <Package className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+            <p className="text-gray-500">No products found</p>
+          </div>
+        ) : (
+          filteredProducts.map((product) => (
+            <div key={product.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+              <div className="aspect-square bg-gray-100 p-4 flex items-center justify-center">
+                {product.image_url ? (
+                  <img 
+                    src={product.image_url} 
+                    alt={product.name}
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <Package className="w-16 h-16 text-gray-300" />
+                )}
+              </div>
+              <div className="p-4">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">{product.name}</h3>
+                    <p className="text-sm text-gray-500">{product.size}</p>
+                  </div>
+                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                    {product.category}
+                  </span>
+                </div>
+                <p className="text-lg font-bold text-gray-900 mb-2">{formatCurrency(product.price)}</p>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500">
+                    Stock: <span className={product.stock_quantity < 20 ? 'text-red-600 font-medium' : ''}>
+                      {product.stock_quantity ?? 'N/A'}
+                    </span>
+                  </span>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => handleEditProduct(product)}
+                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedProduct(product);
+                        setShowDeleteConfirm(true);
+                      }}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Add/Edit Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {isEditing ? 'Edit Product' : 'Add New Product'}
+              </h3>
+              <button onClick={() => setShowModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Name *</label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                    placeholder="e.g., Chicken Meal Mixer"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Size *</label>
+                  <input
+                    type="text"
+                    value={formData.size}
+                    onChange={(e) => setFormData({ ...formData, size: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                    placeholder="e.g., 6 oz"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Price *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formData.price}
+                    onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                  <select
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  >
+                    <option value="Toppers">Toppers</option>
+                    <option value="Treats">Treats</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Stock Quantity</label>
+                  <input
+                    type="number"
+                    value={formData.stock_quantity}
+                    onChange={(e) => setFormData({ ...formData, stock_quantity: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  />
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Image URL</label>
+                  <input
+                    type="text"
+                    value={formData.image_url}
+                    onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                    placeholder="https://..."
+                  />
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    rows={3}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  />
+                </div>
+
+                <div className="col-span-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_active}
+                      onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                      className="w-4 h-4 rounded border-gray-300 text-bark-500 focus:ring-bark-500"
+                    />
+                    <span className="text-sm text-gray-700">Active (visible in catalog)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 transition-colors disabled:opacity-50 flex items-center justify-center"
+                >
+                  {isSubmitting ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : isEditing ? 'Update Product' : 'Add Product'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && selectedProduct && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Product</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete "{selectedProduct.name}"? This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setSelectedProduct(null);
+                }}
+                className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteProduct}
+                disabled={isSubmitting}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center"
+              >
+                {isSubmitting ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

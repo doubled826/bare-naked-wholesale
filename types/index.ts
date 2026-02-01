@@ -1,12 +1,10 @@
 export interface Retailer {
   id: string;
   company_name: string;
-  business_name?: string; // Keep for backwards compatibility
+  business_name?: string; // Legacy support
   business_address: string;
   phone: string;
   account_number: string;
-  tax_id?: string;
-  status?: string;
   email?: string;
   created_at?: string;
   updated_at?: string;
@@ -22,6 +20,10 @@ export interface Product {
   msrp?: number;
   image_url: string;
   in_stock?: boolean;
+  stock_quantity?: number;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface CartItem extends Product {
@@ -35,6 +37,7 @@ export interface OrderItem {
   quantity: number;
   unit_price: number;
   total_price: number;
+  product?: Product;
 }
 
 export interface Order {
@@ -44,14 +47,58 @@ export interface Order {
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'canceled';
   delivery_date?: string;
   promotion_code?: string;
+  tracking_number?: string;
+  shipped_at?: string;
   subtotal: number;
   total: number;
   created_at: string;
+  updated_at?: string;
   order_items?: OrderItem[];
+  retailer?: Retailer;
+}
+
+export interface Announcement {
+  id: string;
+  title: string;
+  message: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name?: string;
+  created_at: string;
+}
+
+export interface EmailLog {
+  id: string;
+  recipient_email: string;
+  recipient_name?: string;
+  subject: string;
+  message: string;
+  email_type: 'order_update' | 'announcement' | 'shipping';
+  order_id?: string;
+  sent_at: string;
+  status: 'sent' | 'failed' | 'pending';
 }
 
 export interface NotificationType {
   id: string;
   type: 'success' | 'error' | 'warning' | 'info';
   message: string;
+}
+
+export interface DashboardStats {
+  totalOrders: number;
+  pendingOrders: number;
+  shippedOrders: number;
+  totalRevenue: number;
+  todayRevenue: number;
+  weekRevenue: number;
+  monthRevenue: number;
+  totalRetailers: number;
+  totalProducts: number;
 }
