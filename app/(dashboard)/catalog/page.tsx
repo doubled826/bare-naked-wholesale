@@ -19,7 +19,7 @@ import type { Product } from '@/types';
 export default function CatalogPage() {
   const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [categoryFilter, setCategoryFilter] = useState('Toppers'); // Changed default to Toppers
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState('');
@@ -28,8 +28,8 @@ export default function CatalogPage() {
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [notification, setNotification] = useState('');
 
-  const categorySet = new Set(products.map(p => p.category));
-  const categories = ['All', ...Array.from(categorySet)];
+  // Fixed order: Toppers, Treats, All
+  const categories = ['Toppers', 'Treats', 'All'];
 
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
