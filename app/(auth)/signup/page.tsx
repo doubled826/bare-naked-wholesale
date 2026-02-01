@@ -48,25 +48,26 @@ export default function SignupPage() {
   };
 
   if (success) {
-  return (
-    <div className="w-full max-w-md animate-fade-in">
-      <div className="card-elevated p-8 md:p-10 text-center">
-        <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <CheckCircle className="w-8 h-8 text-emerald-600" />
+    return (
+      <div className="w-full max-w-md animate-fade-in">
+        <div className="card-elevated p-8 md:p-10 text-center">
+          <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircle className="w-8 h-8 text-emerald-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-bark-500 mb-2" style={{ fontFamily: 'var(--font-poppins)' }}>
+            Check your email
+          </h1>
+          <p className="text-bark-500/70 mb-6">
+            We've sent a verification link to <strong>{formData.email}</strong>. 
+            Please click the link to activate your account.
+          </p>
+          <Link href="/login" className="btn-primary w-full">
+            Back to Sign In
+          </Link>
         </div>
-        <h1 className="text-2xl font-bold text-bark-500 mb-2">
-          Application Received!
-        </h1>
-        <p className="text-bark-500/70 mb-6">
-          Thanks for joining Bare Naked Pet Co. Our team is reviewing your application and will notify <strong>{formData.email}</strong> once your wholesale account is approved.
-        </p>
-        <Link href="/login" className="btn-primary w-full">
-          Back to Sign In
-        </Link>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
   return (
     <div className="w-full max-w-md animate-fade-in">
