@@ -8,7 +8,8 @@ import {
   ArrowRight,
   Clock,
   CheckCircle,
-  Truck
+  Truck,
+  Gift
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
@@ -145,14 +146,14 @@ export default function DashboardPage() {
             <QuickAction
               href="/orders"
               icon={Package}
-              label="Track Orders"
+              label="View Orders"
               description="View order history"
             />
             <QuickAction
-              href="/account"
-              icon={DollarSign}
-              label="View Analytics"
-              description="See profit margins"
+              href="https://docs.google.com/forms/d/1X6jqgQHOjFuqFnxEtrKtKvdEY93mXNxWenq8PiloXZg/edit"
+              icon={Gift}
+              label="Request Samples"
+              description="Freebies for customers"
             />
           </div>
         </div>
