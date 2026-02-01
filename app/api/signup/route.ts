@@ -3,38 +3,56 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    // 1. Use the Service Role Key to ensure we have permission
+    // Use the Service Role Key to ensure we have permission
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
     
-    const { email, password, businessName, businessAddress, phone } = await request.json();
+    const { 
+      businessName, 
+      businessAddress, 
+      name, 
+      email, 
+      password, 
+      phone, 
+      taxId 
+    } = await request.json();
 
-    // 2. Create auth user and pass data as METADATA
-    // The SQL Trigger will grab 'company_name', etc., from this object automatically
+    // Create auth user and pass data as METADATA
+    // The SQL Trigger (handle_new_retailer) will grab this data automatically
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
+          // User display info
+          display_name: name,
+          full_name: name,
+          phone: phone,
+          // Retailer info (used by the database trigger)
           company_name: businessName,
           business_address: businessAddress,
-          phone: phone,
+          tax_id: taxId,
         },
       },
     });
 
     if (authError) {
+      console.error('Auth signup error:', authError);
       return NextResponse.json({ error: authError.message }, { status: 400 });
     }
 
-    // 3. We removed the manual .from('retailers').insert() block!
-    // The database has already done it by the time we get here.
+    if (!authData.user) {
+      return NextResponse.json({ error: 'Failed to create user' }, { status: 500 });
+    }
+
+    // The database trigger (handle_new_retailer) automatically creates
+    // the retailer profile using the metadata we passed above
 
     return NextResponse.json({ 
       success: true,
-      message: 'Account created successfully! Please check your email to verify your account.'
+      message: 'Account created successfully!'
     });
 
   } catch (error) {

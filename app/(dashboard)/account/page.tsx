@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   User,
   Building,
@@ -11,32 +11,98 @@ import {
   Save,
   Loader2,
   Check,
-  CheckCircle
+  CheckCircle,
+  FileText,
+  Hash
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 export default function AccountPage() {
   const { retailer } = useAppStore();
   const [activeTab, setActiveTab] = useState('profile');
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [userMetadata, setUserMetadata] = useState<any>(null);
   
+  const supabase = createClientComponentClient();
+
+  // Fetch user metadata on mount
+  useEffect(() => {
+    const fetchUserData = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.user_metadata) {
+        setUserMetadata(user.user_metadata);
+      }
+    };
+    fetchUserData();
+  }, [supabase.auth]);
+
   const [profile, setProfile] = useState({
-    businessName: retailer?.business_name || '',
-    email: retailer?.email || '',
-    businessAddress: retailer?.business_address || '',
-    phone: retailer?.phone || '',
-    accountNumber: retailer?.account_number || '',
+    businessName: '',
+    businessAddress: '',
+    name: '',
+    email: '',
+    phone: '',
+    taxId: '',
+    accountNumber: '',
   });
+
+  // Update profile state when retailer or userMetadata changes
+  useEffect(() => {
+    setProfile({
+      businessName: retailer?.company_name || userMetadata?.company_name || '',
+      businessAddress: retailer?.business_address || userMetadata?.business_address || '',
+      name: userMetadata?.display_name || userMetadata?.full_name || '',
+      email: userMetadata?.email || '',
+      phone: retailer?.phone || userMetadata?.phone || '',
+      taxId: retailer?.tax_id || userMetadata?.tax_id || '',
+      accountNumber: retailer?.account_number || '',
+    });
+  }, [retailer, userMetadata]);
 
   const handleSave = async () => {
     setIsSaving(true);
-    // Simulate save - in production, this would call an API
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setIsSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    
+    try {
+      // Update user metadata
+      const { error: userError } = await supabase.auth.updateUser({
+        data: {
+          display_name: profile.name,
+          full_name: profile.name,
+          phone: profile.phone,
+          company_name: profile.businessName,
+          business_address: profile.businessAddress,
+          tax_id: profile.taxId,
+        }
+      });
+
+      if (userError) throw userError;
+
+      // Update retailer table
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { error: retailerError } = await supabase
+          .from('retailers')
+          .update({
+            company_name: profile.businessName,
+            business_address: profile.businessAddress,
+            phone: profile.phone,
+            tax_id: profile.taxId,
+          })
+          .eq('id', user.id);
+
+        if (retailerError) throw retailerError;
+      }
+
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (error) {
+      console.error('Error saving profile:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const tabs = [
@@ -82,6 +148,22 @@ export default function AccountPage() {
               <h2 className="section-title mb-6">Business Profile</h2>
 
               <div className="space-y-6">
+                {/* Account Number (readonly) */}
+                <div>
+                  <label htmlFor="accountNumber" className="label">Account Number</label>
+                  <div className="relative">
+                    <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bark-500/40" />
+                    <input
+                      id="accountNumber"
+                      type="text"
+                      value={profile.accountNumber}
+                      disabled
+                      className="input pl-10 opacity-60 cursor-not-allowed bg-cream-200"
+                    />
+                  </div>
+                  <p className="text-xs text-bark-500/50 mt-1">Your unique wholesale account number</p>
+                </div>
+
                 {/* Business Name */}
                 <div>
                   <label htmlFor="businessName" className="label">Business Name</label>
@@ -92,21 +174,6 @@ export default function AccountPage() {
                       type="text"
                       value={profile.businessName}
                       onChange={(e) => setProfile({ ...profile, businessName: e.target.value })}
-                      className="input pl-10"
-                    />
-                  </div>
-                </div>
-
-                {/* Email */}
-                <div>
-                  <label htmlFor="email" className="label">Email Address</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bark-500/40" />
-                    <input
-                      id="email"
-                      type="email"
-                      value={profile.email}
-                      onChange={(e) => setProfile({ ...profile, email: e.target.value })}
                       className="input pl-10"
                     />
                   </div>
@@ -127,6 +194,37 @@ export default function AccountPage() {
                   </div>
                 </div>
 
+                {/* Contact Name */}
+                <div>
+                  <label htmlFor="name" className="label">Contact Name</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bark-500/40" />
+                    <input
+                      id="name"
+                      type="text"
+                      value={profile.name}
+                      onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+                      className="input pl-10"
+                    />
+                  </div>
+                </div>
+
+                {/* Email (readonly - managed by auth) */}
+                <div>
+                  <label htmlFor="email" className="label">Email Address</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bark-500/40" />
+                    <input
+                      id="email"
+                      type="email"
+                      value={profile.email}
+                      disabled
+                      className="input pl-10 opacity-60 cursor-not-allowed bg-cream-200"
+                    />
+                  </div>
+                  <p className="text-xs text-bark-500/50 mt-1">Contact support to change your email</p>
+                </div>
+
                 {/* Phone */}
                 <div>
                   <label htmlFor="phone" className="label">Phone Number</label>
@@ -142,17 +240,17 @@ export default function AccountPage() {
                   </div>
                 </div>
 
-                {/* Account Number (readonly) */}
+                {/* Tax ID / EIN */}
                 <div>
-                  <label htmlFor="accountNumber" className="label">Account Number</label>
+                  <label htmlFor="taxId" className="label">Tax ID / EIN</label>
                   <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bark-500/40" />
+                    <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bark-500/40" />
                     <input
-                      id="accountNumber"
+                      id="taxId"
                       type="text"
-                      value={profile.accountNumber}
-                      disabled
-                      className="input pl-10 opacity-60 cursor-not-allowed"
+                      value={profile.taxId}
+                      onChange={(e) => setProfile({ ...profile, taxId: e.target.value })}
+                      className="input pl-10"
                     />
                   </div>
                 </div>
