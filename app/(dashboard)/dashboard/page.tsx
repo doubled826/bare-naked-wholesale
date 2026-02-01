@@ -107,19 +107,19 @@ export default function DashboardPage() {
             <div className="grid sm:grid-cols-2 gap-4 mb-6">
               <div className="flex items-center gap-3 p-4 bg-cream-200 rounded-xl">
                 <CheckCircle className="w-5 h-5 text-emerald-600" />
-                <span className="text-sm text-bark-500">Free shipping on all orders</span>
+                <span className="text-sm text-bark-500">Free shipping</span>
               </div>
               <div className="flex items-center gap-3 p-4 bg-cream-200 rounded-xl">
                 <CheckCircle className="w-5 h-5 text-emerald-600" />
-                <span className="text-sm text-bark-500">No minimum order quantity</span>
+                <span className="text-sm text-bark-500">No minimums</span>
               </div>
               <div className="flex items-center gap-3 p-4 bg-cream-200 rounded-xl">
                 <CheckCircle className="w-5 h-5 text-emerald-600" />
-                <span className="text-sm text-bark-500">Net 30 payment terms</span>
+                <span className="text-sm text-bark-500">Free samples</span>
               </div>
               <div className="flex items-center gap-3 p-4 bg-cream-200 rounded-xl">
                 <CheckCircle className="w-5 h-5 text-emerald-600" />
-                <span className="text-sm text-bark-500">Dedicated account manager</span>
+                <span className="text-sm text-bark-500">Astro promos & loyalty rewards</span>
               </div>
             </div>
 
