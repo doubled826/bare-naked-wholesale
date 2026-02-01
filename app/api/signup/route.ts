@@ -5,45 +5,31 @@ import { NextResponse } from 'next/server';
 export async function POST(request: Request) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
-    
     const { email, password, businessName, businessAddress, phone } = await request.json();
 
-    // Create auth user
+    // 1. Create auth user and pass business info as metadata for the Trigger
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          company_name: businessName,
+          business_address: businessAddress,
+          phone: phone,
+        },
+      },
     });
 
     if (authError) {
       return NextResponse.json({ error: authError.message }, { status: 400 });
     }
 
-    if (!authData.user) {
-      return NextResponse.json({ error: 'Failed to create user' }, { status: 500 });
-    }
+    // 2. We skip the manual 'retailers' insert because our SQL Trigger 
+    // in the database will handle it automatically upon user creation.
 
-    // Generate account number
-    const accountNumber = `WHL-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    // Create retailer profile
-    const { error: retailerError } = await supabase
-      .from('retailers')
-      .insert({
-        id: authData.user.id,
-        business_name: businessName,
-        business_address: businessAddress,
-        phone: phone,
-        account_number: accountNumber
-      });
-
-    if (retailerError) {
-      console.error('Retailer profile creation error:', retailerError);
-      return NextResponse.json({ error: 'Failed to create retailer profile' }, { status: 500 });
-    }
-
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
-      message: 'Account created successfully! Please check your email to verify your account.'
+      message: 'Application received! We will review your account soon.'
     });
 
   } catch (error) {
