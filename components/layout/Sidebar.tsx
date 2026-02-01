@@ -36,6 +36,9 @@ export function Sidebar() {
     window.location.href = '/login';
   };
 
+  // Get the business name - check both possible field names
+  const businessName = retailer?.company_name || retailer?.business_name || 'Retailer';
+
   return (
     <>
       {/* Mobile overlay */}
@@ -123,15 +126,15 @@ export function Sidebar() {
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-bark-500 flex items-center justify-center">
                   <span className="text-sm font-semibold text-white">
-                    {getInitials(retailer.business_name)}
+                    {getInitials(businessName)}
                   </span>
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-bark-500 truncate">
-                    {retailer.business_name}
+                    {businessName}
                   </p>
                   <p className="text-xs text-bark-500/60 truncate">
-                    {retailer.account_number}
+                    {retailer.account_number || 'New Account'}
                   </p>
                 </div>
               </div>
