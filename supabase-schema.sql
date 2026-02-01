@@ -1,13 +1,18 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Retailers table (extends Supabase auth.users)
-CREATE TABLE retailers (
+-- 1. Create a sequence for account numbers (starts at 1000)
+CREATE SEQUENCE IF NOT EXISTS retailer_account_seq START 1000;
+
+-- 2. Retailers table (Updated to match website and automation)
+CREATE TABLE IF NOT EXISTS retailers (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  business_name TEXT NOT NULL,
+  company_name TEXT NOT NULL, -- Changed from business_name to match code
   business_address TEXT NOT NULL,
   phone TEXT NOT NULL,
-  account_number TEXT UNIQUE NOT NULL,
+  -- Automatically generates BNP-1000, BNP-1001, etc.
+  account_number TEXT UNIQUE DEFAULT ('BNP-' || nextval('retailer_account_seq')::text),
+  status TEXT DEFAULT 'pending', -- Added for approval flow
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -144,3 +149,36 @@ INSERT INTO products (name, size, price, image_url, category, description) VALUE
   ('Lamb Treats', '3 oz', 12.00, 'https://cdn.shopify.com/s/files/1/0637/4401/6534/files/Lamb.png', 'Treats', 'Premium freeze-dried lamb'),
   ('Minnow Treats', '1.5 oz', 12.00, 'https://cdn.shopify.com/s/files/1/0637/4401/6534/files/Minnows.png', 'Treats', 'Whole freeze-dried minnows'),
   ('Bison Treats', '3 oz', 12.00, 'https://cdn.shopify.com/s/files/1/0637/4401/6534/files/Bison-V2.png', 'Treats', 'Premium freeze-dried bison');
+
+-- ==========================================
+-- SIGNUP AUTOMATION (The Handshake)
+-- ==========================================
+
+-- 1. Setup the Auto-Account Number Sequence
+CREATE SEQUENCE IF NOT EXISTS retailer_account_seq START 1000;
+
+-- 2. Ensure the table column uses the sequence by default
+ALTER TABLE public.retailers 
+ALTER COLUMN account_number SET DEFAULT ('BNP-' || nextval('retailer_account_seq')::text);
+
+-- 3. The Function: Logic to move metadata into the retailers table
+CREATE OR REPLACE FUNCTION public.handle_new_retailer()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.retailers (id, company_name, business_address, phone, status)
+  VALUES (
+    new.id,
+    COALESCE(new.raw_user_meta_data->>'company_name', 'New Retailer'),
+    COALESCE(new.raw_user_meta_data->>'business_address', 'No Address Provided'),
+    COALESCE(new.raw_user_meta_data->>'phone', 'No Phone Provided'),
+    'pending'
+  );
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 4. The Trigger: Fires every time a new user signs up in Supabase Auth
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_retailer();
