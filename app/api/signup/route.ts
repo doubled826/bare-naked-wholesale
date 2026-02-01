@@ -1,45 +1,36 @@
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    // 1. Use the Service Role Key to ensure we have permission
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
     
     const { email, password, businessName, businessAddress, phone } = await request.json();
 
-    // Create auth user
+    // 2. Create auth user and pass data as METADATA
+    // The SQL Trigger will grab 'company_name', etc., from this object automatically
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          company_name: businessName,
+          business_address: businessAddress,
+          phone: phone,
+        },
+      },
     });
 
     if (authError) {
       return NextResponse.json({ error: authError.message }, { status: 400 });
     }
 
-    if (!authData.user) {
-      return NextResponse.json({ error: 'Failed to create user' }, { status: 500 });
-    }
-
-    // Generate account number
-    const accountNumber = `WHL-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    // Create retailer profile
-    const { error: retailerError } = await supabase
-      .from('retailers')
-      .insert({
-        id: authData.user.id,
-        business_name: businessName,
-        business_address: businessAddress,
-        phone: phone,
-        account_number: accountNumber
-      });
-
-    if (retailerError) {
-      console.error('Retailer profile creation error:', retailerError);
-      return NextResponse.json({ error: 'Failed to create retailer profile' }, { status: 500 });
-    }
+    // 3. We removed the manual .from('retailers').insert() block!
+    // The database has already done it by the time we get here.
 
     return NextResponse.json({ 
       success: true,
