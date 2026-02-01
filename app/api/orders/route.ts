@@ -28,8 +28,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
     }
     
-    // Add user email to retailer object
-    const retailerWithEmail = { ...retailer, email: user.email };
+    // Get contact name from user metadata (Display name in Supabase Auth)
+    const contactName = user.user_metadata?.display_name || 
+                        user.user_metadata?.full_name || 
+                        user.user_metadata?.name ||
+                        'Not provided';
+    
+    // Add user email and contact name to retailer object
+    const retailerWithEmail = { 
+      ...retailer, 
+      email: user.email,
+      contact_name: contactName
+    };
     
     // Calculate totals
     const subtotal = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
@@ -110,6 +120,12 @@ async function sendOrderEmails(order: any, orderItems: any[], retailer: any, pro
     return `${product.size} ${product.name}: ${item?.quantity || 0}`;
   }).filter(line => !line.endsWith(': 0')).join('\n');
 
+  // Use correct field names
+  const companyName = retailer.company_name || 'Not provided';
+  const contactName = retailer.contact_name || 'Not provided';
+  const businessAddress = retailer.business_address || 'Not provided';
+  const phone = retailer.phone || 'Not provided';
+
   // Email to info@barenakedpet.com (internal notification)
   const internalEmailText = `
 You received a new wholesale order.
@@ -118,15 +134,15 @@ Country Code: US
 
 Subject: Wholesale Order Form
 
-Business Name: ${retailer.business_name}
+Business Name: ${companyName}
 
-Business Address: ${retailer.business_address}
+Business Address: ${businessAddress}
 
-Name: ${retailer.business_name}
+Name: ${contactName}
 
 Email: ${retailer.email || 'Not provided'}
 
-Phone: ${retailer.phone}
+Phone: ${phone}
 
 Requested Delivery Date: ${order.delivery_date || 'Not specified'}
 
