@@ -1,11 +1,15 @@
 export interface Retailer {
   id: string;
-  business_name: string;
+  company_name: string;
+  business_name?: string; // Keep for backwards compatibility
   business_address: string;
   phone: string;
   account_number: string;
+  tax_id?: string;
+  status?: string;
   email?: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface Product {
@@ -15,9 +19,9 @@ export interface Product {
   category: string;
   description: string;
   price: number;
-  msrp: number;
+  msrp?: number;
   image_url: string;
-  in_stock: boolean;
+  in_stock?: boolean;
 }
 
 export interface CartItem extends Product {
