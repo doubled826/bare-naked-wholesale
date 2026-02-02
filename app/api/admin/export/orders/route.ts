@@ -58,7 +58,7 @@ export async function GET(request: Request) {
       'Order Date'
     ];
 
-    const rows = orders?.map(order => [
+    const rows = orders?.map((order: any) => [
       order.order_number,
       order.status,
       order.retailer?.company_name || '',
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
 
     const csv = [
       headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ...rows.map(row => row.map((cell: string) => `"${cell}"`).join(','))
     ].join('\n');
 
     return new NextResponse(csv, {
