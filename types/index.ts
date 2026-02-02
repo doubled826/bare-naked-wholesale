@@ -1,11 +1,12 @@
 export interface Retailer {
   id: string;
   company_name: string;
-  business_name?: string; // Legacy support
+  business_name?: string;
   business_address: string;
   phone: string;
   account_number: string;
   email?: string;
+  tax_id?: string;  // Add this line
   created_at?: string;
   updated_at?: string;
 }
