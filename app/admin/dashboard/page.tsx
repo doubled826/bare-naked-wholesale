@@ -46,7 +46,7 @@ interface RecentOrder {
   total: number;
   status: string;
   created_at: string;
-  retailer: { company_name: string };
+  retailer: { company_name: string } | null;
 }
 
 export default function AdminDashboard() {
