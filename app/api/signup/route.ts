@@ -7,14 +7,15 @@ export async function POST(request: Request) {
     const supabase = createRouteHandlerClient({ cookies });
     const { businessName, businessAddress, name, email, password, phone, taxId } = await request.json();
 
-    // 1. Create the auth user
+    // 1. Create the auth user with metadata
+    // IMPORTANT: Use 'company_name' to match the database trigger!
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
           display_name: name,
-          business_name: businessName,
+          company_name: businessName,      // Changed from business_name to company_name
           business_address: businessAddress,
           phone: phone,
           tax_id: taxId,
@@ -31,25 +32,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to create user' }, { status: 400 });
     }
 
-    // 2. The retailer record should be created by the database trigger
-    // But we can also create it here as a fallback
-    const { error: retailerError } = await supabase
-      .from('retailers')
-      .upsert({
-        id: authData.user.id,
-        company_name: businessName,
-        business_address: businessAddress,
-        phone: phone,
-        tax_id: taxId,
-        account_number: `BNP-${1000 + Math.floor(Math.random() * 9000)}`,
-      }, { 
-        onConflict: 'id' 
-      });
-
-    if (retailerError) {
-      console.error('Retailer error:', retailerError);
-      // Don't fail the signup if retailer creation fails - the trigger might handle it
-    }
+    // The database trigger will create the retailer record automatically
+    // using the metadata we just set (company_name, business_address, phone)
 
     return NextResponse.json({ 
       success: true, 

@@ -17,7 +17,7 @@ import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 
 const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
-  pending: { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', label: 'Processing' },
+  pending: { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', label: 'Pending' },
   processing: { icon: Package, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Processing' },
   shipped: { icon: Truck, color: 'text-sky-600', bg: 'bg-sky-100', label: 'Shipped' },
   delivered: { icon: CheckCircle, color: 'text-emerald-600', bg: 'bg-emerald-100', label: 'Delivered' },
