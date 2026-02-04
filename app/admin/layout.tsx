@@ -9,7 +9,6 @@ import {
   ShoppingCart, 
   Users, 
   Package, 
-  MessageSquare,
   LogOut,
   Menu,
   X,
@@ -22,7 +21,6 @@ const navigation = [
   { name: 'Orders', href: '/admin/orders', icon: ShoppingCart },
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
   { name: 'Products', href: '/admin/products', icon: Package },
-  { name: 'Communications', href: '/admin/communications', icon: MessageSquare },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

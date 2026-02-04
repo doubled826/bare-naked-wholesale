@@ -17,7 +17,7 @@ import { useAppStore } from '@/lib/store';
 import type { Product } from '@/types';
 
 export default function CatalogPage() {
-  const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart } = useAppStore();
+  const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart, setOrders } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('Toppers'); // Changed default to Toppers
   const [showCart, setShowCart] = useState(false);
@@ -70,6 +70,15 @@ export default function CatalogPage() {
       const data = await response.json();
 
       if (data.success) {
+        try {
+          const ordersResponse = await fetch('/api/orders');
+          const ordersData = await ordersResponse.json();
+          if (ordersData?.orders) {
+            setOrders(ordersData.orders);
+          }
+        } catch (fetchError) {
+          console.error('Failed to refresh orders:', fetchError);
+        }
         setOrderSuccess(true);
         clearCart();
         setShowCheckout(false);

@@ -17,6 +17,7 @@ import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import type { Announcement } from '@/types';
+import { wholesaleBenefits } from '@/lib/wholesaleBenefits';
 
 const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   pending: { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', label: 'Processing' },
@@ -131,22 +132,12 @@ export default function DashboardPage() {
             </div>
 
             <div className="grid sm:grid-cols-2 gap-4 mb-6">
-              <div className="flex items-center gap-3 p-4 bg-cream-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-emerald-600" />
-                <span className="text-sm text-bark-500">Free shipping</span>
-              </div>
-              <div className="flex items-center gap-3 p-4 bg-cream-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-emerald-600" />
-                <span className="text-sm text-bark-500">No minimums</span>
-              </div>
-              <div className="flex items-center gap-3 p-4 bg-cream-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-emerald-600" />
-                <span className="text-sm text-bark-500">Free samples</span>
-              </div>
-              <div className="flex items-center gap-3 p-4 bg-cream-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-emerald-600" />
-                <span className="text-sm text-bark-500">Astro promos & loyalty rewards</span>
-              </div>
+              {wholesaleBenefits.map((benefit) => (
+                <div key={benefit} className="flex items-center gap-3 p-4 bg-cream-200 rounded-xl">
+                  <CheckCircle className="w-5 h-5 text-emerald-600" />
+                  <span className="text-sm text-bark-500">{benefit}</span>
+                </div>
+              ))}
             </div>
 
             <Link href="/catalog" className="btn-primary">

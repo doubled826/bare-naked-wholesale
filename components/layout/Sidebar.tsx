@@ -54,7 +54,7 @@ export function Sidebar() {
         className={cn(
           'fixed top-0 left-0 z-50 h-full w-72 bg-cream-100 border-r border-cream-200',
           'transform transition-transform duration-300 ease-in-out',
-          'lg:translate-x-0 lg:static lg:z-auto',
+          'lg:translate-x-0 lg:sticky lg:top-0 lg:z-auto',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >

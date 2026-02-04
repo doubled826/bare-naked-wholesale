@@ -18,6 +18,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { wholesaleBenefits } from '@/lib/wholesaleBenefits';
 
 export default function AccountPage() {
   const { retailer } = useAppStore();
@@ -344,22 +345,12 @@ export default function AccountPage() {
           <div className="card p-6 mt-6">
             <h3 className="section-title mb-4">Your Wholesale Benefits</h3>
             <div className="grid sm:grid-cols-2 gap-3">
-              <div className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-                <span className="text-sm text-bark-500">Free shipping on all orders</span>
-              </div>
-              <div className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-                <span className="text-sm text-bark-500">No minimum order quantity</span>
-              </div>
-              <div className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-                <span className="text-sm text-bark-500">Net 30 payment terms</span>
-              </div>
-              <div className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-                <span className="text-sm text-bark-500">Dedicated account manager</span>
-              </div>
+              {wholesaleBenefits.map((benefit) => (
+                <div key={benefit} className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl">
+                  <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                  <span className="text-sm text-bark-500">{benefit}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>

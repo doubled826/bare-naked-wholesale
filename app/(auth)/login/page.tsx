@@ -2,13 +2,17 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { cn } from '@/lib/utils';
+import { wholesaleBenefits } from '@/lib/wholesaleBenefits';
 
 export default function LoginPage() {
   const router = useRouter();
   const supabase = createClientComponentClient();
+  const searchParams = useSearchParams();
+  const isAdminView = searchParams.get('admin') === '1';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -29,7 +33,17 @@ export default function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        router.push('/dashboard');
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data: adminUser } = await supabase
+          .from('admin_users')
+          .select('id')
+          .eq('id', user?.id || '')
+          .single();
+        if (adminUser) {
+          router.push('/admin/dashboard');
+        } else {
+          router.push('/dashboard');
+        }
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
@@ -40,12 +54,17 @@ export default function LoginPage() {
 
   return (
     <div className="w-full max-w-md animate-fade-in">
-      <div className="card-elevated p-8 md:p-10">
+      <div className={cn('card-elevated p-8 md:p-10', isAdminView && 'bg-bark-500 text-cream-100 border-bark-500')}>
         <div className="text-center mb-8">
-          <h1 className="text-2xl md:text-3xl font-bold text-bark-500 mb-2" style={{ fontFamily: 'var(--font-poppins)' }}>
+          <h1 className={cn('text-2xl md:text-3xl font-bold mb-2', isAdminView ? 'text-cream-100' : 'text-bark-500')} style={{ fontFamily: 'var(--font-poppins)' }}>
             Welcome back
           </h1>
-          <p className="text-bark-500/70">
+          {isAdminView && (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full bg-cream-100 text-bark-500">
+              Admin mode
+            </span>
+          )}
+          <p className={cn(isAdminView ? 'text-cream-200/80' : 'text-bark-500/70')}>
             Sign in to access your wholesale portal
           </p>
         </div>
@@ -58,7 +77,7 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label htmlFor="email" className="label">
+            <label htmlFor="email" className={cn('label', isAdminView && 'text-cream-100')}>
               Email address
             </label>
             <input
@@ -67,7 +86,7 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="retailer@store.com"
-              className="input"
+              className={cn('input', isAdminView && 'bg-bark-400/60 border-bark-400 text-cream-100 placeholder:text-cream-200/60')}
               required
               autoComplete="email"
               autoFocus
@@ -76,12 +95,12 @@ export default function LoginPage() {
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label htmlFor="password" className="label mb-0">
+              <label htmlFor="password" className={cn('label mb-0', isAdminView && 'text-cream-100')}>
                 Password
               </label>
               <Link
                 href="/forgot-password"
-                className="text-sm text-bark-500 hover:text-bark-600 font-medium"
+                className={cn('text-sm font-medium', isAdminView ? 'text-cream-200 hover:text-cream-100' : 'text-bark-500 hover:text-bark-600')}
               >
                 Forgot password?
               </Link>
@@ -93,14 +112,14 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="input pr-12"
+                className={cn('input pr-12', isAdminView && 'bg-bark-400/60 border-bark-400 text-cream-100 placeholder:text-cream-200/60')}
                 required
                 autoComplete="current-password"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-bone-400 hover:text-bark-500 transition-colors"
+                className={cn('absolute right-4 top-1/2 -translate-y-1/2 transition-colors', isAdminView ? 'text-cream-200/60 hover:text-cream-100' : 'text-bone-400 hover:text-bark-500')}
               >
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -110,7 +129,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="btn-primary w-full group"
+            className={cn('btn-primary w-full group', isAdminView && 'bg-cream-100 text-bark-500 hover:bg-cream-200')}
           >
             {isLoading ? (
               <Loader2 className="w-5 h-5 animate-spin" />
@@ -125,16 +144,45 @@ export default function LoginPage() {
 
         <div className="relative my-8">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-cream-200" />
+            <div className={cn('w-full', isAdminView ? 'border-t border-bark-400' : 'border-t border-cream-200')} />
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="px-4 bg-cream-100 text-bark-500/60">New retailer?</span>
+            <span className={cn('px-4', isAdminView ? 'bg-bark-500 text-cream-200/80' : 'bg-cream-100 text-bark-500/60')}>New retailer?</span>
           </div>
         </div>
 
-        <Link href="/signup" className="btn-secondary w-full">
+        <Link href="/signup" className={cn('btn-secondary w-full', isAdminView && 'border-cream-200 text-cream-100 hover:bg-bark-400/60')}>
           Create an account
         </Link>
+
+        <button
+          type="button"
+          onClick={() => {
+            const params = new URLSearchParams(searchParams.toString());
+            if (isAdminView) {
+              params.delete('admin');
+            } else {
+              params.set('admin', '1');
+            }
+            const qs = params.toString();
+            router.replace(`/login${qs ? `?${qs}` : ''}`);
+          }}
+          className={cn('mt-6 text-xs font-medium', isAdminView ? 'text-cream-200 hover:text-cream-100' : 'text-bark-500/70 hover:text-bark-500')}
+        >
+          {isAdminView ? 'Switch to Retailer Login' : 'Admin Login'}
+        </button>
+      </div>
+
+      <div className={cn('mt-6 card p-6', isAdminView && 'bg-bark-500 text-cream-100 border-bark-500')}>
+        <h2 className={cn('text-sm font-semibold mb-3', isAdminView ? 'text-cream-100' : 'text-bark-500')}>Wholesale Benefits</h2>
+        <div className="grid grid-cols-1 gap-2">
+          {wholesaleBenefits.map((benefit) => (
+            <div key={benefit} className={cn('flex items-center gap-2 text-sm', isAdminView ? 'text-cream-200/90' : 'text-bark-500')}>
+              <CheckCircle className={cn('w-4 h-4', isAdminView ? 'text-cream-100' : 'text-emerald-600')} />
+              <span>{benefit}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
