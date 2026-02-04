@@ -6,7 +6,7 @@ import { Search, Truck, Package, Download, X, CheckCircle, Eye, Plus, Trash2 } f
 import { formatCurrency, cn } from '@/lib/utils';
 
 interface OrderItem { id: string; quantity: number; unit_price: number; total_price: number; product: { name: string; size: string } }
-interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; promotion_code: string | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; order_items: OrderItem[] }
+interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; include_samples?: boolean | null; promotion_code: string | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; order_items: OrderItem[] }
 interface RetailerOption { id: string; company_name: string }
 interface ProductOption { id: string; name: string; size: string; price: number }
 
@@ -213,7 +213,15 @@ export default function AdminOrdersPage() {
                     )}
                   </td>
                   <td className="px-6 py-4 text-gray-500 text-sm">{new Date(order.created_at).toLocaleDateString()}</td>
-                  <td className="px-6 py-4"><div className="flex items-center gap-2"><button onClick={() => handleShipOrder(order)} className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg" title="Ship Order"><Truck className="w-4 h-4" /></button><button onClick={() => setSelectedOrder(order)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg" title="View Details"><Eye className="w-4 h-4" /></button></div></td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      {order.include_samples && (
+                        <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">Samples</span>
+                      )}
+                      <button onClick={() => handleShipOrder(order)} className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg" title="Ship Order"><Truck className="w-4 h-4" /></button>
+                      <button onClick={() => setSelectedOrder(order)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg" title="View Details"><Eye className="w-4 h-4" /></button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -324,7 +332,14 @@ export default function AdminOrdersPage() {
               <div className="grid grid-cols-2 gap-4"><div><p className="text-sm text-gray-500">Order Number</p><p className="font-medium text-gray-900">{selectedOrder.order_number}</p></div><div><p className="text-sm text-gray-500">Status</p><span className={cn("inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium capitalize", getStatusColor(selectedOrder.status))}>{selectedOrder.status}</span></div><div><p className="text-sm text-gray-500">Order Date</p><p className="font-medium text-gray-900">{new Date(selectedOrder.created_at).toLocaleDateString()}</p></div><div><p className="text-sm text-gray-500">Delivery Date</p><p className="font-medium text-gray-900">{selectedOrder.delivery_date ? new Date(selectedOrder.delivery_date).toLocaleDateString() : 'Not specified'}</p></div></div>
               <div className="border-t border-gray-100 pt-4"><h4 className="font-medium text-gray-900 mb-3">Retailer Information</h4><div className="bg-gray-50 rounded-lg p-4"><p className="font-medium text-gray-900">{selectedOrder.retailer?.company_name}</p><p className="text-sm text-gray-600 mt-1">{selectedOrder.retailer?.business_address}</p><p className="text-sm text-gray-600">{selectedOrder.retailer?.phone}</p></div></div>
               <div className="border-t border-gray-100 pt-4"><h4 className="font-medium text-gray-900 mb-3">Order Items</h4><div className="space-y-2">{selectedOrder.order_items?.map((item) => <div key={item.id} className="flex justify-between py-2 border-b border-gray-100 last:border-0"><div><p className="font-medium text-gray-900">{item.product?.name}</p><p className="text-sm text-gray-500">{item.product?.size} × {item.quantity}</p></div><p className="font-medium text-gray-900">{formatCurrency(item.total_price)}</p></div>)}</div></div>
-              <div className="border-t border-gray-100 pt-4"><div className="flex justify-between text-lg font-bold"><span>Total</span><span>{formatCurrency(selectedOrder.total)}</span></div></div>
+              <div className="border-t border-gray-100 pt-4">
+                {selectedOrder.include_samples && (
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold px-3 py-1">
+                    Samples included with this order
+                  </div>
+                )}
+                <div className="flex justify-between text-lg font-bold"><span>Total</span><span>{formatCurrency(selectedOrder.total)}</span></div>
+              </div>
               {selectedOrder.tracking_number && (
                 <div className="border-t border-gray-100 pt-4">
                   <p className="text-sm text-gray-500">Tracking</p>

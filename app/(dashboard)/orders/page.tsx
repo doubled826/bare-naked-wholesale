@@ -207,6 +207,7 @@ export default function OrdersPage() {
             const isExpanded = expandedOrder === order.id;
             const orderItems = order.order_items as Array<{ product_id: string; quantity: number; total_price: number }> | undefined;
             const itemCount = orderItems?.reduce((sum: number, item) => sum + item.quantity, 0) || 0;
+            const hasSamples = Boolean((order as any).include_samples);
 
             return (
               <div key={order.id} className="card overflow-hidden">
@@ -221,6 +222,11 @@ export default function OrdersPage() {
                         <StatusIcon className="w-3.5 h-3.5" />
                         {status.label}
                       </span>
+                      {hasSamples && (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+                          Samples
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-bark-500/70">
                       Ordered on {formatDate(order.created_at)} • {itemCount} items
@@ -272,6 +278,11 @@ export default function OrdersPage() {
                               </div>
                             )}
                           </div>
+                        </div>
+                      )}
+                      {hasSamples && (
+                        <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold px-3 py-1">
+                          Samples included with this order
                         </div>
                       )}
                       <h4 className="text-sm font-semibold text-bark-500/70 mb-4">Order Items</h4>

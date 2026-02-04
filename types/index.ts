@@ -53,6 +53,7 @@ export interface Order {
   promotion_code?: string;
   tracking_number?: string;
   tracking_carrier?: string;
+  include_samples?: boolean;
   shipped_at?: string;
   subtotal: number;
   total: number;

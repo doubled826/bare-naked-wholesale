@@ -43,6 +43,16 @@ CREATE TABLE IF NOT EXISTS announcements (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Sample requests table
+CREATE TABLE IF NOT EXISTS sample_requests (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  retailer_id UUID REFERENCES retailers(id) ON DELETE CASCADE,
+  status TEXT DEFAULT 'pending',
+  fulfilled_order_id UUID REFERENCES orders(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  fulfilled_at TIMESTAMPTZ
+);
+
 -- Orders table
 CREATE TABLE orders (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -51,6 +61,7 @@ CREATE TABLE orders (
   status TEXT DEFAULT 'pending',
   delivery_date DATE,
   promotion_code TEXT,
+  include_samples BOOLEAN DEFAULT false,
   tracking_carrier TEXT,
   subtotal DECIMAL(10,2) NOT NULL,
   total DECIMAL(10,2) NOT NULL,
@@ -80,6 +91,7 @@ ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sample_requests ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for retailers
 CREATE POLICY "Users can view their own retailer profile"
@@ -98,6 +110,29 @@ CREATE POLICY "Users can view their own orders"
 CREATE POLICY "Users can create their own orders"
   ON orders FOR INSERT
   WITH CHECK (auth.uid() = retailer_id);
+
+CREATE POLICY "Users can view their own sample requests"
+  ON sample_requests FOR SELECT
+  USING (auth.uid() = retailer_id);
+
+CREATE POLICY "Users can create their own sample requests"
+  ON sample_requests FOR INSERT
+  WITH CHECK (auth.uid() = retailer_id);
+
+CREATE POLICY "Admins can manage sample requests"
+  ON sample_requests FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
 
 -- RLS Policies for order_items
 CREATE POLICY "Users can view items from their own orders"

@@ -32,6 +32,7 @@ export default function DashboardPage() {
   const supabase = createClientComponentClient();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+  const [sampleNotice, setSampleNotice] = useState('');
 
   // Get the business name - check both possible field names
   const businessName = retailer?.company_name || retailer?.business_name || '';
@@ -79,6 +80,19 @@ export default function DashboardPage() {
     loadAnnouncements();
   }, [supabase]);
 
+  const handleSampleRequest = async () => {
+    try {
+      const response = await fetch('/api/samples/request', { method: 'POST' });
+      const data = await response.json();
+      setSampleNotice(data.message || 'Request submitted. Samples will be added to your next order.');
+      setTimeout(() => setSampleNotice(''), 4000);
+    } catch (error) {
+      console.error('Sample request error:', error);
+      setSampleNotice('Unable to submit request. Please try again.');
+      setTimeout(() => setSampleNotice(''), 4000);
+    }
+  };
+
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Header */}
@@ -89,6 +103,11 @@ export default function DashboardPage() {
         <p className="text-bark-500/70 mt-1">
           Here&apos;s what&apos;s happening with your account
         </p>
+        {sampleNotice && (
+          <div className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-2 text-sm text-emerald-700">
+            {sampleNotice}
+          </div>
+        )}
       </div>
 
       {/* Stats Grid */}
@@ -166,12 +185,12 @@ export default function DashboardPage() {
                 label="View Orders"
                 description="View order history"
               />
-              <QuickAction
-                href="https://docs.google.com/forms/d/1X6jqgQHOjFuqFnxEtrKtKvdEY93mXNxWenq8PiloXZg/edit"
-                icon={Gift}
-                label="Request Samples"
-                description="Freebies for customers"
-              />
+            <QuickAction
+              onClick={handleSampleRequest}
+              icon={Gift}
+              label="Request Samples"
+              description="Samples added to next order"
+            />
             </div>
           </div>
 
@@ -330,15 +349,35 @@ function StatCard({
 
 function QuickAction({
   href,
+  onClick,
   icon: Icon,
   label,
   description,
 }: {
-  href: string;
+  href?: string;
+  onClick?: () => void;
   icon: React.ElementType;
   label: string;
   description: string;
 }) {
+  if (onClick) {
+    return (
+      <button
+        onClick={onClick}
+        className="w-full text-left flex items-center gap-4 p-3 rounded-xl hover:bg-cream-200 transition-colors group"
+      >
+        <div className="w-10 h-10 rounded-lg bg-cream-200 flex items-center justify-center group-hover:bg-bark-500 transition-colors">
+          <Icon className="w-5 h-5 text-bark-500 group-hover:text-white transition-colors" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-bark-500">{label}</p>
+          <p className="text-xs text-bark-500/60">{description}</p>
+        </div>
+        <ArrowRight className="w-4 h-4 text-bark-500/30 group-hover:text-bark-500 group-hover:translate-x-1 transition-all" />
+      </button>
+    );
+  }
+  if (!href) return null;
   return (
     <Link
       href={href}

@@ -26,6 +26,7 @@ export async function GET(request: Request) {
         delivery_date,
         tracking_number,
         tracking_carrier,
+        include_samples,
         promotion_code,
         created_at
       `)
@@ -55,6 +56,7 @@ export async function GET(request: Request) {
       'Total',
       'Tracking Number',
       'Tracking Carrier',
+      'Includes Samples',
       'Promotion Code',
       'Delivery Date',
       'Order Date'
@@ -67,6 +69,7 @@ export async function GET(request: Request) {
       order.total?.toFixed(2) || '0.00',
       order.tracking_number || '',
       order.tracking_carrier || '',
+      order.include_samples ? 'Yes' : 'No',
       order.promotion_code || '',
       order.delivery_date || '',
       new Date(order.created_at).toLocaleDateString()

@@ -23,6 +23,13 @@ export async function POST(request: Request) {
     // Generate order number
     const orderNumber = `ORD-${Date.now().toString().slice(-8)}`;
 
+    const { data: sampleRequest } = await supabase
+      .from('sample_requests')
+      .select('id')
+      .eq('retailer_id', user.id)
+      .eq('status', 'pending')
+      .single();
+
     // Create the order
     const { data: order, error: orderError } = await supabase
       .from('orders')
@@ -34,6 +41,7 @@ export async function POST(request: Request) {
         promotion_code: promotionCode || null,
         subtotal,
         total,
+        include_samples: !!sampleRequest?.id,
       })
       .select()
       .single();
@@ -58,6 +66,20 @@ export async function POST(request: Request) {
 
     if (itemsError) {
       console.error('Order items error:', itemsError);
+    }
+
+    if (sampleRequest?.id) {
+      const { error: sampleUpdateError } = await supabase
+        .from('sample_requests')
+        .update({
+          status: 'fulfilled',
+          fulfilled_order_id: order.id,
+          fulfilled_at: new Date().toISOString(),
+        })
+        .eq('id', sampleRequest.id);
+      if (sampleUpdateError) {
+        console.error('Sample request update error:', sampleUpdateError);
+      }
     }
 
     // Get retailer info for email

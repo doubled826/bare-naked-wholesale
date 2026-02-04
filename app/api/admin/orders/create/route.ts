@@ -66,6 +66,13 @@ export async function POST(request: Request) {
     const total = subtotal;
     const orderNumber = `ORD-${Date.now().toString().slice(-8)}`;
 
+    const { data: sampleRequest } = await adminClient
+      .from('sample_requests')
+      .select('id')
+      .eq('retailer_id', retailerId)
+      .eq('status', 'pending')
+      .single();
+
     const { data: order, error: orderError } = await adminClient
       .from('orders')
       .insert({
@@ -76,6 +83,7 @@ export async function POST(request: Request) {
         promotion_code: promotionCode || null,
         subtotal,
         total,
+        include_samples: !!sampleRequest?.id,
       })
       .select()
       .single();
@@ -98,6 +106,20 @@ export async function POST(request: Request) {
 
     if (itemsError) {
       console.error('Order items error:', itemsError);
+    }
+
+    if (sampleRequest?.id) {
+      const { error: sampleUpdateError } = await adminClient
+        .from('sample_requests')
+        .update({
+          status: 'fulfilled',
+          fulfilled_order_id: order.id,
+          fulfilled_at: new Date().toISOString(),
+        })
+        .eq('id', sampleRequest.id);
+      if (sampleUpdateError) {
+        console.error('Sample request update error:', sampleUpdateError);
+      }
     }
 
     const { data: retailer } = await adminClient
