@@ -253,11 +253,13 @@ export default function SignupPage() {
         </p>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-3 text-center text-sm">
-        <div className="rounded-xl px-3 py-2 font-medium bg-cream-200 text-bark-500">
+      <div className="mt-6 flex items-center justify-center gap-4 text-sm">
+        <div className="flex items-center gap-2 rounded-full px-3 py-2 font-medium bg-cream-200 text-bark-500">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/90 text-white text-xs">✓</span>
           No Minimums
         </div>
-        <div className="rounded-xl px-3 py-2 font-medium bg-cream-200 text-bark-500">
+        <div className="flex items-center gap-2 rounded-full px-3 py-2 font-medium bg-cream-200 text-bark-500">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/90 text-white text-xs">✓</span>
           Free Shipping
         </div>
       </div>

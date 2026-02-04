@@ -168,11 +168,13 @@ export default function LoginPage() {
         </button>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-3 text-center text-sm">
-        <div className={cn('rounded-xl px-3 py-2 font-medium', isAdminView ? 'bg-bark-400/60 text-cream-100' : 'bg-cream-200 text-bark-500')}>
+      <div className="mt-6 flex items-center justify-center gap-4 text-sm">
+        <div className={cn('flex items-center gap-2 rounded-full px-3 py-2 font-medium', isAdminView ? 'bg-bark-400/60 text-cream-100' : 'bg-cream-200 text-bark-500')}>
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/90 text-white text-xs">✓</span>
           No Minimums
         </div>
-        <div className={cn('rounded-xl px-3 py-2 font-medium', isAdminView ? 'bg-bark-400/60 text-cream-100' : 'bg-cream-200 text-bark-500')}>
+        <div className={cn('flex items-center gap-2 rounded-full px-3 py-2 font-medium', isAdminView ? 'bg-bark-400/60 text-cream-100' : 'bg-cream-200 text-bark-500')}>
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/90 text-white text-xs">✓</span>
           Free Shipping
         </div>
       </div>
