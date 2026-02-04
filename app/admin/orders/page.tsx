@@ -6,7 +6,7 @@ import { Search, Truck, Package, Download, X, CheckCircle, Eye, Plus, Trash2 } f
 import { formatCurrency, cn } from '@/lib/utils';
 
 interface OrderItem { id: string; quantity: number; unit_price: number; total_price: number; product: { name: string; size: string } }
-interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; delivery_date: string | null; tracking_number: string | null; promotion_code: string | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; order_items: OrderItem[] }
+interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; promotion_code: string | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; order_items: OrderItem[] }
 interface RetailerOption { id: string; company_name: string }
 interface ProductOption { id: string; name: string; size: string; price: number }
 
@@ -22,6 +22,7 @@ export default function AdminOrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState('');
+  const [trackingCarrier, setTrackingCarrier] = useState('UPS');
   const [isUpdating, setIsUpdating] = useState(false);
   const [notification, setNotification] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -66,13 +67,13 @@ export default function AdminOrdersPage() {
 
   const showNotification = (msg: string) => { setNotification(msg); setTimeout(() => setNotification(''), 3000); };
 
-  const handleShipOrder = (order: Order) => { setSelectedOrder(order); setTrackingNumber(order.tracking_number || ''); setShowTrackingModal(true); };
+  const handleShipOrder = (order: Order) => { setSelectedOrder(order); setTrackingNumber(order.tracking_number || ''); setTrackingCarrier(order.tracking_carrier || 'UPS'); setShowTrackingModal(true); };
 
   const confirmShipOrder = async () => {
     if (!selectedOrder) return;
     setIsUpdating(true);
     try {
-      const { error } = await supabase.from('orders').update({ status: 'shipped', tracking_number: trackingNumber || null, shipped_at: new Date().toISOString() }).eq('id', selectedOrder.id);
+      const { error } = await supabase.from('orders').update({ status: 'shipped', tracking_number: trackingNumber || null, tracking_carrier: trackingCarrier || null, shipped_at: new Date().toISOString() }).eq('id', selectedOrder.id);
       if (error) throw error;
       await fetch('/api/admin/orders/ship-notification', {
         method: 'POST',
@@ -81,6 +82,7 @@ export default function AdminOrdersPage() {
           retailerId: selectedOrder.retailer_id,
           orderNumber: selectedOrder.order_number,
           trackingNumber: trackingNumber || null,
+          trackingCarrier: trackingCarrier || null,
         }),
       });
       showNotification('Order marked as shipped!');
@@ -198,7 +200,18 @@ export default function AdminOrdersPage() {
                   <td className="px-6 py-4"><div className="text-sm">{order.order_items?.slice(0, 2).map((item, i) => <p key={i} className="text-gray-600">{item.quantity}x {item.product?.name} ({item.product?.size})</p>)}{order.order_items?.length > 2 && <p className="text-gray-400">+{order.order_items.length - 2} more</p>}</div></td>
                   <td className="px-6 py-4"><select value={order.status} onChange={(e) => handleUpdateStatus(order.id, e.target.value)} className={cn("text-xs font-medium px-2.5 py-1 rounded-full border-0 cursor-pointer", getStatusColor(order.status))}><option value="pending">Pending</option><option value="processing">Processing</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="canceled">Canceled</option></select></td>
                   <td className="px-6 py-4 font-medium text-gray-900">{formatCurrency(order.total)}</td>
-                  <td className="px-6 py-4">{order.tracking_number ? <span className="text-sm text-gray-600 font-mono">{order.tracking_number}</span> : <span className="text-sm text-gray-400">—</span>}</td>
+                  <td className="px-6 py-4">
+                    {order.tracking_number ? (
+                      <div className="text-sm text-gray-600">
+                        <div className="font-mono">{order.tracking_number}</div>
+                        {order.tracking_carrier && (
+                          <div className="text-xs text-gray-500">{order.tracking_carrier}</div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-sm text-gray-400">—</span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-gray-500 text-sm">{new Date(order.created_at).toLocaleDateString()}</td>
                   <td className="px-6 py-4"><div className="flex items-center gap-2"><button onClick={() => handleShipOrder(order)} className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg" title="Ship Order"><Truck className="w-4 h-4" /></button><button onClick={() => setSelectedOrder(order)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg" title="View Details"><Eye className="w-4 h-4" /></button></div></td>
                 </tr>
@@ -285,6 +298,17 @@ export default function AdminOrdersPage() {
             <div className="space-y-4">
               <div><p className="text-sm text-gray-500">Order Number</p><p className="font-medium text-gray-900">{selectedOrder.order_number}</p></div>
               <div><p className="text-sm text-gray-500">Retailer</p><p className="font-medium text-gray-900">{selectedOrder.retailer?.company_name}</p></div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Carrier</label>
+                <select value={trackingCarrier} onChange={(e) => setTrackingCarrier(e.target.value)} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500">
+                  <option value="UPS">UPS</option>
+                  <option value="FedEx">FedEx</option>
+                  <option value="USPS">USPS</option>
+                  <option value="DHL">DHL</option>
+                  <option value="OnTrac">OnTrac</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Tracking Number (Optional)</label><input type="text" value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} placeholder="Enter tracking number" className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
               <div className="flex gap-3 pt-4"><button onClick={() => setShowTrackingModal(false)} className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">Cancel</button><button onClick={confirmShipOrder} disabled={isUpdating} className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2">{isUpdating ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Truck className="w-4 h-4" />Mark as Shipped</>}</button></div>
             </div>
@@ -301,7 +325,15 @@ export default function AdminOrdersPage() {
               <div className="border-t border-gray-100 pt-4"><h4 className="font-medium text-gray-900 mb-3">Retailer Information</h4><div className="bg-gray-50 rounded-lg p-4"><p className="font-medium text-gray-900">{selectedOrder.retailer?.company_name}</p><p className="text-sm text-gray-600 mt-1">{selectedOrder.retailer?.business_address}</p><p className="text-sm text-gray-600">{selectedOrder.retailer?.phone}</p></div></div>
               <div className="border-t border-gray-100 pt-4"><h4 className="font-medium text-gray-900 mb-3">Order Items</h4><div className="space-y-2">{selectedOrder.order_items?.map((item) => <div key={item.id} className="flex justify-between py-2 border-b border-gray-100 last:border-0"><div><p className="font-medium text-gray-900">{item.product?.name}</p><p className="text-sm text-gray-500">{item.product?.size} × {item.quantity}</p></div><p className="font-medium text-gray-900">{formatCurrency(item.total_price)}</p></div>)}</div></div>
               <div className="border-t border-gray-100 pt-4"><div className="flex justify-between text-lg font-bold"><span>Total</span><span>{formatCurrency(selectedOrder.total)}</span></div></div>
-              {selectedOrder.tracking_number && <div className="border-t border-gray-100 pt-4"><p className="text-sm text-gray-500">Tracking Number</p><p className="font-mono text-gray-900">{selectedOrder.tracking_number}</p></div>}
+              {selectedOrder.tracking_number && (
+                <div className="border-t border-gray-100 pt-4">
+                  <p className="text-sm text-gray-500">Tracking</p>
+                  <p className="font-mono text-gray-900">{selectedOrder.tracking_number}</p>
+                  {selectedOrder.tracking_carrier && (
+                    <p className="text-sm text-gray-600 mt-1">{selectedOrder.tracking_carrier}</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

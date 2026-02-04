@@ -22,7 +22,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const { orderNumber, trackingNumber, retailerId } = await request.json();
+    const { orderNumber, trackingNumber, trackingCarrier, retailerId } = await request.json();
     if (!retailerId) {
       return NextResponse.json({ error: 'Missing retailerId' }, { status: 400 });
     }
@@ -39,6 +39,7 @@ Your order has shipped!
 
 Order Number: ${orderNumber}
 ${trackingNumber ? `Tracking Number: ${trackingNumber}` : ''}
+${trackingCarrier ? `Carrier: ${trackingCarrier}` : ''}
 
 Thank you for your order. If you have any questions, please contact us at info@barenakedpet.com.
 

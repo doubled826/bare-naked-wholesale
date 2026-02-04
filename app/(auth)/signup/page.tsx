@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
-import { wholesaleBenefits } from '@/lib/wholesaleBenefits';
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
@@ -254,17 +253,6 @@ export default function SignupPage() {
         </p>
       </div>
 
-      <div className="mt-6 card p-6">
-        <h2 className="text-sm font-semibold text-bark-500 mb-3">Wholesale Benefits</h2>
-        <div className="grid grid-cols-1 gap-2">
-          {wholesaleBenefits.map((benefit) => (
-            <div key={benefit} className="flex items-center gap-2 text-sm text-bark-500">
-              <CheckCircle className="w-4 h-4 text-emerald-600" />
-              <span>{benefit}</span>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

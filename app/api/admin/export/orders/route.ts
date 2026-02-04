@@ -36,6 +36,7 @@ export async function GET(request: Request) {
         subtotal,
         delivery_date,
         tracking_number,
+        tracking_carrier,
         promotion_code,
         created_at,
         retailer:retailers(company_name, business_address, phone)
@@ -68,6 +69,7 @@ export async function GET(request: Request) {
       'Subtotal',
       'Total',
       'Tracking Number',
+      'Tracking Carrier',
       'Promotion Code',
       'Delivery Date',
       'Order Date'
@@ -82,6 +84,7 @@ export async function GET(request: Request) {
       order.subtotal?.toFixed(2) || '0.00',
       order.total?.toFixed(2) || '0.00',
       order.tracking_number || '',
+      order.tracking_carrier || '',
       order.promotion_code || '',
       order.delivery_date || '',
       new Date(order.created_at).toLocaleDateString()

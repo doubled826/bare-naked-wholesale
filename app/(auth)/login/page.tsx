@@ -3,10 +3,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
+import { Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { cn } from '@/lib/utils';
-import { wholesaleBenefits } from '@/lib/wholesaleBenefits';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -173,17 +172,6 @@ export default function LoginPage() {
         </button>
       </div>
 
-      <div className={cn('mt-6 card p-6', isAdminView && 'bg-bark-500 text-cream-100 border-bark-500')}>
-        <h2 className={cn('text-sm font-semibold mb-3', isAdminView ? 'text-cream-100' : 'text-bark-500')}>Wholesale Benefits</h2>
-        <div className="grid grid-cols-1 gap-2">
-          {wholesaleBenefits.map((benefit) => (
-            <div key={benefit} className={cn('flex items-center gap-2 text-sm', isAdminView ? 'text-cream-200/90' : 'text-bark-500')}>
-              <CheckCircle className={cn('w-4 h-4', isAdminView ? 'text-cream-100' : 'text-emerald-600')} />
-              <span>{benefit}</span>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

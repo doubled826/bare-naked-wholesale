@@ -12,14 +12,13 @@ import {
   CheckCircle,
   Loader2
 } from 'lucide-react';
-import { cn, formatCurrency } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import type { Product } from '@/types';
 
 export default function CatalogPage() {
   const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart, setOrders } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('Toppers'); // Changed default to Toppers
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState('');
@@ -28,15 +27,81 @@ export default function CatalogPage() {
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [notification, setNotification] = useState('');
 
-  // Fixed order: Toppers, Treats, All
-  const categories = ['Toppers', 'Treats', 'All'];
-
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       product.category.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = categoryFilter === 'All' || product.category === categoryFilter;
-    return matchesSearch && matchesCategory;
+    return matchesSearch;
   });
+
+  const toppers = filteredProducts.filter((product) => product.category === 'Toppers');
+  const treats = filteredProducts.filter((product) => product.category === 'Treats');
+  const otherProducts = filteredProducts.filter(
+    (product) => product.category !== 'Toppers' && product.category !== 'Treats'
+  );
+
+  const renderProductCard = (product: Product) => {
+    const cartItem = cart.find(item => item.id === product.id);
+    return (
+      <div key={product.id} className="card overflow-hidden">
+        <div className="aspect-square bg-cream-200 p-4 flex items-center justify-center">
+          {product.image_url ? (
+            <img 
+              src={product.image_url} 
+              alt={product.name} 
+              className="w-full h-full object-contain"
+            />
+          ) : (
+            <div className="w-full h-full bg-cream-300 rounded-lg" />
+          )}
+        </div>
+        <div className="p-4">
+          <div className="flex justify-between items-start mb-2">
+            <div>
+              <h3 className="font-semibold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
+                {product.name}
+              </h3>
+              <p className="text-sm text-bark-500/60">{product.size}</p>
+            </div>
+            <span className="bg-cream-200 text-bark-500 text-xs px-2 py-1 rounded-lg">{product.category}</span>
+          </div>
+          <p className="text-sm text-bark-500/70 mb-4 line-clamp-2">{product.description}</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xl font-bold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
+                {formatCurrency(product.price)}
+              </span>
+              <span className="text-xs text-bark-500/60 ml-1">/unit</span>
+            </div>
+            {cartItem ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => updateQuantity(product.id, cartItem.quantity - 1)}
+                  className="w-8 h-8 rounded-lg bg-cream-200 flex items-center justify-center hover:bg-cream-300 transition-colors"
+                >
+                  <Minus className="w-4 h-4 text-bark-500" />
+                </button>
+                <span className="w-8 text-center font-semibold text-bark-500">{cartItem.quantity}</span>
+                <button
+                  onClick={() => updateQuantity(product.id, cartItem.quantity + 1)}
+                  className="w-8 h-8 rounded-lg bg-cream-200 flex items-center justify-center hover:bg-cream-300 transition-colors"
+                >
+                  <Plus className="w-4 h-4 text-bark-500" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => handleAddToCart(product)}
+                className="btn-primary py-2 px-4 text-sm"
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                Add
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -153,93 +218,46 @@ export default function CatalogPage() {
               className="input pl-10"
             />
           </div>
-          
-          <div className="flex gap-2 overflow-x-auto pb-2 lg:pb-0">
-            {categories.map(category => (
-              <button
-                key={category}
-                onClick={() => setCategoryFilter(category)}
-                className={cn(
-                  'px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors',
-                  categoryFilter === category
-                    ? 'bg-bark-500 text-white'
-                    : 'bg-cream-200 text-bark-500 hover:bg-cream-300'
-                )}
-              >
-                {category}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {filteredProducts.map((product) => {
-          const cartItem = cart.find(item => item.id === product.id);
-          return (
-            <div key={product.id} className="card overflow-hidden">
-              <div className="aspect-square bg-cream-200 p-4 flex items-center justify-center">
-                {product.image_url ? (
-                  <img 
-                    src={product.image_url} 
-                    alt={product.name} 
-                    className="w-full h-full object-contain"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-cream-300 rounded-lg" />
-                )}
-              </div>
-              <div className="p-4">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <h3 className="font-semibold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
-                      {product.name}
-                    </h3>
-                    <p className="text-sm text-bark-500/60">{product.size}</p>
-                  </div>
-                  <span className="bg-cream-200 text-bark-500 text-xs px-2 py-1 rounded-lg">{product.category}</span>
-                </div>
-                <p className="text-sm text-bark-500/70 mb-4 line-clamp-2">{product.description}</p>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-xl font-bold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
-                      {formatCurrency(product.price)}
-                    </span>
-                    <span className="text-xs text-bark-500/60 ml-1">/unit</span>
-                  </div>
-                  {cartItem ? (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => updateQuantity(product.id, cartItem.quantity - 1)}
-                        className="w-8 h-8 rounded-lg bg-cream-200 flex items-center justify-center hover:bg-cream-300 transition-colors"
-                      >
-                        <Minus className="w-4 h-4 text-bark-500" />
-                      </button>
-                      <span className="w-8 text-center font-semibold text-bark-500">{cartItem.quantity}</span>
-                      <button
-                        onClick={() => updateQuantity(product.id, cartItem.quantity + 1)}
-                        className="w-8 h-8 rounded-lg bg-cream-200 flex items-center justify-center hover:bg-cream-300 transition-colors"
-                      >
-                        <Plus className="w-4 h-4 text-bark-500" />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => handleAddToCart(product)}
-                      className="btn-primary py-2 px-4 text-sm"
-                    >
-                      <Plus className="w-4 h-4 mr-1" />
-                      Add
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {toppers.length > 0 && (
+        <section className="mb-10">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-bark-500">Toppers</h2>
+            <span className="text-xs text-bark-500/60">{toppers.length} items</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {toppers.map(renderProductCard)}
+          </div>
+        </section>
+      )}
 
-      {filteredProducts.length === 0 && (
+      {treats.length > 0 && (
+        <section className="mb-10">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-bark-500">Treats</h2>
+            <span className="text-xs text-bark-500/60">{treats.length} items</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {treats.map(renderProductCard)}
+          </div>
+        </section>
+      )}
+
+      {otherProducts.length > 0 && (
+        <section className="mb-10">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-bark-500">Other</h2>
+            <span className="text-xs text-bark-500/60">{otherProducts.length} items</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {otherProducts.map(renderProductCard)}
+          </div>
+        </section>
+      )}
+
+      {(toppers.length + treats.length + otherProducts.length) === 0 && (
         <div className="card p-12 text-center">
           <ShoppingCart className="w-12 h-12 text-bark-500/30 mx-auto mb-4" />
           <p className="text-bark-500/70">No products found</p>

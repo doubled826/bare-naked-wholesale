@@ -255,6 +255,18 @@ export default function OrdersPage() {
                           <span className="text-bark-500/70">Shipping</span>
                           <span className="text-bark-500">Free</span>
                         </div>
+                        {order.tracking_number && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-bark-500/70">Tracking</span>
+                            <span className="text-bark-500 font-mono">{order.tracking_number}</span>
+                          </div>
+                        )}
+                        {order.tracking_carrier && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-bark-500/70">Carrier</span>
+                            <span className="text-bark-500">{order.tracking_carrier}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between font-semibold pt-2 border-t border-cream-200">
                           <span className="text-bark-500">Total</span>
                           <span className="text-bark-500">{formatCurrency(Number(order.total))}</span>

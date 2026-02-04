@@ -51,6 +51,7 @@ CREATE TABLE orders (
   status TEXT DEFAULT 'pending',
   delivery_date DATE,
   promotion_code TEXT,
+  tracking_carrier TEXT,
   subtotal DECIMAL(10,2) NOT NULL,
   total DECIMAL(10,2) NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
