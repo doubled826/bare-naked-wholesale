@@ -15,7 +15,6 @@ export default function AdminProductsPage() {
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -25,10 +24,14 @@ export default function AdminProductsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => { fetchProducts(); }, []);
-  useEffect(() => { filterProducts(); }, [products, searchQuery, categoryFilter]);
+  useEffect(() => { filterProducts(); }, [products, searchQuery]);
 
   const fetchProducts = async () => { try { const { data } = await supabase.from('products').select('*').order('name'); setProducts(data || []); } catch (e) { console.error(e); } finally { setIsLoading(false); } };
-  const filterProducts = () => { let f = [...products]; if (searchQuery) { const q = searchQuery.toLowerCase(); f = f.filter(p => p.name.toLowerCase().includes(q) || p.size.toLowerCase().includes(q)); } if (categoryFilter !== 'all') f = f.filter(p => p.category === categoryFilter); setFilteredProducts(f); };
+  const filterProducts = () => { let f = [...products]; if (searchQuery) { const q = searchQuery.toLowerCase(); f = f.filter(p => p.name.toLowerCase().includes(q) || p.size.toLowerCase().includes(q)); } setFilteredProducts(f); };
+
+  const toppers = filteredProducts.filter((product) => product.category === 'Toppers');
+  const treats = filteredProducts.filter((product) => product.category === 'Treats');
+  const otherProducts = filteredProducts.filter((product) => product.category !== 'Toppers' && product.category !== 'Treats');
   const showNotificationMessage = (msg: string, type: 'success' | 'error') => { setNotification({ message: msg, type }); setTimeout(() => setNotification({ message: '', type: '' }), 3000); };
   const handleAddProduct = () => { setIsEditing(false); setSelectedProduct(null); setFormData(emptyProduct); setShowModal(true); };
   const handleEditProduct = (p: Product) => { setIsEditing(true); setSelectedProduct(p); setFormData({ name: p.name, size: p.size, price: p.price, category: p.category, description: p.description || '', image_url: p.image_url || '', stock_quantity: p.stock_quantity || 100, is_active: p.is_active !== false }); setShowModal(true); };
@@ -62,24 +65,80 @@ export default function AdminProductsPage() {
         <div className="flex flex-col lg:flex-row gap-4">
           <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" placeholder="Search products..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
           <div className="flex gap-2">
-            <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"><option value="all">All Categories</option><option value="Toppers">Toppers</option><option value="Treats">Treats</option></select>
             <button onClick={handleAddProduct} className="flex items-center gap-2 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600"><Plus className="w-4 h-4" />Add Product</button>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {filteredProducts.length === 0 ? <div className="col-span-full bg-white rounded-xl p-12 text-center border border-gray-100"><Package className="w-12 h-12 mx-auto mb-4 text-gray-300" /><p className="text-gray-500">No products found</p></div> : filteredProducts.map((product) => (
-          <div key={product.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-            <div className="aspect-square bg-gray-100 p-4 flex items-center justify-center">{product.image_url ? <img src={product.image_url} alt={product.name} className="w-full h-full object-contain" /> : <Package className="w-16 h-16 text-gray-300" />}</div>
-            <div className="p-4">
-              <div className="flex items-start justify-between mb-2"><div><h3 className="font-semibold text-gray-900">{product.name}</h3><p className="text-sm text-gray-500">{product.size}</p></div><span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">{product.category}</span></div>
-              <p className="text-lg font-bold text-gray-900 mb-2">{formatCurrency(product.price)}</p>
-              <div className="flex items-center justify-between text-sm"><span className="text-gray-500">Stock: <span className={product.stock_quantity < 20 ? 'text-red-600 font-medium' : ''}>{product.stock_quantity ?? 'N/A'}</span></span><div className="flex gap-1"><button onClick={() => handleEditProduct(product)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 className="w-4 h-4" /></button><button onClick={() => { setSelectedProduct(product); setShowDeleteConfirm(true); }} className="p-2 text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button></div></div>
-            </div>
+      {toppers.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Toppers</h2>
+            <span className="text-xs text-gray-500">{toppers.length} items</span>
           </div>
-        ))}
-      </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {toppers.map((product) => (
+              <div key={product.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                <div className="aspect-square bg-gray-100 p-4 flex items-center justify-center">{product.image_url ? <img src={product.image_url} alt={product.name} className="w-full h-full object-contain" /> : <Package className="w-16 h-16 text-gray-300" />}</div>
+                <div className="p-4">
+                  <div className="flex items-start justify-between mb-2"><div><h3 className="font-semibold text-gray-900">{product.name}</h3><p className="text-sm text-gray-500">{product.size}</p></div><span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">{product.category}</span></div>
+                  <p className="text-lg font-bold text-gray-900 mb-2">{formatCurrency(product.price)}</p>
+                  <div className="flex items-center justify-between text-sm"><span className="text-gray-500">Stock: <span className={product.stock_quantity < 20 ? 'text-red-600 font-medium' : ''}>{product.stock_quantity ?? 'N/A'}</span></span><div className="flex gap-1"><button onClick={() => handleEditProduct(product)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 className="w-4 h-4" /></button><button onClick={() => { setSelectedProduct(product); setShowDeleteConfirm(true); }} className="p-2 text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button></div></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {treats.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Treats</h2>
+            <span className="text-xs text-gray-500">{treats.length} items</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {treats.map((product) => (
+              <div key={product.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                <div className="aspect-square bg-gray-100 p-4 flex items-center justify-center">{product.image_url ? <img src={product.image_url} alt={product.name} className="w-full h-full object-contain" /> : <Package className="w-16 h-16 text-gray-300" />}</div>
+                <div className="p-4">
+                  <div className="flex items-start justify-between mb-2"><div><h3 className="font-semibold text-gray-900">{product.name}</h3><p className="text-sm text-gray-500">{product.size}</p></div><span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">{product.category}</span></div>
+                  <p className="text-lg font-bold text-gray-900 mb-2">{formatCurrency(product.price)}</p>
+                  <div className="flex items-center justify-between text-sm"><span className="text-gray-500">Stock: <span className={product.stock_quantity < 20 ? 'text-red-600 font-medium' : ''}>{product.stock_quantity ?? 'N/A'}</span></span><div className="flex gap-1"><button onClick={() => handleEditProduct(product)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 className="w-4 h-4" /></button><button onClick={() => { setSelectedProduct(product); setShowDeleteConfirm(true); }} className="p-2 text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button></div></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {otherProducts.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Other</h2>
+            <span className="text-xs text-gray-500">{otherProducts.length} items</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {otherProducts.map((product) => (
+              <div key={product.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                <div className="aspect-square bg-gray-100 p-4 flex items-center justify-center">{product.image_url ? <img src={product.image_url} alt={product.name} className="w-full h-full object-contain" /> : <Package className="w-16 h-16 text-gray-300" />}</div>
+                <div className="p-4">
+                  <div className="flex items-start justify-between mb-2"><div><h3 className="font-semibold text-gray-900">{product.name}</h3><p className="text-sm text-gray-500">{product.size}</p></div><span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">{product.category}</span></div>
+                  <p className="text-lg font-bold text-gray-900 mb-2">{formatCurrency(product.price)}</p>
+                  <div className="flex items-center justify-between text-sm"><span className="text-gray-500">Stock: <span className={product.stock_quantity < 20 ? 'text-red-600 font-medium' : ''}>{product.stock_quantity ?? 'N/A'}</span></span><div className="flex gap-1"><button onClick={() => handleEditProduct(product)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 className="w-4 h-4" /></button><button onClick={() => { setSelectedProduct(product); setShowDeleteConfirm(true); }} className="p-2 text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button></div></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {(toppers.length + treats.length + otherProducts.length) === 0 && (
+        <div className="col-span-full bg-white rounded-xl p-12 text-center border border-gray-100">
+          <Package className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+          <p className="text-gray-500">No products found</p>
+        </div>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">

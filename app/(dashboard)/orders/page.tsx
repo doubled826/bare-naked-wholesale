@@ -59,6 +59,25 @@ export default function OrdersPage() {
     return matchesSearch && matchesStatus && matchesStart && matchesEnd;
   });
 
+  const getTrackingUrl = (carrier?: string, trackingNumber?: string) => {
+    if (!carrier || !trackingNumber) return null;
+    const encoded = encodeURIComponent(trackingNumber.trim());
+    switch (carrier) {
+      case 'UPS':
+        return `https://www.ups.com/track?loc=en_US&tracknum=${encoded}`;
+      case 'FedEx':
+        return `https://www.fedex.com/fedextrack/?tracknumbers=${encoded}`;
+      case 'USPS':
+        return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encoded}`;
+      case 'DHL':
+        return `https://www.dhl.com/us-en/home/tracking/tracking-express.html?submit=1&tracking-id=${encoded}`;
+      case 'OnTrac':
+        return `https://www.ontrac.com/tracking?tracking=${encoded}`;
+      default:
+        return null;
+    }
+  };
+
   const handleExport = async () => {
     const params = new URLSearchParams();
     if (statusFilter) params.set('status', statusFilter);
@@ -232,7 +251,18 @@ export default function OrdersPage() {
                             {order.tracking_number && (
                               <div>
                                 <p className="text-bark-500/60">Tracking Number</p>
-                                <p className="font-mono text-bark-500">{order.tracking_number}</p>
+                                {getTrackingUrl(order.tracking_carrier, order.tracking_number) ? (
+                                  <a
+                                    href={getTrackingUrl(order.tracking_carrier, order.tracking_number) || '#'}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="font-mono text-bark-500 underline underline-offset-2 hover:text-bark-600"
+                                  >
+                                    {order.tracking_number}
+                                  </a>
+                                ) : (
+                                  <p className="font-mono text-bark-500">{order.tracking_number}</p>
+                                )}
                               </div>
                             )}
                             {order.tracking_carrier && (

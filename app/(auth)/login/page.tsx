@@ -32,13 +32,9 @@ export default function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        const { data: { user } } = await supabase.auth.getUser();
-        const { data: adminUser } = await supabase
-          .from('admin_users')
-          .select('id')
-          .eq('id', user?.id || '')
-          .single();
-        if (adminUser) {
+        const adminCheck = await fetch('/api/admin/check');
+        const adminData = await adminCheck.json();
+        if (adminData?.isAdmin) {
           router.push('/admin/dashboard');
         } else {
           router.push('/dashboard');
