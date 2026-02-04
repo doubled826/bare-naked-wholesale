@@ -225,6 +225,25 @@ export default function OrdersPage() {
                 {isExpanded && (
                   <div className="border-t border-cream-200">
                     <div className="p-4 lg:p-6">
+                      {(order.tracking_number || order.tracking_carrier) && (
+                        <div className="mb-6 rounded-xl bg-cream-200/70 border border-cream-200 p-4">
+                          <h4 className="text-sm font-semibold text-bark-500/70 mb-2">Tracking</h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                            {order.tracking_number && (
+                              <div>
+                                <p className="text-bark-500/60">Tracking Number</p>
+                                <p className="font-mono text-bark-500">{order.tracking_number}</p>
+                              </div>
+                            )}
+                            {order.tracking_carrier && (
+                              <div>
+                                <p className="text-bark-500/60">Carrier</p>
+                                <p className="text-bark-500">{order.tracking_carrier}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       <h4 className="text-sm font-semibold text-bark-500/70 mb-4">Order Items</h4>
                       <div className="space-y-3">
                         {orderItems?.map((item, index: number) => {
@@ -255,18 +274,6 @@ export default function OrdersPage() {
                           <span className="text-bark-500/70">Shipping</span>
                           <span className="text-bark-500">Free</span>
                         </div>
-                        {order.tracking_number && (
-                          <div className="flex justify-between text-sm">
-                            <span className="text-bark-500/70">Tracking</span>
-                            <span className="text-bark-500 font-mono">{order.tracking_number}</span>
-                          </div>
-                        )}
-                        {order.tracking_carrier && (
-                          <div className="flex justify-between text-sm">
-                            <span className="text-bark-500/70">Carrier</span>
-                            <span className="text-bark-500">{order.tracking_carrier}</span>
-                          </div>
-                        )}
                         <div className="flex justify-between font-semibold pt-2 border-t border-cream-200">
                           <span className="text-bark-500">Total</span>
                           <span className="text-bark-500">{formatCurrency(Number(order.total))}</span>
