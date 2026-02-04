@@ -31,7 +31,7 @@ export default function AdminRetailersPage() {
       const { data: retailersData } = await supabase.from('retailers').select('*').order('created_at', { ascending: false });
       const { data: ordersData } = await supabase.from('orders').select('retailer_id, total, created_at, status');
       const retailersWithStats: RetailerWithStats[] = (retailersData || []).map(retailer => {
-        const retailerOrders = ordersData?.filter(o => o.retailer_id === retailer.id && o.status !== 'canceled' && o.status !== 'cancelled') || [];
+        const retailerOrders = ordersData?.filter(o => o.retailer_id === retailer.id && o.status !== 'canceled') || [];
         const totalSpent = retailerOrders.reduce((sum, o) => sum + (o.total || 0), 0);
         const lastOrder = retailerOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
         return { ...retailer, total_orders: retailerOrders.length, total_spent: totalSpent, last_order_date: lastOrder?.created_at || null };

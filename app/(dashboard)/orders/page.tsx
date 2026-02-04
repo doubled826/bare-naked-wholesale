@@ -36,7 +36,7 @@ export default function OrdersPage() {
   let totalMSRP = 0;
 
   orders.forEach(order => {
-    const isCanceled = order.status === 'canceled' || order.status === 'cancelled';
+    const isCanceled = order.status === 'canceled';
     if (isCanceled) return;
     totalWholesale += Number(order.total);
     const orderItems = order.order_items as Array<{ product_id: string; quantity: number }> | undefined;

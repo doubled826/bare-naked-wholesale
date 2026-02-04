@@ -55,7 +55,7 @@ export default function AdminDashboard() {
     setIsLoading(true);
     try {
       const { data: orders } = await supabase.from('orders').select('*');
-      const validOrders = (orders || []).filter(o => o.status !== 'canceled' && o.status !== 'cancelled');
+      const validOrders = (orders || []).filter(o => o.status !== 'canceled');
       const { data: retailers } = await supabase.from('retailers').select('id');
       const { data: products } = await supabase.from('products').select('id');
 
@@ -95,7 +95,7 @@ export default function AdminDashboard() {
       const { data: retailerOrders } = await supabase.from('orders').select('total, status, retailer:retailers(id, company_name)');
       const retailerStats = new Map<string, { company_name: string; total_orders: number; total_spent: number }>();
       retailerOrders?.forEach((order: any) => {
-        if (order.retailer && order.status !== 'canceled' && order.status !== 'cancelled') {
+        if (order.retailer && order.status !== 'canceled') {
           const key = order.retailer.id;
           const existing = retailerStats.get(key) || { company_name: order.retailer.company_name, total_orders: 0, total_spent: 0 };
           existing.total_orders += 1;

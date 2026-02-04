@@ -36,7 +36,7 @@ export default function DashboardPage() {
   const businessName = retailer?.company_name || retailer?.business_name || '';
 
   // Calculate analytics
-  const activeOrders = orders.filter(order => order.status !== 'canceled' && order.status !== 'cancelled');
+  const activeOrders = orders.filter(order => order.status !== 'canceled');
   const totalOrders = activeOrders.length;
   const totalItems = activeOrders.reduce((sum, order) => {
     const orderItems = order.order_items as Array<{ quantity: number }> | undefined;
