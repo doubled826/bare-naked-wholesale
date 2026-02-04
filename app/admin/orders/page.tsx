@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Search, Truck, Package, Download, X, CheckCircle, Eye } from 'lucide-react';
+import { Search, Truck, Package, Download, X, CheckCircle, Eye, Plus, Trash2 } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
 
 interface OrderItem { id: string; quantity: number; unit_price: number; total_price: number; product: { name: string; size: string } }
-interface Order { id: string; order_number: string; status: string; total: number; subtotal: number; delivery_date: string | null; tracking_number: string | null; promotion_code: string | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; order_items: OrderItem[] }
+interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; delivery_date: string | null; tracking_number: string | null; promotion_code: string | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; order_items: OrderItem[] }
+interface RetailerOption { id: string; company_name: string }
+interface ProductOption { id: string; name: string; size: string; price: number }
 
 export default function AdminOrdersPage() {
   const supabase = createClientComponentClient();
@@ -15,14 +17,21 @@ export default function AdminOrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [notification, setNotification] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [retailers, setRetailers] = useState<RetailerOption[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [newOrder, setNewOrder] = useState({ retailerId: '', deliveryDate: '', promotionCode: '', items: [{ productId: '', quantity: 1 }] });
+  const [isCreating, setIsCreating] = useState(false);
 
-  useEffect(() => { fetchOrders(); }, []);
-  useEffect(() => { filterOrders(); }, [orders, searchQuery, statusFilter]);
+  useEffect(() => { fetchOrders(); fetchOptions(); }, []);
+  useEffect(() => { filterOrders(); }, [orders, searchQuery, statusFilter, startDate, endDate]);
 
   const fetchOrders = async () => {
     try {
@@ -33,10 +42,25 @@ export default function AdminOrdersPage() {
     finally { setIsLoading(false); }
   };
 
+  const fetchOptions = async () => {
+    try {
+      const [{ data: retailersData }, { data: productsData }] = await Promise.all([
+        supabase.from('retailers').select('id, company_name').order('company_name'),
+        supabase.from('products').select('id, name, size, price').order('name')
+      ]);
+      setRetailers(retailersData || []);
+      setProducts(productsData || []);
+    } catch (error) {
+      console.error('Error loading options:', error);
+    }
+  };
+
   const filterOrders = () => {
     let filtered = [...orders];
     if (searchQuery) { const q = searchQuery.toLowerCase(); filtered = filtered.filter(o => o.order_number.toLowerCase().includes(q) || o.retailer?.company_name?.toLowerCase().includes(q)); }
     if (statusFilter !== 'all') filtered = filtered.filter(o => o.status === statusFilter);
+    if (startDate) filtered = filtered.filter(o => new Date(o.created_at) >= new Date(`${startDate}T00:00:00`));
+    if (endDate) filtered = filtered.filter(o => new Date(o.created_at) <= new Date(`${endDate}T23:59:59.999`));
     setFilteredOrders(filtered);
   };
 
@@ -50,6 +74,15 @@ export default function AdminOrdersPage() {
     try {
       const { error } = await supabase.from('orders').update({ status: 'shipped', tracking_number: trackingNumber || null, shipped_at: new Date().toISOString() }).eq('id', selectedOrder.id);
       if (error) throw error;
+      await fetch('/api/admin/orders/ship-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          retailerId: selectedOrder.retailer_id,
+          orderNumber: selectedOrder.order_number,
+          trackingNumber: trackingNumber || null,
+        }),
+      });
       showNotification('Order marked as shipped!');
       setShowTrackingModal(false); setSelectedOrder(null); fetchOrders();
     } catch (error) { console.error('Error:', error); showNotification('Failed to update order'); }
@@ -64,15 +97,75 @@ export default function AdminOrdersPage() {
     } catch (error) { console.error('Error:', error); showNotification('Failed to update status'); }
   };
 
-  const exportToCSV = () => {
-    const headers = ['Order Number', 'Retailer', 'Status', 'Total', 'Tracking', 'Date'];
-    const rows = filteredOrders.map(o => [o.order_number, o.retailer?.company_name || '', o.status, o.total.toFixed(2), o.tracking_number || '', new Date(o.created_at).toLocaleDateString()]);
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `orders-${new Date().toISOString().split('T')[0]}.csv`; a.click();
+  const exportToCSV = async () => {
+    const params = new URLSearchParams();
+    if (statusFilter) params.set('status', statusFilter);
+    if (startDate) params.set('startDate', `${startDate}T00:00:00.000`);
+    if (endDate) params.set('endDate', `${endDate}T23:59:59.999`);
+
+    const response = await fetch(`/api/admin/export/orders?${params.toString()}`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orders-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
   };
 
-  const getStatusColor = (s: string) => { switch (s) { case 'pending': return 'bg-yellow-100 text-yellow-800'; case 'shipped': return 'bg-purple-100 text-purple-800'; case 'delivered': return 'bg-green-100 text-green-800'; case 'canceled': return 'bg-red-100 text-red-800'; default: return 'bg-gray-100 text-gray-800'; } };
+  const handleAddItem = () => {
+    setNewOrder((prev) => ({ ...prev, items: [...prev.items, { productId: '', quantity: 1 }] }));
+  };
+
+  const handleRemoveItem = (index: number) => {
+    setNewOrder((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
+  };
+
+  const handleUpdateItem = (index: number, key: 'productId' | 'quantity', value: string | number) => {
+    setNewOrder((prev) => ({
+      ...prev,
+      items: prev.items.map((item, i) => (i === index ? { ...item, [key]: value } : item)),
+    }));
+  };
+
+  const getProductPrice = (productId: string) => products.find((p) => p.id === productId)?.price || 0;
+
+  const newOrderSubtotal = newOrder.items.reduce(
+    (sum, item) => sum + getProductPrice(item.productId) * (Number(item.quantity) || 0),
+    0
+  );
+
+  const handleCreateOrder = async () => {
+    if (!newOrder.retailerId || newOrder.items.length === 0 || newOrder.items.some(item => !item.productId)) {
+      showNotification('Select a retailer and at least one item');
+      return;
+    }
+    setIsCreating(true);
+    try {
+      const response = await fetch('/api/admin/orders/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          retailerId: newOrder.retailerId,
+          deliveryDate: newOrder.deliveryDate || null,
+          promotionCode: newOrder.promotionCode || null,
+          items: newOrder.items.map((item) => ({ productId: item.productId, quantity: Number(item.quantity) || 1 })),
+        }),
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Failed to create order');
+      showNotification('Order created!');
+      setShowCreateModal(false);
+      setNewOrder({ retailerId: '', deliveryDate: '', promotionCode: '', items: [{ productId: '', quantity: 1 }] });
+      fetchOrders();
+    } catch (error) {
+      console.error('Create order error:', error);
+      showNotification('Failed to create order');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const getStatusColor = (s: string) => { switch (s) { case 'pending': return 'bg-yellow-100 text-yellow-800'; case 'processing': return 'bg-blue-100 text-blue-800'; case 'shipped': return 'bg-purple-100 text-purple-800'; case 'delivered': return 'bg-green-100 text-green-800'; case 'canceled': return 'bg-red-100 text-red-800'; default: return 'bg-gray-100 text-gray-800'; } };
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-bark-500"></div></div>;
 
@@ -83,9 +176,12 @@ export default function AdminOrdersPage() {
       <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
         <div className="flex flex-col lg:flex-row gap-4">
           <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" placeholder="Search orders..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
-          <div className="flex gap-2">
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"><option value="all">All Status</option><option value="pending">Pending</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="canceled">Canceled</option></select>
+          <div className="flex flex-wrap gap-2 items-center">
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"><option value="all">All Status</option><option value="pending">Pending</option><option value="processing">Processing</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="canceled">Canceled</option></select>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
             <button onClick={exportToCSV} className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"><Download className="w-4 h-4" />Export CSV</button>
+            <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600"><Plus className="w-4 h-4" />Create Order</button>
           </div>
         </div>
       </div>
@@ -111,6 +207,76 @@ export default function AdminOrdersPage() {
           </table>
         </div>
       </div>
+
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-semibold text-gray-900">Create Order</h3>
+              <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5 text-gray-500" /></button>
+            </div>
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Retailer</label>
+                <select value={newOrder.retailerId} onChange={(e) => setNewOrder({ ...newOrder, retailerId: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500">
+                  <option value="">Select retailer</option>
+                  {retailers.map((retailer) => (
+                    <option key={retailer.id} value={retailer.id}>{retailer.company_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Date</label>
+                  <input type="date" value={newOrder.deliveryDate} onChange={(e) => setNewOrder({ ...newOrder, deliveryDate: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Promotion Code</label>
+                  <input type="text" value={newOrder.promotionCode} onChange={(e) => setNewOrder({ ...newOrder, promotionCode: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-gray-900">Items</h4>
+                  <button onClick={handleAddItem} className="text-sm text-bark-500 hover:text-bark-600 font-medium">+ Add item</button>
+                </div>
+                {newOrder.items.map((item, index) => (
+                  <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                    <div className="md:col-span-7">
+                      <select value={item.productId} onChange={(e) => handleUpdateItem(index, 'productId', e.target.value)} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500">
+                        <option value="">Select product</option>
+                        {products.map((product) => (
+                          <option key={product.id} value={product.id}>{product.name} ({product.size}) - ${Number(product.price).toFixed(2)}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="md:col-span-3">
+                      <input type="number" min={1} value={item.quantity} onChange={(e) => handleUpdateItem(index, 'quantity', e.target.value)} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
+                    </div>
+                    <div className="md:col-span-2 flex justify-end">
+                      {newOrder.items.length > 1 && (
+                        <button onClick={() => handleRemoveItem(index)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Remove item">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center border-t pt-4">
+                <span className="text-sm text-gray-600">Subtotal</span>
+                <span className="text-lg font-semibold text-gray-900">{formatCurrency(newOrderSubtotal)}</span>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">Cancel</button>
+                <button onClick={handleCreateOrder} disabled={isCreating} className="flex-1 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 disabled:opacity-50 flex items-center justify-center gap-2">
+                  {isCreating ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Plus className="w-4 h-4" />Create Order</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showTrackingModal && selectedOrder && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">

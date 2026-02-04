@@ -5,28 +5,17 @@ import { NextResponse } from 'next/server';
 export async function GET(request: Request) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: adminUser } = await supabase
-      .from('admin_users')
-      .select('id')
-      .eq('id', user.id)
-      .single();
-
-    if (!adminUser) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
     const { searchParams } = new URL(request.url);
-    
     const status = searchParams.get('status');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
-    // Build query
     let query = supabase
       .from('orders')
       .select(`
@@ -37,9 +26,9 @@ export async function GET(request: Request) {
         delivery_date,
         tracking_number,
         promotion_code,
-        created_at,
-        retailer:retailers(company_name, business_address, phone)
+        created_at
       `)
+      .eq('retailer_id', user.id)
       .order('created_at', { ascending: false });
 
     if (status && status !== 'all') {
@@ -58,13 +47,9 @@ export async function GET(request: Request) {
 
     if (error) throw error;
 
-    // Convert to CSV
     const headers = [
       'Order Number',
       'Status',
-      'Retailer',
-      'Address',
-      'Phone',
       'Subtotal',
       'Total',
       'Tracking Number',
@@ -76,9 +61,6 @@ export async function GET(request: Request) {
     const rows = orders?.map((order: any) => [
       order.order_number,
       order.status,
-      order.retailer?.company_name || '',
-      order.retailer?.business_address || '',
-      order.retailer?.phone || '',
       order.subtotal?.toFixed(2) || '0.00',
       order.total?.toFixed(2) || '0.00',
       order.tracking_number || '',
@@ -98,7 +80,6 @@ export async function GET(request: Request) {
         'Content-Disposition': `attachment; filename="orders-${new Date().toISOString().split('T')[0]}.csv"`
       }
     });
-
   } catch (error) {
     console.error('Export error:', error);
     return NextResponse.json({ error: 'Failed to export orders' }, { status: 500 });

@@ -1,11 +1,27 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
+import { sendRetailerEmail } from '@/lib/email';
+import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
 export async function POST(request: Request) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { data: adminUser } = await supabase
+      .from('admin_users')
+      .select('id')
+      .eq('id', user.id)
+      .single();
+
+    if (!adminUser) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const { recipients, selectedRetailers, subject, message } = await request.json();
 
     // Get retailer emails
@@ -34,36 +50,29 @@ export async function POST(request: Request) {
       .select('id, company_name')
       .in('id', retailerIds);
 
-    // Configure email transporter
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
+    const adminClient = createSupabaseAdminClient();
 
-    // In a real implementation, you would:
-    // 1. Get actual email addresses from auth.users or store them in retailers table
-    // 2. Send emails to each retailer
-    // 3. Log the emails sent
+    const emailTargets = await Promise.all(
+      (retailers || []).map(async (retailer) => {
+        const { data: userData, error } = await adminClient.auth.admin.getUserById(retailer.id);
+        if (error || !userData?.user?.email) {
+          return null;
+        }
+        return { email: userData.user.email, company_name: retailer.company_name };
+      })
+    );
 
-    // For now, log what would be sent
-    console.log('Would send email to', retailers?.length, 'retailers');
-    console.log('Subject:', subject);
-    console.log('Message:', message);
+    const validTargets = emailTargets.filter(Boolean) as Array<{ email: string; company_name: string }>;
 
-    // Placeholder for actual email sending
-    // You would loop through retailers and send emails like:
-    /*
-    for (const retailer of retailers) {
-      await transporter.sendMail({
-        from: `Bare Naked Pet Co. <${process.env.SMTP_USER}>`,
-        to: retailer.email, // Need to add email to retailers table
-        subject: subject,
-        text: message,
+    if (validTargets.length === 0) {
+      return NextResponse.json({ error: 'No recipient emails found' }, { status: 400 });
+    }
+
+    for (const retailer of validTargets) {
+      await sendRetailerEmail({
+        to: retailer.email,
+        subject,
+        text: `Hi ${retailer.company_name},\n\n${message}\n\nBest regards,\nBare Naked Pet Co.`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <div style="background-color: #3d2314; padding: 20px; text-align: center;">
@@ -75,14 +84,13 @@ export async function POST(request: Request) {
               <p style="margin-top: 30px;">Best regards,<br>Bare Naked Pet Co.</p>
             </div>
           </div>
-        `
+        `,
       });
     }
-    */
 
     return NextResponse.json({ 
       success: true,
-      count: retailers?.length || 0,
+      count: validTargets.length,
       message: 'Emails sent successfully'
     });
 

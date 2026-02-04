@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS retailers (
   phone TEXT NOT NULL,
   -- Automatically generates BNP-1000, BNP-1001, etc.
   account_number TEXT UNIQUE DEFAULT ('BNP-' || nextval('retailer_account_seq')::text),
+  invoice_url TEXT,
+  invoice_sent_at TIMESTAMPTZ,
+  invoice_sent_count INTEGER DEFAULT 0,
   status TEXT DEFAULT 'pending', -- Added for approval flow
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

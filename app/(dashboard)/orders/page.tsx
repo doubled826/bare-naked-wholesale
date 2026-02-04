@@ -29,11 +29,15 @@ export default function OrdersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   let totalWholesale = 0;
   let totalMSRP = 0;
 
   orders.forEach(order => {
+    const isCanceled = order.status === 'canceled' || order.status === 'cancelled';
+    if (isCanceled) return;
     totalWholesale += Number(order.total);
     const orderItems = order.order_items as Array<{ product_id: string; quantity: number }> | undefined;
     orderItems?.forEach((item) => {
@@ -50,8 +54,24 @@ export default function OrdersPage() {
   const filteredOrders = orders.filter((order) => {
     const matchesSearch = order.order_number.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesStart = !startDate || new Date(order.created_at) >= new Date(`${startDate}T00:00:00`);
+    const matchesEnd = !endDate || new Date(order.created_at) <= new Date(`${endDate}T23:59:59.999`);
+    return matchesSearch && matchesStatus && matchesStart && matchesEnd;
   });
+
+  const handleExport = async () => {
+    const params = new URLSearchParams();
+    if (statusFilter) params.set('status', statusFilter);
+    if (startDate) params.set('startDate', `${startDate}T00:00:00.000`);
+    if (endDate) params.set('endDate', `${endDate}T23:59:59.999`);
+    const response = await fetch(`/api/orders/export?${params.toString()}`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orders-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+  };
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
@@ -127,11 +147,28 @@ export default function OrdersPage() {
               className="input pl-10 pr-10 appearance-none cursor-pointer min-w-[160px]"
             >
               <option value="all">All Status</option>
-              <option value="pending">Processing</option>
+              <option value="pending">Pending</option>
+              <option value="processing">Processing</option>
               <option value="shipped">Shipped</option>
               <option value="delivered">Delivered</option>
+              <option value="canceled">Canceled</option>
             </select>
           </div>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="input min-w-[160px]"
+          />
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="input min-w-[160px]"
+          />
+          <button onClick={handleExport} className="btn-primary whitespace-nowrap">
+            Download CSV
+          </button>
         </div>
       </div>
 

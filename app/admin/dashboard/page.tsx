@@ -55,6 +55,7 @@ export default function AdminDashboard() {
     setIsLoading(true);
     try {
       const { data: orders } = await supabase.from('orders').select('*');
+      const validOrders = (orders || []).filter(o => o.status !== 'canceled' && o.status !== 'cancelled');
       const { data: retailers } = await supabase.from('retailers').select('id');
       const { data: products } = await supabase.from('products').select('id');
 
@@ -64,13 +65,13 @@ export default function AdminDashboard() {
       const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
 
       const statsData: DashboardStats = {
-        totalOrders: orders?.length || 0,
-        pendingOrders: orders?.filter(o => o.status === 'pending').length || 0,
-        shippedOrders: orders?.filter(o => o.status === 'shipped').length || 0,
-        totalRevenue: orders?.reduce((sum, o) => sum + (o.total || 0), 0) || 0,
-        todayRevenue: orders?.filter(o => new Date(o.created_at) >= today).reduce((sum, o) => sum + (o.total || 0), 0) || 0,
-        weekRevenue: orders?.filter(o => new Date(o.created_at) >= weekAgo).reduce((sum, o) => sum + (o.total || 0), 0) || 0,
-        monthRevenue: orders?.filter(o => new Date(o.created_at) >= monthAgo).reduce((sum, o) => sum + (o.total || 0), 0) || 0,
+        totalOrders: validOrders.length,
+        pendingOrders: validOrders.filter(o => o.status === 'pending').length,
+        shippedOrders: validOrders.filter(o => o.status === 'shipped').length,
+        totalRevenue: validOrders.reduce((sum, o) => sum + (o.total || 0), 0),
+        todayRevenue: validOrders.filter(o => new Date(o.created_at) >= today).reduce((sum, o) => sum + (o.total || 0), 0),
+        weekRevenue: validOrders.filter(o => new Date(o.created_at) >= weekAgo).reduce((sum, o) => sum + (o.total || 0), 0),
+        monthRevenue: validOrders.filter(o => new Date(o.created_at) >= monthAgo).reduce((sum, o) => sum + (o.total || 0), 0),
         totalRetailers: retailers?.length || 0,
         totalProducts: products?.length || 0,
       };
@@ -91,10 +92,10 @@ export default function AdminDashboard() {
       setTopProducts(Array.from(productSales.entries()).map(([id, data]) => ({ id, ...data })).sort((a, b) => b.total_sold - a.total_sold).slice(0, 5));
 
       // Top retailers
-      const { data: retailerOrders } = await supabase.from('orders').select('total, retailer:retailers(id, company_name)');
+      const { data: retailerOrders } = await supabase.from('orders').select('total, status, retailer:retailers(id, company_name)');
       const retailerStats = new Map<string, { company_name: string; total_orders: number; total_spent: number }>();
       retailerOrders?.forEach((order: any) => {
-        if (order.retailer) {
+        if (order.retailer && order.status !== 'canceled' && order.status !== 'cancelled') {
           const key = order.retailer.id;
           const existing = retailerStats.get(key) || { company_name: order.retailer.company_name, total_orders: 0, total_spent: 0 };
           existing.total_orders += 1;

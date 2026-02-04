@@ -1,6 +1,7 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { sendTeamEmail } from '@/lib/email';
 
 export async function POST(request: Request) {
   try {
@@ -35,9 +36,27 @@ export async function POST(request: Request) {
     // The database trigger will create the retailer record automatically
     // using the metadata we just set (company_name, business_address, phone)
 
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Account created successfully' 
+    try {
+      await sendTeamEmail({
+        subject: 'New Retailer Signup',
+        text: `
+New retailer signup received.
+
+Business Name: ${businessName}
+Contact Name: ${name}
+Email: ${email}
+Phone: ${phone}
+Address: ${businessAddress}
+Tax ID: ${taxId}
+        `.trim(),
+      });
+    } catch (emailError) {
+      console.error('Signup notification email error:', emailError);
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Account created successfully',
     });
 
   } catch (error) {

@@ -1,7 +1,7 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
+import { formatOrderItemsText, sendRetailerEmail, sendTeamEmail } from '@/lib/email';
 
 export async function POST(request: Request) {
   try {
@@ -69,16 +69,6 @@ export async function POST(request: Request) {
 
     // Send confirmation email
     try {
-      const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || '587'),
-        secure: false,
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASSWORD,
-        },
-      });
-
       const contactName = user.user_metadata?.display_name || 
                           user.user_metadata?.full_name || 
                           user.user_metadata?.name ||
@@ -89,9 +79,14 @@ export async function POST(request: Request) {
       const phone = retailer?.phone || 'Not provided';
 
       // Format order items for email
-      const itemsList = items.map((item: any) => 
-        `• ${item.name} (${item.size}) x${item.quantity} - $${(item.price * item.quantity).toFixed(2)}`
-      ).join('\n');
+      const itemsList = formatOrderItemsText(
+        items.map((item: any) => ({
+          name: item.name,
+          size: item.size,
+          quantity: item.quantity,
+          price: item.price,
+        }))
+      );
 
       const emailText = `
 New Wholesale Order Received!
@@ -118,20 +113,18 @@ ${promotionCode ? `Promotion Code: ${promotionCode}` : ''}
 This order was placed through the Bare Naked Pet Co. Wholesale Portal.
       `.trim();
 
-      // Send to business
-      await transporter.sendMail({
-        from: `"Bare Naked Pet Co." <${process.env.SMTP_USER}>`,
-        to: process.env.SMTP_USER,
+      // Send to team
+      await sendTeamEmail({
         subject: `New Wholesale Order: ${orderNumber}`,
         text: emailText,
       });
 
       // Send confirmation to customer
-      await transporter.sendMail({
-        from: `"Bare Naked Pet Co." <${process.env.SMTP_USER}>`,
-        to: user.email,
-        subject: `Order Confirmation: ${orderNumber}`,
-        text: `
+      if (user.email) {
+        await sendRetailerEmail({
+          to: user.email,
+          subject: `Order Confirmation: ${orderNumber}`,
+          text: `
 Thank you for your order!
 
 Your order ${orderNumber} has been received and is being processed.
@@ -145,7 +138,8 @@ We'll notify you when your order ships.
 
 Thank you for choosing Bare Naked Pet Co.!
         `.trim(),
-      });
+        });
+      }
 
     } catch (emailError) {
       console.error('Email error:', emailError);

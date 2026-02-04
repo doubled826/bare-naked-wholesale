@@ -1,20 +1,37 @@
 import { NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
+import { sendRetailerEmail } from '@/lib/email';
+import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
 export async function POST(request: Request) {
   try {
-    const { orderId, orderNumber, trackingNumber, retailerEmail } = await request.json();
+    const supabase = createRouteHandlerClient({ cookies });
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-    // Configure email transporter
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
+    const { data: adminUser } = await supabase
+      .from('admin_users')
+      .select('id')
+      .eq('id', user.id)
+      .single();
+
+    if (!adminUser) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const { orderNumber, trackingNumber, retailerId } = await request.json();
+    if (!retailerId) {
+      return NextResponse.json({ error: 'Missing retailerId' }, { status: 400 });
+    }
+
+    const adminClient = createSupabaseAdminClient();
+    const { data: userData, error } = await adminClient.auth.admin.getUserById(retailerId);
+    if (error || !userData?.user?.email) {
+      return NextResponse.json({ error: 'Retailer email not found' }, { status: 404 });
+    }
 
     // Email content
     const emailText = `
@@ -29,9 +46,11 @@ Best regards,
 Bare Naked Pet Co.
     `.trim();
 
-    // Send email (in production, you'd get the actual retailer email)
-    // For now, this is a placeholder
-    console.log('Shipping notification would be sent for order:', orderNumber);
+    await sendRetailerEmail({
+      to: userData.user.email,
+      subject: `Your order has shipped: ${orderNumber}`,
+      text: emailText,
+    });
 
     return NextResponse.json({ 
       success: true,

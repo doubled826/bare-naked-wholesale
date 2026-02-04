@@ -5,6 +5,9 @@ export interface Retailer {
   business_address: string;
   phone: string;
   account_number: string;
+  invoice_url?: string;
+  invoice_sent_at?: string;
+  invoice_sent_count?: number;
   email?: string;
   tax_id?: string;  // Add this line
   created_at?: string;

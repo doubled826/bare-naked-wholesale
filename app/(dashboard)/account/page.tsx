@@ -96,6 +96,19 @@ export default function AccountPage() {
         if (retailerError) throw retailerError;
       }
 
+      await fetch('/api/account/notify-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessName: profile.businessName,
+          businessAddress: profile.businessAddress,
+          name: profile.name,
+          phone: profile.phone,
+          taxId: profile.taxId,
+          accountNumber: profile.accountNumber,
+        }),
+      });
+
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {
@@ -163,6 +176,20 @@ export default function AccountPage() {
                   </div>
                   <p className="text-xs text-bark-500/50 mt-1">Your unique wholesale account number</p>
                 </div>
+
+                {retailer?.invoice_url && (
+                  <div className="p-4 bg-cream-200 rounded-xl">
+                    <p className="text-sm text-bark-500/70 mb-3">QuickBooks Invoice</p>
+                    <a
+                      href={retailer.invoice_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn-primary inline-flex items-center"
+                    >
+                      View Invoice
+                    </a>
+                  </div>
+                )}
 
                 {/* Business Name */}
                 <div>

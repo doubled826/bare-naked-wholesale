@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { 
   Package, 
   TrendingUp, 
@@ -14,6 +15,8 @@ import {
 import Link from 'next/link';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import type { Announcement } from '@/types';
 
 const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   pending: { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', label: 'Processing' },
@@ -25,22 +28,26 @@ const statusConfig: Record<string, { icon: React.ElementType; color: string; bg:
 
 export default function DashboardPage() {
   const { retailer, orders, products } = useAppStore();
+  const supabase = createClientComponentClient();
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementsLoading, setAnnouncementsLoading] = useState(true);
 
   // Get the business name - check both possible field names
   const businessName = retailer?.company_name || retailer?.business_name || '';
 
   // Calculate analytics
-  const totalOrders = orders.length;
-  const totalItems = orders.reduce((sum, order) => {
+  const activeOrders = orders.filter(order => order.status !== 'canceled' && order.status !== 'cancelled');
+  const totalOrders = activeOrders.length;
+  const totalItems = activeOrders.reduce((sum, order) => {
     const orderItems = order.order_items as Array<{ quantity: number }> | undefined;
     const items = orderItems?.reduce((itemSum: number, item) => itemSum + item.quantity, 0) || 0;
     return sum + items;
   }, 0);
-  const totalWholesale = orders.reduce((sum, order) => sum + Number(order.total), 0);
+  const totalWholesale = activeOrders.reduce((sum, order) => sum + Number(order.total), 0);
   
   // Calculate MSRP and profit
   let totalMSRP = 0;
-  orders.forEach(order => {
+  activeOrders.forEach(order => {
     const orderItems = order.order_items as Array<{ product_id: string; quantity: number }> | undefined;
     orderItems?.forEach((item) => {
       const product = products.find(p => p.id === item.product_id);
@@ -52,6 +59,24 @@ export default function DashboardPage() {
   const potentialProfit = totalMSRP - totalWholesale;
 
   const recentOrders = orders.slice(0, 3);
+
+  useEffect(() => {
+    const loadAnnouncements = async () => {
+      try {
+        const { data } = await supabase
+          .from('announcements')
+          .select('*')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false });
+        setAnnouncements(data || []);
+      } catch (error) {
+        console.error('Announcements error:', error);
+      } finally {
+        setAnnouncementsLoading(false);
+      }
+    };
+    loadAnnouncements();
+  }, [supabase]);
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
@@ -132,30 +157,47 @@ export default function DashboardPage() {
         </div>
 
         {/* Quick Actions */}
-        <div className="card p-6">
-          <h2 className="section-title mb-4">
-            Quick Actions
-          </h2>
-          <div className="space-y-3">
-            <QuickAction
-              href="/catalog"
-              icon={ShoppingBag}
-              label="Browse Catalog"
-              description="Shop our products"
-            />
-            <QuickAction
-              href="/orders"
-              icon={Package}
-              label="View Orders"
-              description="View order history"
-            />
-            <QuickAction
-              href="https://docs.google.com/forms/d/1X6jqgQHOjFuqFnxEtrKtKvdEY93mXNxWenq8PiloXZg/edit"
-              icon={Gift}
-              label="Request Samples"
-              description="Freebies for customers"
-            />
+        <div className="space-y-6">
+          <div className="card p-6">
+            <h2 className="section-title mb-4">
+              Quick Actions
+            </h2>
+            <div className="space-y-3">
+              <QuickAction
+                href="/catalog"
+                icon={ShoppingBag}
+                label="Browse Catalog"
+                description="Shop our products"
+              />
+              <QuickAction
+                href="/orders"
+                icon={Package}
+                label="View Orders"
+                description="View order history"
+              />
+              <QuickAction
+                href="https://docs.google.com/forms/d/1X6jqgQHOjFuqFnxEtrKtKvdEY93mXNxWenq8PiloXZg/edit"
+                icon={Gift}
+                label="Request Samples"
+                description="Freebies for customers"
+              />
+            </div>
           </div>
+
+          {!announcementsLoading && announcements.length > 0 && (
+            <div className="card p-6">
+              <h2 className="section-title mb-4">Announcements</h2>
+              <div className="space-y-4">
+                {announcements.map((announcement) => (
+                  <div key={announcement.id} className="p-4 bg-cream-200 rounded-xl">
+                    <p className="font-semibold text-bark-500">{announcement.title}</p>
+                    <p className="text-sm text-bark-500/70 mt-1">{announcement.message}</p>
+                    <p className="text-xs text-bark-500/50 mt-2">{formatDate(announcement.created_at)}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
