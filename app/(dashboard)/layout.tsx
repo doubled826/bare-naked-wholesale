@@ -25,6 +25,18 @@ export default function DashboardLayout({
         return;
       }
 
+      // If admin, route to admin dashboard instead of retailer dashboard
+      const { data: adminUser } = await supabase
+        .from('admin_users')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+
+      if (adminUser) {
+        router.push('/admin/dashboard');
+        return;
+      }
+
       // Load retailer data
       const { data: retailer } = await supabase
         .from('retailers')
