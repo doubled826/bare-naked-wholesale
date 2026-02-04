@@ -168,6 +168,15 @@ export default function LoginPage() {
         </button>
       </div>
 
+      <div className="mt-6 grid grid-cols-2 gap-3 text-center text-sm">
+        <div className={cn('rounded-xl px-3 py-2 font-medium', isAdminView ? 'bg-bark-400/60 text-cream-100' : 'bg-cream-200 text-bark-500')}>
+          No Minimums
+        </div>
+        <div className={cn('rounded-xl px-3 py-2 font-medium', isAdminView ? 'bg-bark-400/60 text-cream-100' : 'bg-cream-200 text-bark-500')}>
+          Free Shipping
+        </div>
+      </div>
+
     </div>
   );
 }
