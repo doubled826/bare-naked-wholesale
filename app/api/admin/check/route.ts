@@ -23,13 +23,30 @@ export async function GET(request: Request) {
       return NextResponse.json({ isAdmin: false }, { status: 200 });
     }
 
-    const { data: adminUser } = await adminClient
+    const { data: adminById } = await adminClient
       .from('admin_users')
-      .select('id')
+      .select('id, email')
       .eq('id', userId)
       .single();
 
-    return NextResponse.json({ isAdmin: !!adminUser });
+    if (adminById) {
+      return NextResponse.json({ isAdmin: true });
+    }
+
+    // Fallback: match by email if id isn't aligned
+    const { data: userById } = await adminClient.auth.admin.getUserById(userId);
+    const userEmail = userById?.user?.email || '';
+    if (!userEmail) {
+      return NextResponse.json({ isAdmin: false }, { status: 200 });
+    }
+
+    const { data: adminByEmail } = await adminClient
+      .from('admin_users')
+      .select('id')
+      .eq('email', userEmail)
+      .single();
+
+    return NextResponse.json({ isAdmin: !!adminByEmail });
   } catch (error) {
     console.error('Admin check error:', error);
     return NextResponse.json({ isAdmin: false }, { status: 200 });
