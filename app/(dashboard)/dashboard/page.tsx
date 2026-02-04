@@ -33,6 +33,7 @@ export default function DashboardPage() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
   const [sampleNotice, setSampleNotice] = useState('');
+  const [showSampleNotice, setShowSampleNotice] = useState(false);
 
   // Get the business name - check both possible field names
   const businessName = retailer?.company_name || retailer?.business_name || '';
@@ -85,11 +86,13 @@ export default function DashboardPage() {
       const response = await fetch('/api/samples/request', { method: 'POST' });
       const data = await response.json();
       setSampleNotice(data.message || 'Request submitted. Samples will be added to your next order.');
-      setTimeout(() => setSampleNotice(''), 4000);
+      setShowSampleNotice(true);
+      setTimeout(() => setShowSampleNotice(false), 3500);
     } catch (error) {
       console.error('Sample request error:', error);
       setSampleNotice('Unable to submit request. Please try again.');
-      setTimeout(() => setSampleNotice(''), 4000);
+      setShowSampleNotice(true);
+      setTimeout(() => setShowSampleNotice(false), 3500);
     }
   };
 
@@ -103,12 +106,21 @@ export default function DashboardPage() {
         <p className="text-bark-500/70 mt-1">
           Here&apos;s what&apos;s happening with your account
         </p>
-        {sampleNotice && (
-          <div className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-2 text-sm text-emerald-700">
-            {sampleNotice}
-          </div>
-        )}
       </div>
+
+      {showSampleNotice && (
+        <div className="fixed inset-0 bg-bark-500/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-cream-100 rounded-2xl p-8 max-w-md w-full text-center animate-slide-up shadow-lg">
+            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckCircle className="w-8 h-8 text-emerald-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-bark-500 mb-2" style={{ fontFamily: 'var(--font-poppins)' }}>
+              Request submitted
+            </h2>
+            <p className="text-bark-500/70">{sampleNotice}</p>
+          </div>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-8">

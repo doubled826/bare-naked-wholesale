@@ -24,7 +24,7 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -32,7 +32,7 @@ export default function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        const { data: { session } } = await supabase.auth.getSession();
+        const session = data?.session;
         const adminCheck = await fetch('/api/admin/check', {
           headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined,
         });
