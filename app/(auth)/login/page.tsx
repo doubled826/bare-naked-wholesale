@@ -32,7 +32,10 @@ export default function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        const adminCheck = await fetch('/api/admin/check');
+        const { data: { session } } = await supabase.auth.getSession();
+        const adminCheck = await fetch('/api/admin/check', {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined,
+        });
         const adminData = await adminCheck.json();
         if (adminData?.isAdmin) {
           router.push('/admin/dashboard');
