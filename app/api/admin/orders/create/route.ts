@@ -141,10 +141,15 @@ export async function POST(request: Request) {
         }))
       );
 
+      const samplesNote = order.include_samples
+        ? '\nSamples: INCLUDE SAMPLES (requested by retailer)\n'
+        : '';
+
       const emailText = `
 New Wholesale Order Received!
 
 Order Number: ${orderNumber}
+${samplesNote}
 
 Customer Information:
 - Business Name: ${retailer?.company_name || 'Not provided'}

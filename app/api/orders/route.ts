@@ -2,6 +2,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { formatOrderItemsText, sendRetailerEmail, sendTeamEmail } from '@/lib/email';
+import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
 export async function POST(request: Request) {
   try {
@@ -69,14 +70,16 @@ export async function POST(request: Request) {
     }
 
     if (sampleRequest?.id) {
-      const { error: sampleUpdateError } = await supabase
+      const adminClient = createSupabaseAdminClient();
+      const { error: sampleUpdateError } = await adminClient
         .from('sample_requests')
         .update({
           status: 'fulfilled',
           fulfilled_order_id: order.id,
           fulfilled_at: new Date().toISOString(),
         })
-        .eq('id', sampleRequest.id);
+        .eq('retailer_id', user.id)
+        .eq('status', 'pending');
       if (sampleUpdateError) {
         console.error('Sample request update error:', sampleUpdateError);
       }
@@ -110,10 +113,15 @@ export async function POST(request: Request) {
         }))
       );
 
+      const samplesNote = order.include_samples
+        ? '\nSamples: INCLUDE SAMPLES (requested by retailer)\n'
+        : '';
+
       const emailText = `
 New Wholesale Order Received!
 
 Order Number: ${orderNumber}
+${samplesNote}
 
 Customer Information:
 - Business Name: ${companyName}
@@ -168,10 +176,11 @@ Thank you for choosing Bare Naked Pet Co.!
       // Don't fail the order if email fails
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       orderNumber,
-      orderId: order.id 
+      orderId: order.id,
+      includeSamples: !!sampleRequest?.id,
     });
 
   } catch (error) {
