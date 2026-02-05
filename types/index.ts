@@ -5,9 +5,6 @@ export interface Retailer {
   business_address: string;
   phone: string;
   account_number: string;
-  invoice_url?: string;
-  invoice_sent_at?: string;
-  invoice_sent_count?: number;
   email?: string;
   tax_id?: string;  // Add this line
   created_at?: string;
@@ -54,6 +51,9 @@ export interface Order {
   tracking_number?: string;
   tracking_carrier?: string;
   include_samples?: boolean;
+  invoice_url?: string;
+  invoice_sent_at?: string;
+  invoice_sent_count?: number;
   shipped_at?: string;
   subtotal: number;
   total: number;

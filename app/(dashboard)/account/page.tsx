@@ -177,20 +177,6 @@ export default function AccountPage() {
                   <p className="text-xs text-bark-500/50 mt-1">Your unique wholesale account number</p>
                 </div>
 
-                {retailer?.invoice_url && (
-                  <div className="p-4 bg-cream-200 rounded-xl">
-                    <p className="text-sm text-bark-500/70 mb-3">QuickBooks Invoice</p>
-                    <a
-                      href={retailer.invoice_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="btn-primary inline-flex items-center"
-                    >
-                      View Invoice
-                    </a>
-                  </div>
-                )}
-
                 {/* Business Name */}
                 <div>
                   <label htmlFor="businessName" className="label">Business Name</label>

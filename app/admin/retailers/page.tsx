@@ -5,7 +5,7 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Search, Users, Edit2, Eye, X, CheckCircle, ShoppingCart, DollarSign } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
 
-interface Retailer { id: string; company_name: string; business_address: string; phone: string; account_number: string; invoice_url?: string; invoice_sent_at?: string | null; invoice_sent_count?: number | null; created_at: string; email?: string }
+interface Retailer { id: string; company_name: string; business_address: string; phone: string; account_number: string; created_at: string; email?: string }
 interface RetailerWithStats extends Retailer { total_orders: number; total_spent: number; last_order_date: string | null }
 interface Order { id: string; order_number: string; status: string; total: number; created_at: string }
 
@@ -18,9 +18,8 @@ export default function AdminRetailersPage() {
   const [selectedRetailer, setSelectedRetailer] = useState<RetailerWithStats | null>(null);
   const [retailerOrders, setRetailerOrders] = useState<Order[]>([]);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editForm, setEditForm] = useState({ company_name: '', business_address: '', phone: '', invoice_url: '' });
+  const [editForm, setEditForm] = useState({ company_name: '', business_address: '', phone: '' });
   const [isUpdating, setIsUpdating] = useState(false);
-  const [isSendingInvoice, setIsSendingInvoice] = useState(false);
   const [notification, setNotification] = useState('');
 
   useEffect(() => { fetchRetailers(); }, []);
@@ -55,40 +54,17 @@ export default function AdminRetailersPage() {
     setRetailerOrders(orders || []);
   };
 
-  const handleEditRetailer = (retailer: RetailerWithStats) => { setSelectedRetailer(retailer); setEditForm({ company_name: retailer.company_name || '', business_address: retailer.business_address || '', phone: retailer.phone || '', invoice_url: retailer.invoice_url || '' }); setShowEditModal(true); };
+  const handleEditRetailer = (retailer: RetailerWithStats) => { setSelectedRetailer(retailer); setEditForm({ company_name: retailer.company_name || '', business_address: retailer.business_address || '', phone: retailer.phone || '' }); setShowEditModal(true); };
 
   const handleUpdateRetailer = async () => {
     if (!selectedRetailer) return;
     setIsUpdating(true);
     try {
-      const { error } = await supabase.from('retailers').update({ company_name: editForm.company_name, business_address: editForm.business_address, phone: editForm.phone, invoice_url: editForm.invoice_url || null }).eq('id', selectedRetailer.id);
+      const { error } = await supabase.from('retailers').update({ company_name: editForm.company_name, business_address: editForm.business_address, phone: editForm.phone }).eq('id', selectedRetailer.id);
       if (error) throw error;
       showNotification('Retailer updated!'); setShowEditModal(false); setSelectedRetailer(null); fetchRetailers();
     } catch (error) { console.error('Error:', error); showNotification('Failed to update'); }
     finally { setIsUpdating(false); }
-  };
-
-  const handleSendInvoice = async () => {
-    if (!selectedRetailer || !editForm.invoice_url) {
-      showNotification('Add an invoice URL first');
-      return;
-    }
-    setIsSendingInvoice(true);
-    try {
-      const res = await fetch('/api/admin/retailers/send-invoice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ retailerId: selectedRetailer.id, invoiceUrl: editForm.invoice_url }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'Failed to send invoice');
-      showNotification('Invoice email sent!');
-    } catch (error) {
-      console.error('Send invoice error:', error);
-      showNotification('Failed to send invoice');
-    } finally {
-      setIsSendingInvoice(false);
-    }
   };
 
   const getStatusColor = (s: string) => { switch (s) { case 'pending': return 'bg-yellow-100 text-yellow-800'; case 'shipped': return 'bg-purple-100 text-purple-800'; case 'delivered': return 'bg-green-100 text-green-800'; default: return 'bg-gray-100 text-gray-800'; } };
@@ -134,15 +110,6 @@ export default function AdminRetailersPage() {
             <div className="sticky top-0 bg-white p-6 border-b border-gray-100 flex items-center justify-between"><h3 className="text-lg font-semibold text-gray-900">Retailer Details</h3><button onClick={() => { setSelectedRetailer(null); setRetailerOrders([]); }} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5 text-gray-500" /></button></div>
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-2 gap-4"><div><p className="text-sm text-gray-500">Company Name</p><p className="font-medium text-gray-900">{selectedRetailer.company_name}</p></div><div><p className="text-sm text-gray-500">Account Number</p><p className="font-mono text-gray-900">{selectedRetailer.account_number}</p></div><div><p className="text-sm text-gray-500">Phone</p><p className="font-medium text-gray-900">{selectedRetailer.phone}</p></div><div><p className="text-sm text-gray-500">Member Since</p><p className="font-medium text-gray-900">{new Date(selectedRetailer.created_at).toLocaleDateString()}</p></div><div className="col-span-2"><p className="text-sm text-gray-500">Business Address</p><p className="font-medium text-gray-900">{selectedRetailer.business_address}</p></div></div>
-              <div className="bg-cream-200 rounded-xl p-4">
-                <p className="text-sm text-bark-500/70">Invoice Sent</p>
-                <p className="font-medium text-bark-500">
-                  {selectedRetailer.invoice_sent_at ? new Date(selectedRetailer.invoice_sent_at).toLocaleDateString() : 'Not sent'}
-                </p>
-                <p className="text-xs text-bark-500/60 mt-1">
-                  Sent {selectedRetailer.invoice_sent_count || 0} time(s)
-                </p>
-              </div>
               <div className="grid grid-cols-3 gap-4 border-t border-gray-100 pt-6"><div className="text-center p-4 bg-gray-50 rounded-lg"><p className="text-2xl font-bold text-gray-900">{selectedRetailer.total_orders}</p><p className="text-sm text-gray-500">Total Orders</p></div><div className="text-center p-4 bg-gray-50 rounded-lg"><p className="text-2xl font-bold text-gray-900">{formatCurrency(selectedRetailer.total_spent)}</p><p className="text-sm text-gray-500">Total Spent</p></div><div className="text-center p-4 bg-gray-50 rounded-lg"><p className="text-2xl font-bold text-gray-900">{selectedRetailer.total_orders > 0 ? formatCurrency(selectedRetailer.total_spent / selectedRetailer.total_orders) : '$0'}</p><p className="text-sm text-gray-500">Avg. Order</p></div></div>
               <div className="border-t border-gray-100 pt-6"><h4 className="font-medium text-gray-900 mb-4">Order History</h4>{retailerOrders.length === 0 ? <p className="text-gray-500 text-center py-8">No orders yet</p> : <div className="space-y-2">{retailerOrders.map((order) => <div key={order.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div><p className="font-medium text-gray-900">{order.order_number}</p><p className="text-sm text-gray-500">{new Date(order.created_at).toLocaleDateString()}</p></div><div className="flex items-center gap-3"><span className={cn("px-2.5 py-0.5 rounded-full text-xs font-medium capitalize", getStatusColor(order.status))}>{order.status}</span><span className="font-medium text-gray-900">{formatCurrency(order.total)}</span></div></div>)}</div>}</div>
               <div className="flex justify-end pt-4"><button onClick={() => handleEditRetailer(selectedRetailer)} className="px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 flex items-center gap-2"><Edit2 className="w-4 h-4" />Edit Retailer</button></div>
@@ -159,18 +126,6 @@ export default function AdminRetailersPage() {
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label><input type="text" value={editForm.company_name} onChange={(e) => setEditForm({ ...editForm, company_name: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Business Address</label><textarea value={editForm.business_address} onChange={(e) => setEditForm({ ...editForm, business_address: e.target.value })} rows={3} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="text" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">QuickBooks Invoice URL</label>
-                <input type="url" value={editForm.invoice_url} onChange={(e) => setEditForm({ ...editForm, invoice_url: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" placeholder="https://app.qbo.intuit.com/..." />
-                {selectedRetailer?.invoice_sent_at && (
-                  <p className="text-xs text-gray-500 mt-2">
-                    Last sent {new Date(selectedRetailer.invoice_sent_at).toLocaleDateString()} ({selectedRetailer.invoice_sent_count || 0} total)
-                  </p>
-                )}
-              </div>
-              <button onClick={handleSendInvoice} disabled={isSendingInvoice || !editForm.invoice_url} className="w-full px-4 py-2 border border-bark-500 text-bark-500 rounded-lg hover:bg-cream-200 disabled:opacity-50">
-                {isSendingInvoice ? 'Sending Invoice...' : 'Email Invoice Link'}
-              </button>
               <div className="flex gap-3 pt-4"><button onClick={() => { setShowEditModal(false); setSelectedRetailer(null); }} className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">Cancel</button><button onClick={handleUpdateRetailer} disabled={isUpdating} className="flex-1 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 disabled:opacity-50 flex items-center justify-center">{isUpdating ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Save Changes'}</button></div>
             </div>
           </div>

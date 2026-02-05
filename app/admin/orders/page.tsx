@@ -6,7 +6,7 @@ import { Search, Truck, Package, Download, X, CheckCircle, Eye, Plus, Trash2 } f
 import { formatCurrency, cn } from '@/lib/utils';
 
 interface OrderItem { id: string; quantity: number; unit_price: number; total_price: number; product: { name: string; size: string } }
-interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; include_samples?: boolean | null; promotion_code: string | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; order_items: OrderItem[] }
+interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; include_samples?: boolean | null; promotion_code: string | null; invoice_url?: string | null; invoice_sent_at?: string | null; invoice_sent_count?: number | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; order_items: OrderItem[] }
 interface RetailerOption { id: string; company_name: string }
 interface ProductOption { id: string; name: string; size: string; price: number }
 
@@ -23,7 +23,9 @@ export default function AdminOrdersPage() {
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState('');
   const [trackingCarrier, setTrackingCarrier] = useState('UPS');
+  const [invoiceUrl, setInvoiceUrl] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isSendingInvoice, setIsSendingInvoice] = useState(false);
   const [notification, setNotification] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [retailers, setRetailers] = useState<RetailerOption[]>([]);
@@ -39,8 +41,10 @@ export default function AdminOrdersPage() {
       const { data, error } = await supabase.from('orders').select('*, retailer:retailers(id, company_name, business_address, phone), order_items(id, quantity, unit_price, total_price, product:products(name, size))').order('created_at', { ascending: false });
       if (error) throw error;
       setOrders(data || []);
+      return data || [];
     } catch (error) { console.error('Error:', error); }
     finally { setIsLoading(false); }
+    return [];
   };
 
   const fetchOptions = async () => {
@@ -69,6 +73,11 @@ export default function AdminOrdersPage() {
 
   const handleShipOrder = (order: Order) => { setSelectedOrder(order); setTrackingNumber(order.tracking_number || ''); setTrackingCarrier(order.tracking_carrier || 'UPS'); setShowTrackingModal(true); };
 
+  const handleOpenOrderDetails = (order: Order) => {
+    setSelectedOrder(order);
+    setInvoiceUrl(order.invoice_url || '');
+  };
+
   const confirmShipOrder = async () => {
     if (!selectedOrder) return;
     setIsUpdating(true);
@@ -89,6 +98,42 @@ export default function AdminOrdersPage() {
       setShowTrackingModal(false); setSelectedOrder(null); fetchOrders();
     } catch (error) { console.error('Error:', error); showNotification('Failed to update order'); }
     finally { setIsUpdating(false); }
+  };
+
+  const handleSendInvoice = async () => {
+    if (!selectedOrder || !invoiceUrl) {
+      showNotification('Add an invoice URL first');
+      return;
+    }
+    setIsSendingInvoice(true);
+    try {
+      const response = await fetch('/api/admin/retailers/send-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: selectedOrder.id, invoiceUrl }),
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Failed to send invoice');
+      showNotification('Invoice email sent!');
+      const refreshedOrders = await fetchOrders();
+      const refreshed = refreshedOrders.find((o: Order) => o.id === selectedOrder.id);
+      if (refreshed) {
+        setSelectedOrder(refreshed);
+        setInvoiceUrl(refreshed.invoice_url || invoiceUrl);
+      } else {
+        setSelectedOrder({
+          ...selectedOrder,
+          invoice_url: invoiceUrl,
+          invoice_sent_at: new Date().toISOString(),
+          invoice_sent_count: (selectedOrder.invoice_sent_count || 0) + 1,
+        });
+      }
+    } catch (error) {
+      console.error('Send invoice error:', error);
+      showNotification('Failed to send invoice');
+    } finally {
+      setIsSendingInvoice(false);
+    }
   };
 
   const handleUpdateStatus = async (orderId: string, newStatus: string) => {
@@ -219,7 +264,7 @@ export default function AdminOrdersPage() {
                         <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">Samples</span>
                       )}
                       <button onClick={() => handleShipOrder(order)} className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg" title="Ship Order"><Truck className="w-4 h-4" /></button>
-                      <button onClick={() => setSelectedOrder(order)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg" title="View Details"><Eye className="w-4 h-4" /></button>
+                      <button onClick={() => handleOpenOrderDetails(order)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg" title="View Details"><Eye className="w-4 h-4" /></button>
                     </div>
                   </td>
                 </tr>
@@ -327,11 +372,29 @@ export default function AdminOrdersPage() {
       {selectedOrder && !showTrackingModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white p-6 border-b border-gray-100 flex items-center justify-between"><h3 className="text-lg font-semibold text-gray-900">Order Details</h3><button onClick={() => setSelectedOrder(null)} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5 text-gray-500" /></button></div>
+            <div className="sticky top-0 bg-white p-6 border-b border-gray-100 flex items-center justify-between"><h3 className="text-lg font-semibold text-gray-900">Order Details</h3><button onClick={() => { setSelectedOrder(null); setInvoiceUrl(''); }} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5 text-gray-500" /></button></div>
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-2 gap-4"><div><p className="text-sm text-gray-500">Order Number</p><p className="font-medium text-gray-900">{selectedOrder.order_number}</p></div><div><p className="text-sm text-gray-500">Status</p><span className={cn("inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium capitalize", getStatusColor(selectedOrder.status))}>{selectedOrder.status}</span></div><div><p className="text-sm text-gray-500">Order Date</p><p className="font-medium text-gray-900">{new Date(selectedOrder.created_at).toLocaleDateString()}</p></div><div><p className="text-sm text-gray-500">Delivery Date</p><p className="font-medium text-gray-900">{selectedOrder.delivery_date ? new Date(selectedOrder.delivery_date).toLocaleDateString() : 'Not specified'}</p></div></div>
               <div className="border-t border-gray-100 pt-4"><h4 className="font-medium text-gray-900 mb-3">Retailer Information</h4><div className="bg-gray-50 rounded-lg p-4"><p className="font-medium text-gray-900">{selectedOrder.retailer?.company_name}</p><p className="text-sm text-gray-600 mt-1">{selectedOrder.retailer?.business_address}</p><p className="text-sm text-gray-600">{selectedOrder.retailer?.phone}</p></div></div>
               <div className="border-t border-gray-100 pt-4"><h4 className="font-medium text-gray-900 mb-3">Order Items</h4><div className="space-y-2">{selectedOrder.order_items?.map((item) => <div key={item.id} className="flex justify-between py-2 border-b border-gray-100 last:border-0"><div><p className="font-medium text-gray-900">{item.product?.name}</p><p className="text-sm text-gray-500">{item.product?.size} × {item.quantity}</p></div><p className="font-medium text-gray-900">{formatCurrency(item.total_price)}</p></div>)}</div></div>
+              <div className="border-t border-gray-100 pt-4 space-y-3">
+                <h4 className="font-medium text-gray-900">QuickBooks Invoice</h4>
+                <input
+                  type="url"
+                  value={invoiceUrl}
+                  onChange={(e) => setInvoiceUrl(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  placeholder="https://app.qbo.intuit.com/..."
+                />
+                {selectedOrder.invoice_sent_at && (
+                  <p className="text-xs text-gray-500">
+                    Last sent {new Date(selectedOrder.invoice_sent_at).toLocaleDateString()} ({selectedOrder.invoice_sent_count || 0} total)
+                  </p>
+                )}
+                <button onClick={handleSendInvoice} disabled={isSendingInvoice || !invoiceUrl} className="px-4 py-2 border border-bark-500 text-bark-500 rounded-lg hover:bg-cream-200 disabled:opacity-50">
+                  {isSendingInvoice ? 'Sending Invoice...' : 'Email Invoice Link'}
+                </button>
+              </div>
               <div className="border-t border-gray-100 pt-4">
                 {selectedOrder.include_samples && (
                   <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold px-3 py-1">

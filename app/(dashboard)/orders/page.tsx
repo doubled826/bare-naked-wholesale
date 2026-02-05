@@ -285,6 +285,19 @@ export default function OrdersPage() {
                           Samples included with this order
                         </div>
                       )}
+                      {order.invoice_url && (
+                        <div className="mb-6 rounded-xl bg-cream-200/70 border border-cream-200 p-4">
+                          <h4 className="text-sm font-semibold text-bark-500/70 mb-2">Invoice</h4>
+                          <a
+                            href={order.invoice_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn-primary inline-flex items-center"
+                          >
+                            View QuickBooks Invoice
+                          </a>
+                        </div>
+                      )}
                       <h4 className="text-sm font-semibold text-bark-500/70 mb-4">Order Items</h4>
                       <div className="space-y-3">
                         {orderItems?.map((item, index: number) => {
