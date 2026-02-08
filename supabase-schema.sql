@@ -40,6 +40,23 @@ CREATE TABLE IF NOT EXISTS announcements (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Resources table (training & marketing assets)
+CREATE TABLE IF NOT EXISTS resources (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  title TEXT NOT NULL,
+  description TEXT,
+  category TEXT,
+  file_url TEXT NOT NULL,
+  file_name TEXT,
+  file_type TEXT,
+  file_size INTEGER,
+  preview_url TEXT,
+  sort_order INTEGER DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Sample requests table
 CREATE TABLE IF NOT EXISTS sample_requests (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -92,6 +109,7 @@ ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sample_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for retailers
 CREATE POLICY "Users can view their own retailer profile"
@@ -182,6 +200,27 @@ CREATE POLICY "Admins can manage announcements"
     )
   );
 
+-- RLS Policies for resources
+CREATE POLICY "Retailers can view active resources"
+  ON resources FOR SELECT
+  TO authenticated
+  USING (is_active = true);
+
+CREATE POLICY "Admins can manage resources"
+  ON resources FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
 -- Function to generate order numbers
 CREATE OR REPLACE FUNCTION generate_order_number()
 RETURNS TEXT AS $$
@@ -210,6 +249,9 @@ CREATE TRIGGER update_orders_updated_at BEFORE UPDATE ON orders
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_announcements_updated_at BEFORE UPDATE ON announcements
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_resources_updated_at BEFORE UPDATE ON resources
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Insert initial products

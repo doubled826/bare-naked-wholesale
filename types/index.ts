@@ -108,3 +108,19 @@ export interface DashboardStats {
   totalRetailers: number;
   totalProducts: number;
 }
+
+export interface Resource {
+  id: string;
+  title: string;
+  description?: string;
+  category?: string;
+  file_url: string;
+  file_name?: string;
+  file_type?: string;
+  file_size?: number;
+  preview_url?: string;
+  sort_order?: number;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}

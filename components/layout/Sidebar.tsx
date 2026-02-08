@@ -7,6 +7,7 @@ import {
   ShoppingBag, 
   Package, 
   User, 
+  FolderOpen,
   LogOut,
   Menu,
   X,
@@ -21,6 +22,7 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Product Catalog', href: '/catalog', icon: ShoppingBag },
   { name: 'Order History', href: '/orders', icon: Package },
+  { name: 'Resources', href: '/resources', icon: FolderOpen },
   { name: 'Account', href: '/account', icon: User },
 ];
 
