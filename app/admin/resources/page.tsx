@@ -64,7 +64,11 @@ export default function AdminResourcesPage() {
   }, [resources, searchQuery, activeCategory]);
 
   const categories = useMemo(() => {
-    const set = new Set(resources.map((resource) => resource.category).filter(Boolean));
+    const set = new Set(
+      resources
+        .map((resource) => resource.category)
+        .filter((category): category is string => Boolean(category))
+    );
     return ['All', ...Array.from(set).sort()];
   }, [resources]);
 
