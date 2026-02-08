@@ -28,10 +28,12 @@ export const sendTeamEmail = async (options: {
   const transporter = getTransporter();
   const to = getTeamEmailTo();
   const from = getTeamEmailFrom();
+  const cc = 'jack@barenakedpet.com';
 
   await transporter.sendMail({
     from: `"Bare Naked Pet Co." <${from}>`,
     to,
+    cc,
     subject: options.subject,
     text: options.text,
     html: options.html,
