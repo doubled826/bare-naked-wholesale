@@ -31,9 +31,9 @@ const normalizeDriveUrl = (input: string, mode: 'download' | 'view') => {
   const trimmed = input.trim();
 
   const idMatch =
-    trimmed.match(/\\/file\\/d\\/([^/]+)/) ||
+    trimmed.match(/\/file\/d\/([^/]+)/) ||
     trimmed.match(/[?&]id=([^&]+)/) ||
-    trimmed.match(/\\/d\\/([^/]+)/);
+    trimmed.match(/\/d\/([^/]+)/);
 
   if (!idMatch) return trimmed;
 
