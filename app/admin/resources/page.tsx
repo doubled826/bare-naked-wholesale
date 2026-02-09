@@ -26,6 +26,22 @@ const formatFileSize = (size?: number) => {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const normalizeDriveUrl = (input: string, mode: 'download' | 'view') => {
+  if (!input) return input;
+  const trimmed = input.trim();
+
+  const idMatch =
+    trimmed.match(/\\/file\\/d\\/([^/]+)/) ||
+    trimmed.match(/[?&]id=([^&]+)/) ||
+    trimmed.match(/\\/d\\/([^/]+)/);
+
+  if (!idMatch) return trimmed;
+
+  const id = idMatch[1];
+  const action = mode === 'download' ? 'download' : 'view';
+  return `https://drive.google.com/uc?export=${action}&id=${id}`;
+};
+
 const emptyResource: Partial<Resource> = {
   title: '',
   description: '',
@@ -500,9 +516,23 @@ export default function AdminResourcesPage() {
                     className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
                     placeholder="https://..."
                   />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Use this if the file is hosted elsewhere or you are not uploading a file.
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          file_url: normalizeDriveUrl(prev.file_url || '', 'download'),
+                        }))
+                      }
+                      className="text-xs font-semibold text-bark-500 hover:text-bark-600"
+                    >
+                      Convert Google Drive link
+                    </button>
+                    <span className="text-xs text-gray-500">
+                      Use if the file is hosted elsewhere or you are not uploading a file.
+                    </span>
+                  </div>
                 </div>
 
                 <div className="col-span-2">
@@ -527,6 +557,21 @@ export default function AdminResourcesPage() {
                         Current: {formData.preview_url}
                       </div>
                     ) : null}
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                      <span>Or paste a Google Drive image link in File URL and click convert.</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            preview_url: normalizeDriveUrl(prev.preview_url || prev.file_url || '', 'view'),
+                          }))
+                        }
+                        className="text-xs font-semibold text-bark-500 hover:text-bark-600"
+                      >
+                        Convert for thumbnail
+                      </button>
+                    </div>
                   </div>
                 </div>
 
