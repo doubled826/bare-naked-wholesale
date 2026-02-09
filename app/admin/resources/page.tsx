@@ -140,23 +140,20 @@ export default function AdminResourcesPage() {
   };
 
   const uploadFile = async (file: File) => {
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
-    const path = `${Date.now()}-${safeName}`;
+    const formData = new FormData();
+    formData.append('file', file);
 
-    const { error } = await supabase.storage
-      .from('resources')
-      .upload(path, file, { upsert: true });
+    const response = await fetch('/api/admin/resources/upload', {
+      method: 'POST',
+      body: formData,
+    });
 
-    if (error) throw error;
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to upload');
+    }
 
-    const { data } = supabase.storage.from('resources').getPublicUrl(path);
-
-    return {
-      url: data.publicUrl,
-      name: file.name,
-      type: file.type,
-      size: file.size,
-    };
+    return response.json();
   };
 
   const handleSubmit = async () => {
@@ -180,7 +177,7 @@ export default function AdminResourcesPage() {
         fileName = uploadResult.name;
         fileType = uploadResult.type;
         fileSize = uploadResult.size;
-        if (!previewUrl && uploadResult.type.startsWith('image/')) {
+        if (!previewUrl && uploadResult.type?.startsWith('image/')) {
           previewUrl = uploadResult.url;
         }
       }
