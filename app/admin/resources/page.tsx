@@ -51,6 +51,7 @@ export default function AdminResourcesPage() {
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [formData, setFormData] = useState<Partial<Resource>>(emptyResource);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedPreviewFile, setSelectedPreviewFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notification, setNotification] = useState({ message: '', type: '' });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -116,6 +117,7 @@ export default function AdminResourcesPage() {
     setIsEditing(false);
     setSelectedResource(null);
     setSelectedFile(null);
+    setSelectedPreviewFile(null);
     setFormData(emptyResource);
     setShowModal(true);
   };
@@ -124,6 +126,7 @@ export default function AdminResourcesPage() {
     setIsEditing(true);
     setSelectedResource(resource);
     setSelectedFile(null);
+    setSelectedPreviewFile(null);
     setFormData({
       title: resource.title,
       description: resource.description || '',
@@ -180,6 +183,11 @@ export default function AdminResourcesPage() {
         if (!previewUrl && uploadResult.type?.startsWith('image/')) {
           previewUrl = uploadResult.url;
         }
+      }
+
+      if (selectedPreviewFile) {
+        const previewUpload = await uploadFile(selectedPreviewFile);
+        previewUrl = previewUpload.url;
       }
 
       if (!fileUrl) {
@@ -498,14 +506,28 @@ export default function AdminResourcesPage() {
                 </div>
 
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Preview Image URL</label>
-                  <input
-                    type="text"
-                    value={formData.preview_url || ''}
-                    onChange={(event) => setFormData({ ...formData, preview_url: event.target.value })}
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
-                    placeholder="Optional thumbnail or cover image"
-                  />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Thumbnail Image</label>
+                  <div className="border border-dashed border-gray-300 rounded-xl p-4 flex flex-col gap-3">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(event) => setSelectedPreviewFile(event.target.files?.[0] || null)}
+                      className="text-sm text-gray-600"
+                    />
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <UploadCloud className="w-4 h-4" />
+                      Optional image used as the resource thumbnail.
+                    </div>
+                    {selectedPreviewFile ? (
+                      <div className="text-xs text-gray-500">
+                        Selected: {selectedPreviewFile.name} ({formatFileSize(selectedPreviewFile.size)})
+                      </div>
+                    ) : formData.preview_url ? (
+                      <div className="text-xs text-gray-500">
+                        Current: {formData.preview_url}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
 
                 <div className="col-span-2">
