@@ -17,6 +17,7 @@ export default function AdminOrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [quickRange, setQuickRange] = useState<'today' | 'yesterday' | 'last7' | 'last30' | ''>('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -67,6 +68,55 @@ export default function AdminOrdersPage() {
     if (startDate) filtered = filtered.filter(o => new Date(o.created_at) >= new Date(`${startDate}T00:00:00`));
     if (endDate) filtered = filtered.filter(o => new Date(o.created_at) <= new Date(`${endDate}T23:59:59.999`));
     setFilteredOrders(filtered);
+  };
+
+  const toLocalDateInput = (date: Date) => {
+    const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return localDate.toISOString().slice(0, 10);
+  };
+
+  const applyQuickRange = (range: 'today' | 'yesterday' | 'last7' | 'last30') => {
+    const now = new Date();
+    let start = new Date(now);
+    let end = new Date(now);
+
+    if (range === 'today') {
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+    }
+
+    if (range === 'yesterday') {
+      start.setDate(start.getDate() - 1);
+      end.setDate(end.getDate() - 1);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+    }
+
+    if (range === 'last7') {
+      start.setDate(start.getDate() - 6);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+    }
+
+    if (range === 'last30') {
+      start.setDate(start.getDate() - 29);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+    }
+
+    setQuickRange(range);
+    setStartDate(toLocalDateInput(start));
+    setEndDate(toLocalDateInput(end));
+  };
+
+  const handleStartDateChange = (value: string) => {
+    setQuickRange('');
+    setStartDate(value);
+  };
+
+  const handleEndDateChange = (value: string) => {
+    setQuickRange('');
+    setEndDate(value);
   };
 
   const showNotification = (msg: string) => { setNotification(msg); setTimeout(() => setNotification(''), 3000); };
@@ -225,8 +275,22 @@ export default function AdminOrdersPage() {
           <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" placeholder="Search orders..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
           <div className="flex flex-wrap gap-2 items-center">
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"><option value="all">All Status</option><option value="pending">Pending</option><option value="processing">Processing</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="canceled">Canceled</option></select>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
+            <div className="flex flex-wrap gap-2 items-center">
+              <button onClick={() => applyQuickRange('today')} className={cn("px-3 py-2 rounded-lg text-sm border", quickRange === 'today' ? "bg-bark-500 text-white border-bark-500" : "bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200")}>Today</button>
+              <button onClick={() => applyQuickRange('yesterday')} className={cn("px-3 py-2 rounded-lg text-sm border", quickRange === 'yesterday' ? "bg-bark-500 text-white border-bark-500" : "bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200")}>Yesterday</button>
+              <button onClick={() => applyQuickRange('last7')} className={cn("px-3 py-2 rounded-lg text-sm border", quickRange === 'last7' ? "bg-bark-500 text-white border-bark-500" : "bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200")}>Last 7 Days</button>
+              <button onClick={() => applyQuickRange('last30')} className={cn("px-3 py-2 rounded-lg text-sm border", quickRange === 'last30' ? "bg-bark-500 text-white border-bark-500" : "bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200")}>Last 30 Days</button>
+              {(startDate || endDate) && (
+                <button
+                  onClick={() => { setQuickRange(''); setStartDate(''); setEndDate(''); }}
+                  className="px-3 py-2 rounded-lg text-sm border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <input type="date" value={startDate} onChange={(e) => handleStartDateChange(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
+            <input type="date" value={endDate} onChange={(e) => handleEndDateChange(e.target.value)} className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
             <button onClick={exportToCSV} className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"><Download className="w-4 h-4" />Export CSV</button>
             <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600"><Plus className="w-4 h-4" />Create Order</button>
           </div>
