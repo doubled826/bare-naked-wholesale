@@ -8,7 +8,6 @@ import {
   Users, 
   Package,
   TrendingUp,
-  ArrowUpRight,
   Clock
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
@@ -18,11 +17,8 @@ interface DashboardStats {
   pendingOrders: number;
   shippedOrders: number;
   totalRevenue: number;
-  todayRevenue: number;
-  weekRevenue: number;
-  monthRevenue: number;
+  unitsSold: number;
   totalRetailers: number;
-  totalProducts: number;
 }
 
 interface TopProduct {
@@ -54,47 +50,52 @@ export default function AdminDashboard() {
   const fetchDashboardData = async () => {
     setIsLoading(true);
     try {
-      const { data: orders } = await supabase.from('orders').select('*');
+      const { data: orders } = await supabase
+        .from('orders')
+        .select('id, total, status, created_at, retailer:retailers(id, company_name)');
       const validOrders = (orders || []).filter(o => o.status !== 'canceled');
       const { data: retailers } = await supabase.from('retailers').select('id');
-      const { data: products } = await supabase.from('products').select('id');
 
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - today.getDay());
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const rangeStart = timeRange === 'day' ? today : timeRange === 'week' ? startOfWeek : startOfMonth;
+      const rangeOrders = validOrders.filter(o => new Date(o.created_at) >= rangeStart);
 
       const statsData: DashboardStats = {
-        totalOrders: validOrders.length,
-        pendingOrders: validOrders.filter(o => o.status === 'pending').length,
-        shippedOrders: validOrders.filter(o => o.status === 'shipped').length,
-        totalRevenue: validOrders.reduce((sum, o) => sum + (o.total || 0), 0),
-        todayRevenue: validOrders.filter(o => new Date(o.created_at) >= today).reduce((sum, o) => sum + (o.total || 0), 0),
-        weekRevenue: validOrders.filter(o => new Date(o.created_at) >= weekAgo).reduce((sum, o) => sum + (o.total || 0), 0),
-        monthRevenue: validOrders.filter(o => new Date(o.created_at) >= monthAgo).reduce((sum, o) => sum + (o.total || 0), 0),
+        totalOrders: rangeOrders.length,
+        pendingOrders: rangeOrders.filter(o => o.status === 'pending').length,
+        shippedOrders: rangeOrders.filter(o => o.status === 'shipped').length,
+        totalRevenue: rangeOrders.reduce((sum, o) => sum + (o.total || 0), 0),
+        unitsSold: 0,
         totalRetailers: retailers?.length || 0,
-        totalProducts: products?.length || 0,
       };
       setStats(statsData);
 
       // Top products
-      const { data: orderItems } = await supabase.from('order_items').select('quantity, total_price, product:products(id, name, size)');
+      const { data: orderItems } = await supabase
+        .from('order_items')
+        .select('quantity, total_price, product:products(id, name, size), order:orders(created_at, status)');
       const productSales = new Map<string, { name: string; size: string; total_sold: number; total_revenue: number }>();
+      let unitsSold = 0;
       orderItems?.forEach((item: any) => {
-        if (item.product) {
+        if (item.product && item.order && item.order.status !== 'canceled' && new Date(item.order.created_at) >= rangeStart) {
           const key = item.product.id;
           const existing = productSales.get(key) || { name: item.product.name, size: item.product.size, total_sold: 0, total_revenue: 0 };
           existing.total_sold += item.quantity;
           existing.total_revenue += item.total_price;
           productSales.set(key, existing);
+          unitsSold += item.quantity;
         }
       });
       setTopProducts(Array.from(productSales.entries()).map(([id, data]) => ({ id, ...data })).sort((a, b) => b.total_sold - a.total_sold).slice(0, 5));
+      setStats(prev => prev ? { ...prev, unitsSold } : prev);
 
       // Top retailers
-      const { data: retailerOrders } = await supabase.from('orders').select('total, status, retailer:retailers(id, company_name)');
       const retailerStats = new Map<string, { company_name: string; total_orders: number; total_spent: number }>();
-      retailerOrders?.forEach((order: any) => {
+      rangeOrders?.forEach((order: any) => {
         if (order.retailer && order.status !== 'canceled') {
           const key = order.retailer.id;
           const existing = retailerStats.get(key) || { company_name: order.retailer.company_name, total_orders: 0, total_spent: 0 };
@@ -166,13 +167,6 @@ export default function AdminDashboard() {
               <DollarSign className="w-6 h-6 text-emerald-600" />
             </div>
           </div>
-          <div className="mt-4 flex items-center text-sm">
-            <span className="text-emerald-600 font-medium flex items-center">
-              <ArrowUpRight className="w-4 h-4 mr-1" />
-              {formatCurrency(timeRange === 'day' ? stats?.todayRevenue || 0 : timeRange === 'week' ? stats?.weekRevenue || 0 : stats?.monthRevenue || 0)}
-            </span>
-            <span className="text-gray-500 ml-2">{timeRange === 'day' ? 'today' : timeRange === 'week' ? 'this week' : 'this month'}</span>
-          </div>
         </div>
 
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
@@ -212,15 +206,12 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Products</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{stats?.totalProducts}</p>
+              <p className="text-sm text-gray-500">Units Sold</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{stats?.unitsSold}</p>
             </div>
             <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
               <Package className="w-6 h-6 text-orange-600" />
             </div>
-          </div>
-          <div className="mt-4 flex items-center text-sm">
-            <span className="text-orange-600 font-medium">In catalog</span>
           </div>
         </div>
       </div>
