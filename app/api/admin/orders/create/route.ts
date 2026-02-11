@@ -2,7 +2,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
-import { formatOrderItemsText, sendRetailerEmail, sendTeamEmail } from '@/lib/email';
+import { formatOrderItemsText, formatTeamOrderItemsText, sendRetailerEmail, sendTeamEmail } from '@/lib/email';
 
 interface CreateOrderItemInput {
   productId: string;
@@ -141,6 +141,15 @@ export async function POST(request: Request) {
         }))
       );
 
+      const teamItemsList = formatTeamOrderItemsText(
+        normalizedItems.map((item) => ({
+          name: item.product.name,
+          size: item.product.size,
+          quantity: item.quantity,
+          price: Number(item.product.price),
+        }))
+      );
+
       const samplesNote = order.include_samples
         ? '\nSamples: INCLUDE SAMPLES (requested by retailer)\n'
         : '';
@@ -158,7 +167,7 @@ Customer Information:
 - Address: ${retailer?.business_address || 'Not provided'}
 
 Order Details:
-${itemsList}
+${teamItemsList}
 
 Subtotal: $${subtotal.toFixed(2)}
 Total: $${total.toFixed(2)}

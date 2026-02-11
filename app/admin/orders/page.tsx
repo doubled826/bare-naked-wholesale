@@ -10,6 +10,27 @@ interface Order { id: string; retailer_id: string; order_number: string; status:
 interface RetailerOption { id: string; company_name: string }
 interface ProductOption { id: string; name: string; size: string; price: number }
 
+const normalizeText = (value?: string) => (value || '').toLowerCase().trim();
+const normalizeSize = (value?: string) => normalizeText(value).replace(/\s+/g, '');
+const sizeStartsWith = (value: string, target: '6' | '12') => value.startsWith(target);
+
+const getAdminOrderItemSortIndex = (item: OrderItem) => {
+  const name = normalizeText(item.product?.name);
+  const size = normalizeSize(item.product?.size);
+
+  if (name.includes('chicken') && sizeStartsWith(size, '6')) return 0;
+  if (name.includes('chicken') && sizeStartsWith(size, '12')) return 1;
+  if (name.includes('salmon') && sizeStartsWith(size, '6')) return 2;
+  if (name.includes('salmon') && sizeStartsWith(size, '12')) return 3;
+  if (name.includes('beef') && sizeStartsWith(size, '6')) return 4;
+  if (name.includes('beef') && sizeStartsWith(size, '12')) return 5;
+  if (name.includes('lamb')) return 6;
+  if (name.includes('minnow')) return 7;
+  if (name.includes('bison')) return 8;
+
+  return 999;
+};
+
 export default function AdminOrdersPage() {
   const supabase = createClientComponentClient();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -440,7 +461,7 @@ export default function AdminOrdersPage() {
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-2 gap-4"><div><p className="text-sm text-gray-500">Order Number</p><p className="font-medium text-gray-900">{selectedOrder.order_number}</p></div><div><p className="text-sm text-gray-500">Status</p><span className={cn("inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium capitalize", getStatusColor(selectedOrder.status))}>{selectedOrder.status}</span></div><div><p className="text-sm text-gray-500">Order Date</p><p className="font-medium text-gray-900">{new Date(selectedOrder.created_at).toLocaleDateString()}</p></div><div><p className="text-sm text-gray-500">Delivery Date</p><p className="font-medium text-gray-900">{selectedOrder.delivery_date ? new Date(selectedOrder.delivery_date).toLocaleDateString() : 'Not specified'}</p></div></div>
               <div className="border-t border-gray-100 pt-4"><h4 className="font-medium text-gray-900 mb-3">Retailer Information</h4><div className="bg-gray-50 rounded-lg p-4"><p className="font-medium text-gray-900">{selectedOrder.retailer?.company_name}</p><p className="text-sm text-gray-600 mt-1">{selectedOrder.retailer?.business_address}</p><p className="text-sm text-gray-600">{selectedOrder.retailer?.phone}</p></div></div>
-              <div className="border-t border-gray-100 pt-4"><h4 className="font-medium text-gray-900 mb-3">Order Items</h4><div className="space-y-2">{selectedOrder.order_items?.map((item) => <div key={item.id} className="flex justify-between py-2 border-b border-gray-100 last:border-0"><div><p className="font-medium text-gray-900">{item.product?.name}</p><p className="text-sm text-gray-500">{item.product?.size} × {item.quantity}</p></div><p className="font-medium text-gray-900">{formatCurrency(item.total_price)}</p></div>)}</div></div>
+              <div className="border-t border-gray-100 pt-4"><h4 className="font-medium text-gray-900 mb-3">Order Items</h4><div className="space-y-2">{[...(selectedOrder.order_items || [])].sort((a, b) => { const indexDiff = getAdminOrderItemSortIndex(a) - getAdminOrderItemSortIndex(b); if (indexDiff !== 0) return indexDiff; const nameDiff = normalizeText(a.product?.name).localeCompare(normalizeText(b.product?.name)); if (nameDiff !== 0) return nameDiff; return normalizeSize(a.product?.size).localeCompare(normalizeSize(b.product?.size)); }).map((item) => <div key={item.id} className="flex justify-between py-2 border-b border-gray-100 last:border-0"><div><p className="font-medium text-gray-900">{item.product?.name}</p><p className="text-sm text-gray-500">{item.product?.size} × {item.quantity}</p></div><p className="font-medium text-gray-900">{formatCurrency(item.total_price)}</p></div>)}</div></div>
               <div className="border-t border-gray-100 pt-4 space-y-3">
                 <h4 className="font-medium text-gray-900">QuickBooks Invoice</h4>
                 <input
