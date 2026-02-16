@@ -21,8 +21,8 @@ export async function POST(request: Request) {
     const subtotal = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
     const total = subtotal; // Add tax/shipping logic if needed
 
-    // Generate order number
-    const orderNumber = `ORD-${Date.now().toString().slice(-8)}`;
+    // Generate order number (avoid collisions with unique constraint)
+    const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
     const { data: sampleRequest } = await supabase
       .from('sample_requests')
@@ -49,7 +49,15 @@ export async function POST(request: Request) {
 
     if (orderError) {
       console.error('Order error:', orderError);
-      return NextResponse.json({ error: 'Failed to create order' }, { status: 500 });
+      return NextResponse.json(
+        {
+          error: 'Failed to create order',
+          details: orderError.message,
+          code: orderError.code,
+          hint: orderError.hint,
+        },
+        { status: 500 }
+      );
     }
 
     // Create order items

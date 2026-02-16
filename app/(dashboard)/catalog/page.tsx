@@ -26,6 +26,7 @@ export default function CatalogPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [notification, setNotification] = useState('');
+  const [submitError, setSubmitError] = useState('');
 
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -120,6 +121,7 @@ export default function CatalogPage() {
     if (cart.length === 0) return;
     
     setIsSubmitting(true);
+    setSubmitError('');
     
     try {
       const response = await fetch('/api/orders', {
@@ -132,7 +134,19 @@ export default function CatalogPage() {
         }),
       });
 
-      const data = await response.json();
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        data = null;
+      }
+
+      if (!response.ok || !data?.success) {
+        const errorMessage = data?.error || `Request failed (${response.status})`;
+        setSubmitError(errorMessage);
+        showNotificationMessage('Order failed: ' + errorMessage);
+        return;
+      }
 
       if (data.success) {
         try {
@@ -151,10 +165,9 @@ export default function CatalogPage() {
           setOrderSuccess(false);
           setShowCart(false);
         }, 3000);
-      } else {
-        showNotificationMessage('Order failed: ' + data.error);
       }
     } catch (error) {
+      setSubmitError('Order submission failed');
       showNotificationMessage('Order submission failed');
     } finally {
       setIsSubmitting(false);
@@ -164,14 +177,14 @@ export default function CatalogPage() {
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       {notification && (
-        <div className="fixed top-20 lg:top-6 right-6 z-50 bg-cream-100 border border-cream-200 rounded-xl p-4 shadow-lg animate-slide-up flex items-center gap-3">
+        <div className="fixed top-20 lg:top-6 right-6 z-[60] bg-cream-100 border border-cream-200 rounded-xl p-4 shadow-lg animate-slide-up flex items-center gap-3">
           <CheckCircle className="w-5 h-5 text-emerald-600" />
           <span className="text-bark-500 font-medium">{notification}</span>
         </div>
       )}
 
       {orderSuccess && (
-        <div className="fixed inset-0 bg-bark-500/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-bark-500/20 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <div className="bg-cream-100 rounded-2xl p-8 max-w-md w-full text-center animate-slide-up">
             <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="w-8 h-8 text-emerald-600" />
@@ -364,21 +377,24 @@ export default function CatalogPage() {
                         <span>Total</span>
                         <span>{formatCurrency(cartTotal)}</span>
                       </div>
-                      <button
-                        onClick={handleSubmitOrder}
-                        disabled={isSubmitting}
-                        className="btn-primary w-full"
-                      >
-                        {isSubmitting ? (
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                        ) : (
-                          'Submit Order'
-                        )}
-                      </button>
-                      <button
-                        onClick={() => setShowCheckout(false)}
-                        className="btn-secondary w-full mt-2"
-                      >
+                    <button
+                      onClick={handleSubmitOrder}
+                      disabled={isSubmitting}
+                      className="btn-primary w-full"
+                    >
+                      {isSubmitting ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        'Submit Order'
+                      )}
+                    </button>
+                    {submitError && (
+                      <p className="text-sm text-red-600 mt-2">{submitError}</p>
+                    )}
+                    <button
+                      onClick={() => setShowCheckout(false)}
+                      className="btn-secondary w-full mt-2"
+                    >
                         Back to Cart
                       </button>
                     </div>
