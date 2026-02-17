@@ -25,6 +25,14 @@ export default function AccountPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [userMetadata, setUserMetadata] = useState<any>(null);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
   
   const supabase = createClientComponentClient();
 
@@ -115,6 +123,67 @@ export default function AccountPage() {
       console.error('Error saving profile:', error);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handlePasswordUpdate = async () => {
+    setIsUpdatingPassword(true);
+    setPasswordError('');
+    setPasswordSuccess(false);
+
+    try {
+      if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+        setPasswordError('Please fill out all password fields.');
+        return;
+      }
+
+      if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+        setPasswordError('New password and confirmation do not match.');
+        return;
+      }
+
+      if (passwordForm.newPassword.length < 8) {
+        setPasswordError('New password must be at least 8 characters.');
+        return;
+      }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.email) {
+        setPasswordError('Unable to verify your account. Please sign in again.');
+        return;
+      }
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: passwordForm.currentPassword,
+      });
+
+      if (signInError) {
+        setPasswordError('Current password is incorrect.');
+        return;
+      }
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: passwordForm.newPassword,
+      });
+
+      if (updateError) {
+        setPasswordError(updateError.message);
+        return;
+      }
+
+      setPasswordSuccess(true);
+      setPasswordForm({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+      });
+      setTimeout(() => setPasswordSuccess(false), 3000);
+    } catch (error) {
+      console.error('Error updating password:', error);
+      setPasswordError('An unexpected error occurred. Please try again.');
+    } finally {
+      setIsUpdatingPassword(false);
     }
   };
 
@@ -304,22 +373,62 @@ export default function AccountPage() {
                   <p className="text-sm text-bark-500/70 mb-4">
                     Update your password to keep your account secure
                   </p>
+                  {passwordError && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
+                      {passwordError}
+                    </div>
+                  )}
+                  {passwordSuccess && (
+                    <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4" />
+                      Password updated successfully
+                    </div>
+                  )}
                   <div className="space-y-3 max-w-md">
                     <div>
                       <label className="label">Current Password</label>
-                      <input type="password" className="input" placeholder="••••••••" />
+                      <input
+                        type="password"
+                        className="input"
+                        placeholder="••••••••"
+                        value={passwordForm.currentPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                        autoComplete="current-password"
+                      />
                     </div>
                     <div>
                       <label className="label">New Password</label>
-                      <input type="password" className="input" placeholder="••••••••" />
+                      <input
+                        type="password"
+                        className="input"
+                        placeholder="••••••••"
+                        value={passwordForm.newPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                        autoComplete="new-password"
+                      />
                     </div>
                     <div>
                       <label className="label">Confirm New Password</label>
-                      <input type="password" className="input" placeholder="••••••••" />
+                      <input
+                        type="password"
+                        className="input"
+                        placeholder="••••••••"
+                        value={passwordForm.confirmPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                        autoComplete="new-password"
+                      />
                     </div>
                   </div>
-                  <button className="btn-primary mt-4">
-                    Update Password
+                  <button
+                    className="btn-primary mt-4"
+                    onClick={handlePasswordUpdate}
+                    disabled={isUpdatingPassword}
+                  >
+                    {isUpdatingPassword ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      'Update Password'
+                    )}
                   </button>
                 </div>
               </div>
