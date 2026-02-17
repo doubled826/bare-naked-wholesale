@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Search, Users, Edit2, Eye, X, CheckCircle, ShoppingCart, DollarSign } from 'lucide-react';
+import { Search, Users, Edit2, Eye, X, CheckCircle, ShoppingCart, DollarSign, Plus, Mail } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
 
-interface Retailer { id: string; company_name: string; business_address: string; phone: string; account_number: string; created_at: string; email?: string }
+interface Retailer { id: string; company_name: string; business_address: string; phone: string; account_number: string; created_at: string; status?: string; email?: string }
 interface RetailerWithStats extends Retailer { total_orders: number; total_spent: number; last_order_date: string | null }
 interface Order { id: string; order_number: string; status: string; total: number; created_at: string }
 
@@ -21,6 +21,17 @@ export default function AdminRetailersPage() {
   const [editForm, setEditForm] = useState({ company_name: '', business_address: '', phone: '' });
   const [isUpdating, setIsUpdating] = useState(false);
   const [notification, setNotification] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [resendInviteId, setResendInviteId] = useState<string | null>(null);
+  const [createForm, setCreateForm] = useState({
+    company_name: '',
+    business_address: '',
+    phone: '',
+    contact_name: '',
+    email: '',
+    tax_id: '',
+  });
 
   useEffect(() => { fetchRetailers(); }, []);
   useEffect(() => { filterRetailers(); }, [retailers, searchQuery]);
@@ -69,13 +80,76 @@ export default function AdminRetailersPage() {
 
   const getStatusColor = (s: string) => { switch (s) { case 'pending': return 'bg-yellow-100 text-yellow-800'; case 'shipped': return 'bg-purple-100 text-purple-800'; case 'delivered': return 'bg-green-100 text-green-800'; default: return 'bg-gray-100 text-gray-800'; } };
 
+  const handleResendInvite = async (retailer: RetailerWithStats) => {
+    setResendInviteId(retailer.id);
+    try {
+      const response = await fetch('/api/admin/retailers/resend-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ retailerId: retailer.id }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || 'Failed to resend invite');
+      showNotification('Invite resent!');
+    } catch (error) {
+      console.error('Error:', error);
+      showNotification('Failed to resend invite');
+    } finally {
+      setResendInviteId(null);
+    }
+  };
+
+  const handleCreateRetailer = async () => {
+    if (!createForm.company_name || !createForm.email) {
+      showNotification('Company name and email are required');
+      return;
+    }
+    setIsCreating(true);
+    try {
+      const response = await fetch('/api/admin/retailers/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessName: createForm.company_name,
+          businessAddress: createForm.business_address,
+          name: createForm.contact_name,
+          email: createForm.email,
+          phone: createForm.phone,
+          taxId: createForm.tax_id,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || 'Failed to create retailer');
+      showNotification('Invite sent! Retailer can set a password from the email.');
+      setShowCreateModal(false);
+      setCreateForm({ company_name: '', business_address: '', phone: '', contact_name: '', email: '', tax_id: '' });
+      fetchRetailers();
+    } catch (error) {
+      console.error('Error:', error);
+      showNotification('Failed to create retailer');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   if (isLoading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-bark-500"></div></div>;
 
   return (
     <div className="space-y-6">
       {notification && <div className="fixed top-20 right-6 z-50 bg-white border border-gray-200 rounded-xl p-4 shadow-lg flex items-center gap-3"><CheckCircle className="w-5 h-5 text-emerald-600" /><span className="text-gray-900 font-medium">{notification}</span></div>}
 
-      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100"><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" /><input type="text" placeholder="Search retailers..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div></div>
+      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-xl">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input type="text" placeholder="Search retailers..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
+          </div>
+          <button onClick={() => setShowCreateModal(true)} className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600">
+            <Plus className="w-4 h-4" />
+            New Retailer
+          </button>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center"><Users className="w-5 h-5 text-purple-600" /></div><div><p className="text-sm text-gray-500">Total Retailers</p><p className="text-xl font-bold text-gray-900">{retailers.length}</p></div></div></div>
@@ -96,7 +170,22 @@ export default function AdminRetailersPage() {
                   <td className="px-6 py-4"><span className="font-medium text-gray-900">{retailer.total_orders}</span></td>
                   <td className="px-6 py-4 font-medium text-gray-900">{formatCurrency(retailer.total_spent)}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">{retailer.last_order_date ? new Date(retailer.last_order_date).toLocaleDateString() : 'Never'}</td>
-                  <td className="px-6 py-4"><div className="flex items-center gap-2"><button onClick={() => handleViewRetailer(retailer)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"><Eye className="w-4 h-4" /></button><button onClick={() => handleEditRetailer(retailer)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 className="w-4 h-4" /></button></div></td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => handleViewRetailer(retailer)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"><Eye className="w-4 h-4" /></button>
+                      <button onClick={() => handleEditRetailer(retailer)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 className="w-4 h-4" /></button>
+                      {retailer.status === 'pending' && (
+                        <button
+                          onClick={() => handleResendInvite(retailer)}
+                          disabled={resendInviteId === retailer.id}
+                          className="p-2 text-emerald-700 hover:bg-emerald-50 rounded-lg disabled:opacity-50"
+                          title="Resend invite"
+                        >
+                          {resendInviteId === retailer.id ? <div className="w-4 h-4 border-2 border-emerald-700/30 border-t-emerald-700 rounded-full animate-spin" /> : <Mail className="w-4 h-4" />}
+                        </button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -127,6 +216,33 @@ export default function AdminRetailersPage() {
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Business Address</label><textarea value={editForm.business_address} onChange={(e) => setEditForm({ ...editForm, business_address: e.target.value })} rows={3} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="text" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
               <div className="flex gap-3 pt-4"><button onClick={() => { setShowEditModal(false); setSelectedRetailer(null); }} className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">Cancel</button><button onClick={handleUpdateRetailer} disabled={isUpdating} className="flex-1 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 disabled:opacity-50 flex items-center justify-center">{isUpdating ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Save Changes'}</button></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-semibold text-gray-900">Create Retailer</h3>
+              <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5 text-gray-500" /></button>
+            </div>
+            <div className="space-y-4">
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label><input type="text" value={createForm.company_name} onChange={(e) => setCreateForm({ ...createForm, company_name: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Contact Name</label><input type="text" value={createForm.contact_name} onChange={(e) => setCreateForm({ ...createForm, contact_name: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
+                <p className="text-xs text-gray-500 mt-1">An invite email will be sent to set a password.</p>
+              </div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="text" value={createForm.phone} onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Business Address</label><textarea value={createForm.business_address} onChange={(e) => setCreateForm({ ...createForm, business_address: e.target.value })} rows={3} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Tax ID (optional)</label><input type="text" value={createForm.tax_id} onChange={(e) => setCreateForm({ ...createForm, tax_id: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
+              <div className="flex gap-3 pt-4">
+                <button onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">Cancel</button>
+                <button onClick={handleCreateRetailer} disabled={isCreating} className="flex-1 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 disabled:opacity-50 flex items-center justify-center">{isCreating ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Create Retailer'}</button>
+              </div>
             </div>
           </div>
         </div>

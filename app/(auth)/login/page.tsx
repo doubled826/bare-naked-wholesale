@@ -37,6 +37,17 @@ export default function LoginPage() {
         if (adminData?.isAdmin) {
           router.push('/admin/dashboard');
         } else {
+          if (data?.user?.id) {
+            try {
+              await supabase
+                .from('retailers')
+                .update({ status: 'active' })
+                .eq('id', data.user.id)
+                .eq('status', 'pending');
+            } catch (statusError) {
+              console.error('Failed to update retailer status:', statusError);
+            }
+          }
           router.push('/dashboard');
         }
       }
