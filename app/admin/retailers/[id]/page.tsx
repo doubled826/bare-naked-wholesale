@@ -21,7 +21,7 @@ interface OrderItem {
   id: string;
   quantity: number;
   total_price: number;
-  product: { name: string; size: string };
+  product: { name: string; size: string } | { name: string; size: string }[] | null;
 }
 
 interface Order {
@@ -73,7 +73,8 @@ const buildSkuStats = (orders: Order[]) => {
   const skuMap = new Map<string, { label: string; quantity: number; total: number }>();
   orders.forEach((order) => {
     order.order_items?.forEach((item) => {
-      const label = `${item.product?.name || 'Unknown'} • ${item.product?.size || '—'}`;
+      const product = Array.isArray(item.product) ? item.product[0] : item.product;
+      const label = `${product?.name || 'Unknown'} • ${product?.size || '—'}`;
       const entry = skuMap.get(label);
       if (entry) {
         entry.quantity += item.quantity || 0;
@@ -85,6 +86,15 @@ const buildSkuStats = (orders: Order[]) => {
   });
   return Array.from(skuMap.values()).sort((a, b) => b.quantity - a.quantity);
 };
+
+const normalizeOrders = (orders: Order[]) =>
+  orders.map((order) => ({
+    ...order,
+    order_items: (order.order_items || []).map((item) => ({
+      ...item,
+      product: Array.isArray(item.product) ? item.product[0] ?? null : item.product ?? null,
+    })),
+  }));
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -166,7 +176,7 @@ export default function AdminRetailerDetailPage() {
         if (ordersError) throw ordersError;
 
         setRetailer(retailerData);
-        setOrders(ordersData || []);
+        setOrders(normalizeOrders((ordersData || []) as Order[]));
       } catch (fetchError) {
         console.error('Error loading retailer details:', fetchError);
         setError('Unable to load retailer details.');
