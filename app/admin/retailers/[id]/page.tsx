@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { ArrowLeft, ArrowUpRight, Calendar, ChartLine, ClipboardList, Clock, Package, TrendingDown, TrendingUp } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 
 interface Retailer {
@@ -280,7 +280,7 @@ export default function AdminRetailerDetailPage() {
               <p className="text-2xl font-semibold text-gray-900 mt-2">{formatCurrency(orderStats.totalSpent)}</p>
             </div>
             <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600">
-              <ChartLine className="w-5 h-5" />
+              <LineChart className="w-5 h-5" />
             </div>
           </div>
         </div>
