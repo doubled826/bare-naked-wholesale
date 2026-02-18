@@ -99,7 +99,7 @@ const getStatusColor = (status: string) => {
   }
 };
 
-const LineChart = ({ points }: { points: QuarterPoint[] }) => {
+const OrdersLineChart = ({ points }: { points: QuarterPoint[] }) => {
   if (points.length === 0) {
     return <div className="h-48 flex items-center justify-center text-sm text-gray-500">No order history yet</div>;
   }
@@ -335,7 +335,7 @@ export default function AdminRetailerDetailPage() {
               </div>
             )}
           </div>
-          <LineChart points={quarterPoints} />
+          <OrdersLineChart points={quarterPoints} />
         </div>
       </div>
 
