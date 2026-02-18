@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Search, Truck, Package, Download, X, CheckCircle, Eye, Plus, Trash2 } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
@@ -33,6 +34,8 @@ const getAdminOrderItemSortIndex = (item: OrderItem) => {
 
 export default function AdminOrdersPage() {
   const supabase = createClientComponentClient();
+  const searchParams = useSearchParams();
+  const orderParam = searchParams.get('order');
   const [orders, setOrders] = useState<Order[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -57,6 +60,11 @@ export default function AdminOrdersPage() {
 
   useEffect(() => { fetchOrders(); fetchOptions(); }, []);
   useEffect(() => { filterOrders(); }, [orders, searchQuery, statusFilter, startDate, endDate]);
+  useEffect(() => {
+    if (!orderParam || orders.length === 0) return;
+    const matchingOrder = orders.find((order) => order.id === orderParam);
+    if (matchingOrder) setSelectedOrder(matchingOrder);
+  }, [orderParam, orders]);
 
   const fetchOrders = async () => {
     try {
