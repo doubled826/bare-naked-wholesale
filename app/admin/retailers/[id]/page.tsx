@@ -221,8 +221,6 @@ export default function AdminRetailerDetailPage() {
       } finally {
         setIsLoading(false);
       }
-    };
-
   };
 
   useEffect(() => {
