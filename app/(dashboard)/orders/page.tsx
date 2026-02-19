@@ -25,7 +25,7 @@ const statusConfig: Record<string, { icon: React.ElementType; color: string; bg:
 };
 
 export default function OrdersPage() {
-  const { orders, products } = useAppStore();
+  const { orders, products, retailer } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
@@ -208,6 +208,10 @@ export default function OrdersPage() {
             const orderItems = order.order_items as Array<{ product_id: string; quantity: number; total_price: number }> | undefined;
             const itemCount = orderItems?.reduce((sum: number, item) => sum + item.quantity, 0) || 0;
             const hasSamples = Boolean((order as any).include_samples);
+            const shipTo = (order as any).location as { location_name?: string; business_address?: string; phone?: string } | undefined;
+            const shipToName = shipTo?.location_name || retailer?.company_name;
+            const shipToAddress = shipTo?.business_address || retailer?.business_address;
+            const shipToPhone = shipTo?.phone || retailer?.phone;
 
             return (
               <div key={order.id} className="card overflow-hidden">
@@ -283,6 +287,16 @@ export default function OrdersPage() {
                       {hasSamples && (
                         <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold px-3 py-1">
                           Samples included with this order
+                        </div>
+                      )}
+                      {(shipToName || shipToAddress || shipToPhone) && (
+                        <div className="mb-6 rounded-xl bg-cream-200/70 border border-cream-200 p-4">
+                          <h4 className="text-sm font-semibold text-bark-500/70 mb-2">Ship-To Location</h4>
+                          <div className="text-sm text-bark-500/80 space-y-1">
+                            {shipToName && <p className="text-bark-500">{shipToName}</p>}
+                            {shipToAddress && <p>{shipToAddress}</p>}
+                            {shipToPhone && <p>{shipToPhone}</p>}
+                          </div>
                         </div>
                       )}
                       {order.invoice_url && (

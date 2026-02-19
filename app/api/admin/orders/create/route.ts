@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const { retailerId, items, deliveryDate, promotionCode } = await request.json();
+    const { retailerId, items, deliveryDate, promotionCode, locationId } = await request.json();
 
     if (!retailerId || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: 'Invalid order payload' }, { status: 400 });
@@ -73,11 +73,28 @@ export async function POST(request: Request) {
       .eq('status', 'pending')
       .single();
 
+    let shipToLocation: { id: string; location_name: string; business_address: string; phone: string | null } | null = null;
+    if (locationId) {
+      const { data: location, error: locationError } = await adminClient
+        .from('retailer_locations')
+        .select('id, location_name, business_address, phone')
+        .eq('id', locationId)
+        .eq('retailer_id', retailerId)
+        .single();
+
+      if (locationError || !location) {
+        return NextResponse.json({ error: 'Invalid ship-to location' }, { status: 400 });
+      }
+
+      shipToLocation = location;
+    }
+
     const { data: order, error: orderError } = await adminClient
       .from('orders')
       .insert({
         order_number: orderNumber,
         retailer_id: retailerId,
+        location_id: shipToLocation?.id ?? null,
         status: 'pending',
         delivery_date: deliveryDate || null,
         promotion_code: promotionCode || null,
@@ -154,6 +171,10 @@ export async function POST(request: Request) {
         ? '\nSamples: INCLUDE SAMPLES (requested by retailer)\n'
         : '';
 
+      const shipToName = shipToLocation?.location_name || retailer?.company_name || 'Not provided';
+      const shipToAddress = shipToLocation?.business_address || retailer?.business_address || 'Not provided';
+      const shipToPhone = shipToLocation?.phone || retailer?.phone || 'Not provided';
+
       const emailText = `
 New Wholesale Order Received!
 
@@ -165,6 +186,11 @@ Customer Information:
 - Email: ${retailerEmail}
 - Phone: ${retailer?.phone || 'Not provided'}
 - Address: ${retailer?.business_address || 'Not provided'}
+
+Ship-To Location:
+- Name: ${shipToName}
+- Address: ${shipToAddress}
+- Phone: ${shipToPhone}
 
 Order Details:
 ${teamItemsList}
@@ -197,6 +223,11 @@ Order Details:
 ${itemsList}
 
 Total: $${total.toFixed(2)}
+
+Ship-To Location:
+- Name: ${shipToName}
+- Address: ${shipToAddress}
+- Phone: ${shipToPhone}
 
 We'll notify you when your order ships.
 

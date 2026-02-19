@@ -7,9 +7,10 @@ import { Search, Truck, Package, Download, X, CheckCircle, Eye, Plus, Trash2 } f
 import { formatCurrency, cn } from '@/lib/utils';
 
 interface OrderItem { id: string; quantity: number; unit_price: number; total_price: number; product: { name: string; size: string } }
-interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; include_samples?: boolean | null; promotion_code: string | null; invoice_url?: string | null; invoice_sent_at?: string | null; invoice_sent_count?: number | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; order_items: OrderItem[] }
+interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; include_samples?: boolean | null; promotion_code: string | null; invoice_url?: string | null; invoice_sent_at?: string | null; invoice_sent_count?: number | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; location?: { id: string; location_name: string; business_address: string; phone: string | null } | null; order_items: OrderItem[] }
 interface RetailerOption { id: string; company_name: string }
 interface ProductOption { id: string; name: string; size: string; price: number }
+interface LocationOption { id: string; location_name: string; business_address: string; phone: string | null; is_default: boolean }
 
 const normalizeText = (value?: string) => (value || '').toLowerCase().trim();
 const normalizeSize = (value?: string) => normalizeText(value).replace(/\s+/g, '');
@@ -55,8 +56,10 @@ export default function AdminOrdersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [retailers, setRetailers] = useState<RetailerOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
-  const [newOrder, setNewOrder] = useState({ retailerId: '', deliveryDate: '', promotionCode: '', items: [{ productId: '', quantity: 1 }] });
+  const [newOrder, setNewOrder] = useState({ retailerId: '', deliveryDate: '', promotionCode: '', locationId: '', items: [{ productId: '', quantity: 1 }] });
   const [isCreating, setIsCreating] = useState(false);
+  const [locationOptions, setLocationOptions] = useState<LocationOption[]>([]);
+  const [locationsLoading, setLocationsLoading] = useState(false);
 
   useEffect(() => { fetchOrders(); fetchOptions(); }, []);
   useEffect(() => { filterOrders(); }, [orders, searchQuery, statusFilter, startDate, endDate]);
@@ -66,9 +69,49 @@ export default function AdminOrdersPage() {
     if (matchingOrder) setSelectedOrder(matchingOrder);
   }, [orderParam, orders]);
 
+  useEffect(() => {
+    const fetchLocationsForRetailer = async () => {
+      if (!newOrder.retailerId) {
+        setLocationOptions([]);
+        setNewOrder((prev) => ({ ...prev, locationId: '' }));
+        return;
+      }
+
+      setLocationsLoading(true);
+      const { data, error } = await supabase
+        .from('retailer_locations')
+        .select('id, location_name, business_address, phone, is_default')
+        .eq('retailer_id', newOrder.retailerId)
+        .order('is_default', { ascending: false })
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Error loading locations:', error);
+        setLocationOptions([]);
+        setLocationsLoading(false);
+        return;
+      }
+
+      const nextLocations = (data || []) as LocationOption[];
+      setLocationOptions(nextLocations);
+      if (nextLocations.length > 0) {
+        const defaultLocation = nextLocations.find((loc) => loc.is_default);
+        setNewOrder((prev) => ({ ...prev, locationId: defaultLocation?.id || nextLocations[0].id }));
+      } else {
+        setNewOrder((prev) => ({ ...prev, locationId: '' }));
+      }
+      setLocationsLoading(false);
+    };
+
+    fetchLocationsForRetailer();
+  }, [newOrder.retailerId, supabase]);
+
   const fetchOrders = async () => {
     try {
-      const { data, error } = await supabase.from('orders').select('*, retailer:retailers(id, company_name, business_address, phone), order_items(id, quantity, unit_price, total_price, product:products(name, size))').order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*, retailer:retailers(id, company_name, business_address, phone), location:retailer_locations(id, location_name, business_address, phone), order_items(id, quantity, unit_price, total_price, product:products(name, size))')
+        .order('created_at', { ascending: false });
       if (error) throw error;
       setOrders(data || []);
       return data || [];
@@ -274,6 +317,7 @@ export default function AdminOrdersPage() {
           retailerId: newOrder.retailerId,
           deliveryDate: newOrder.deliveryDate || null,
           promotionCode: newOrder.promotionCode || null,
+          locationId: newOrder.locationId || null,
           items: newOrder.items.map((item) => ({ productId: item.productId, quantity: Number(item.quantity) || 1 })),
         }),
       });
@@ -281,7 +325,8 @@ export default function AdminOrdersPage() {
       if (!data.success) throw new Error(data.error || 'Failed to create order');
       showNotification('Order created!');
       setShowCreateModal(false);
-      setNewOrder({ retailerId: '', deliveryDate: '', promotionCode: '', items: [{ productId: '', quantity: 1 }] });
+      setNewOrder({ retailerId: '', deliveryDate: '', promotionCode: '', locationId: '', items: [{ productId: '', quantity: 1 }] });
+      setLocationOptions([]);
       fetchOrders();
     } catch (error) {
       console.error('Create order error:', error);
@@ -384,6 +429,30 @@ export default function AdminOrdersPage() {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ship-To Location</label>
+                <select
+                  value={newOrder.locationId}
+                  onChange={(e) => setNewOrder({ ...newOrder, locationId: e.target.value })}
+                  disabled={!newOrder.retailerId || locationsLoading || locationOptions.length === 0}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500 disabled:opacity-60"
+                >
+                  {!newOrder.retailerId && <option value="">Select a retailer first</option>}
+                  {newOrder.retailerId && locationOptions.length === 0 && (
+                    <option value="">No locations on file (uses retailer address)</option>
+                  )}
+                  {locationOptions.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.location_name} — {location.business_address}
+                    </option>
+                  ))}
+                </select>
+                {newOrder.retailerId && locationOptions.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Defaults to the retailer&apos;s primary ship-to location.
+                  </p>
+                )}
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Date</label>
@@ -425,6 +494,21 @@ export default function AdminOrdersPage() {
               <div className="flex justify-between items-center border-t pt-4">
                 <span className="text-sm text-gray-600">Subtotal</span>
                 <span className="text-lg font-semibold text-gray-900">{formatCurrency(newOrderSubtotal)}</span>
+              </div>
+              <div className="border-t pt-4">
+                <p className="text-sm font-medium text-gray-700 mb-1">Ship-To Summary</p>
+                <div className="text-sm text-gray-600 space-y-1">
+                  <p className="font-medium text-gray-900">
+                    {locationOptions.find((loc) => loc.id === newOrder.locationId)?.location_name || 'Retailer default address'}
+                  </p>
+                  <p>
+                    {locationOptions.find((loc) => loc.id === newOrder.locationId)?.business_address ||
+                      'Uses retailer business address on file'}
+                  </p>
+                  {locationOptions.find((loc) => loc.id === newOrder.locationId)?.phone && (
+                    <p>{locationOptions.find((loc) => loc.id === newOrder.locationId)?.phone}</p>
+                  )}
+                </div>
               </div>
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setShowCreateModal(false)} className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">Cancel</button>
@@ -469,6 +553,16 @@ export default function AdminOrdersPage() {
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-2 gap-4"><div><p className="text-sm text-gray-500">Order Number</p><p className="font-medium text-gray-900">{selectedOrder.order_number}</p></div><div><p className="text-sm text-gray-500">Status</p><span className={cn("inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium capitalize", getStatusColor(selectedOrder.status))}>{selectedOrder.status}</span></div><div><p className="text-sm text-gray-500">Order Date</p><p className="font-medium text-gray-900">{new Date(selectedOrder.created_at).toLocaleDateString()}</p></div><div><p className="text-sm text-gray-500">Delivery Date</p><p className="font-medium text-gray-900">{selectedOrder.delivery_date ? new Date(selectedOrder.delivery_date).toLocaleDateString() : 'Not specified'}</p></div></div>
               <div className="border-t border-gray-100 pt-4"><h4 className="font-medium text-gray-900 mb-3">Retailer Information</h4><div className="bg-gray-50 rounded-lg p-4"><p className="font-medium text-gray-900">{selectedOrder.retailer?.company_name}</p><p className="text-sm text-gray-600 mt-1">{selectedOrder.retailer?.business_address}</p><p className="text-sm text-gray-600">{selectedOrder.retailer?.phone}</p></div></div>
+              <div className="border-t border-gray-100 pt-4">
+                <h4 className="font-medium text-gray-900 mb-3">Ship-To Location</h4>
+                <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600 space-y-1">
+                  <p className="font-medium text-gray-900">
+                    {selectedOrder.location?.location_name || selectedOrder.retailer?.company_name || 'Ship-To'}
+                  </p>
+                  <p>{selectedOrder.location?.business_address || selectedOrder.retailer?.business_address || 'No address on file'}</p>
+                  <p>{selectedOrder.location?.phone || selectedOrder.retailer?.phone || 'No phone on file'}</p>
+                </div>
+              </div>
               <div className="border-t border-gray-100 pt-4"><h4 className="font-medium text-gray-900 mb-3">Order Items</h4><div className="space-y-2">{[...(selectedOrder.order_items || [])].sort((a, b) => { const indexDiff = getAdminOrderItemSortIndex(a) - getAdminOrderItemSortIndex(b); if (indexDiff !== 0) return indexDiff; const nameDiff = normalizeText(a.product?.name).localeCompare(normalizeText(b.product?.name)); if (nameDiff !== 0) return nameDiff; return normalizeSize(a.product?.size).localeCompare(normalizeSize(b.product?.size)); }).map((item) => <div key={item.id} className="flex justify-between py-2 border-b border-gray-100 last:border-0"><div><p className="font-medium text-gray-900">{item.product?.name}</p><p className="text-sm text-gray-500">{item.product?.size} × {item.quantity}</p></div><p className="font-medium text-gray-900">{formatCurrency(item.total_price)}</p></div>)}</div></div>
               <div className="border-t border-gray-100 pt-4 space-y-3">
                 <h4 className="font-medium text-gray-900">QuickBooks Invoice</h4>

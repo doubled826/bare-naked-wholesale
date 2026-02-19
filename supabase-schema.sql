@@ -1,5 +1,6 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 1. Create a sequence for account numbers (starts at 1000)
 CREATE SEQUENCE IF NOT EXISTS retailer_account_seq START 1000;
@@ -67,11 +68,23 @@ CREATE TABLE IF NOT EXISTS sample_requests (
   fulfilled_at TIMESTAMPTZ
 );
 
+-- Retailer locations table
+CREATE TABLE IF NOT EXISTS retailer_locations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  retailer_id UUID REFERENCES retailers(id) ON DELETE CASCADE,
+  location_name TEXT NOT NULL,
+  business_address TEXT NOT NULL,
+  phone TEXT,
+  is_default BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Orders table
 CREATE TABLE orders (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   order_number TEXT UNIQUE NOT NULL,
   retailer_id UUID REFERENCES retailers(id) ON DELETE CASCADE,
+  location_id UUID REFERENCES retailer_locations(id) ON DELETE SET NULL,
   status TEXT DEFAULT 'pending',
   delivery_date DATE,
   promotion_code TEXT,
@@ -101,6 +114,7 @@ CREATE TABLE order_items (
 CREATE INDEX idx_orders_retailer_id ON orders(retailer_id);
 CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
 CREATE INDEX idx_order_items_order_id ON order_items(order_id);
+CREATE INDEX idx_retailer_locations_retailer_id ON retailer_locations(retailer_id);
 
 -- Enable Row Level Security
 ALTER TABLE retailers ENABLE ROW LEVEL SECURITY;
@@ -110,6 +124,7 @@ ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sample_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE retailer_locations ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for retailers
 CREATE POLICY "Users can view their own retailer profile"
@@ -128,6 +143,38 @@ CREATE POLICY "Users can view their own orders"
 CREATE POLICY "Users can create their own orders"
   ON orders FOR INSERT
   WITH CHECK (auth.uid() = retailer_id);
+
+-- RLS Policies for retailer_locations
+CREATE POLICY "Retailers can view their own locations"
+  ON retailer_locations FOR SELECT
+  USING (auth.uid() = retailer_id);
+
+CREATE POLICY "Retailers can create their own locations"
+  ON retailer_locations FOR INSERT
+  WITH CHECK (auth.uid() = retailer_id);
+
+CREATE POLICY "Retailers can update their own locations"
+  ON retailer_locations FOR UPDATE
+  USING (auth.uid() = retailer_id);
+
+CREATE POLICY "Retailers can delete their own locations"
+  ON retailer_locations FOR DELETE
+  USING (auth.uid() = retailer_id);
+
+CREATE POLICY "Admins can manage retailer locations"
+  ON retailer_locations FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
 
 CREATE POLICY "Users can view their own sample requests"
   ON sample_requests FOR SELECT
@@ -253,6 +300,10 @@ CREATE TRIGGER update_announcements_updated_at BEFORE UPDATE ON announcements
 
 CREATE TRIGGER update_resources_updated_at BEFORE UPDATE ON resources
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Ensure existing orders can add location_id column when migrating
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS location_id UUID REFERENCES retailer_locations(id) ON DELETE SET NULL;
 
 -- Insert initial products
 INSERT INTO products (name, size, price, image_url, category, description) VALUES

@@ -11,6 +11,16 @@ export interface Retailer {
   updated_at?: string;
 }
 
+export interface RetailerLocation {
+  id: string;
+  retailer_id: string;
+  location_name: string;
+  business_address: string;
+  phone?: string | null;
+  is_default: boolean;
+  created_at?: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -45,6 +55,7 @@ export interface Order {
   id: string;
   order_number: string;
   retailer_id: string;
+  location_id?: string | null;
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'canceled';
   delivery_date?: string;
   promotion_code?: string;

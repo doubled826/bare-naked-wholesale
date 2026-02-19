@@ -15,7 +15,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { items, deliveryDate, promotionCode } = await request.json();
+    const { items, deliveryDate, promotionCode, locationId } = await request.json();
+
+    let shipToLocation: { id: string; location_name: string; business_address: string; phone: string | null } | null = null;
+    if (locationId) {
+      const { data: location, error: locationError } = await supabase
+        .from('retailer_locations')
+        .select('id, location_name, business_address, phone')
+        .eq('id', locationId)
+        .eq('retailer_id', user.id)
+        .single();
+
+      if (locationError || !location) {
+        return NextResponse.json({ error: 'Invalid ship-to location' }, { status: 400 });
+      }
+
+      shipToLocation = location;
+    }
 
     // Calculate totals
     const subtotal = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
@@ -37,6 +53,7 @@ export async function POST(request: Request) {
       .insert({
         order_number: orderNumber,
         retailer_id: user.id,
+        location_id: shipToLocation?.id ?? null,
         status: 'pending',
         delivery_date: deliveryDate || null,
         promotion_code: promotionCode || null,
@@ -107,9 +124,12 @@ export async function POST(request: Request) {
                           user.user_metadata?.name ||
                           'Valued Customer';
 
-      const companyName = retailer?.company_name || 'Not provided';
-      const businessAddress = retailer?.business_address || 'Not provided';
-      const phone = retailer?.phone || 'Not provided';
+    const companyName = retailer?.company_name || 'Not provided';
+    const businessAddress = retailer?.business_address || 'Not provided';
+    const phone = retailer?.phone || 'Not provided';
+    const shipToName = shipToLocation?.location_name || companyName;
+    const shipToAddress = shipToLocation?.business_address || businessAddress;
+    const shipToPhone = shipToLocation?.phone || phone;
 
       // Format order items for email
       const itemsList = formatOrderItemsText(
@@ -147,6 +167,11 @@ Customer Information:
 - Phone: ${phone}
 - Address: ${businessAddress}
 
+Ship-To Location:
+- Name: ${shipToName}
+- Address: ${shipToAddress}
+- Phone: ${shipToPhone || 'Not provided'}
+
 Order Details:
 ${teamItemsList}
 
@@ -180,6 +205,11 @@ Order Details:
 ${itemsList}
 
 Total: $${total.toFixed(2)}
+
+Ship-To Location:
+- Name: ${shipToName}
+- Address: ${shipToAddress}
+- Phone: ${shipToPhone || 'Not provided'}
 
 We'll notify you when your order ships.
 
@@ -220,6 +250,7 @@ export async function GET(request: Request) {
       .from('orders')
       .select(`
         *,
+        location:retailer_locations(id, location_name, business_address, phone),
         order_items (
           *,
           product:products (*)

@@ -61,7 +61,7 @@ export default function DashboardLayout({
       // Load orders
       const { data: orders } = await supabase
         .from('orders')
-        .select(`*, order_items(*, product_id)`)
+        .select(`*, location:retailer_locations(id, location_name, business_address, phone), order_items(*, product_id)`)
         .eq('retailer_id', user.id)
         .order('created_at', { ascending: false })
         .limit(50);

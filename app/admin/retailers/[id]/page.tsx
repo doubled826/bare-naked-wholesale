@@ -35,6 +35,15 @@ interface Order {
   order_items: OrderItem[];
 }
 
+interface RetailerLocation {
+  id: string;
+  location_name: string;
+  business_address: string;
+  phone: string | null;
+  is_default: boolean;
+  created_at: string;
+}
+
 interface QuarterPoint {
   label: string;
   start: Date;
@@ -158,6 +167,7 @@ export default function AdminRetailerDetailPage() {
 
   const [retailer, setRetailer] = useState<Retailer | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [locations, setLocations] = useState<RetailerLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -167,16 +177,23 @@ export default function AdminRetailerDetailPage() {
       setIsLoading(true);
       setError('');
       try {
-        const [{ data: retailerData, error: retailerError }, { data: ordersData, error: ordersError }] = await Promise.all([
+        const [
+          { data: retailerData, error: retailerError },
+          { data: ordersData, error: ordersError },
+          { data: locationsData, error: locationsError },
+        ] = await Promise.all([
           supabase.from('retailers').select('id, company_name, business_address, phone, account_number, status, created_at').eq('id', retailerId).single(),
           supabase.from('orders').select('id, order_number, status, total, subtotal, include_samples, created_at, order_items(id, quantity, total_price, product:products(name, size))').eq('retailer_id', retailerId).order('created_at', { ascending: false }),
+          supabase.from('retailer_locations').select('id, location_name, business_address, phone, is_default, created_at').eq('retailer_id', retailerId).order('is_default', { ascending: false }).order('created_at', { ascending: true }),
         ]);
 
         if (retailerError) throw retailerError;
         if (ordersError) throw ordersError;
+        if (locationsError) throw locationsError;
 
         setRetailer(retailerData);
         setOrders(normalizeOrders((ordersData || []) as Order[]));
+        setLocations((locationsData || []) as RetailerLocation[]);
       } catch (fetchError) {
         console.error('Error loading retailer details:', fetchError);
         setError('Unable to load retailer details.');
@@ -347,6 +364,37 @@ export default function AdminRetailerDetailPage() {
           </div>
           <OrdersLineChart points={quarterPoints} />
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Locations</h2>
+        {locations.length === 0 ? (
+          <p className="text-sm text-gray-500">No ship-to locations on file.</p>
+        ) : (
+          <div className="space-y-3">
+            {locations.map((location) => (
+              <div key={location.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 rounded-lg border border-gray-100">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-gray-900">{location.location_name}</p>
+                    {location.is_default && (
+                      <span className="text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                        Default
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-500">{location.business_address}</p>
+                  {location.phone && (
+                    <p className="text-sm text-gray-500">{location.phone}</p>
+                  )}
+                </div>
+                <div className="text-xs text-gray-400">
+                  Added {new Date(location.created_at).toLocaleDateString()}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

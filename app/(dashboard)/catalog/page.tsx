@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { 
   Search, 
   Plus, 
@@ -14,19 +14,49 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
-import type { Product } from '@/types';
+import type { Product, RetailerLocation } from '@/types';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 export default function CatalogPage() {
-  const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart, setOrders } = useAppStore();
+  const supabase = createClientComponentClient();
+  const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart, setOrders, retailer } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState('');
   const [promoCode, setPromoCode] = useState('');
+  const [locations, setLocations] = useState<RetailerLocation[]>([]);
+  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [notification, setNotification] = useState('');
   const [submitError, setSubmitError] = useState('');
+
+  useEffect(() => {
+    const fetchLocations = async () => {
+      const { data: locationData, error } = await supabase
+        .from('retailer_locations')
+        .select('*')
+        .order('is_default', { ascending: false })
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Failed to load locations:', error);
+        return;
+      }
+
+      const nextLocations = (locationData || []) as RetailerLocation[];
+      setLocations(nextLocations);
+      if (nextLocations.length > 1) {
+        const defaultLocation = nextLocations.find((location) => location.is_default);
+        setSelectedLocationId(defaultLocation?.id || nextLocations[0]?.id || null);
+      } else {
+        setSelectedLocationId(null);
+      }
+    };
+
+    fetchLocations();
+  }, [supabase]);
 
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -124,13 +154,15 @@ export default function CatalogPage() {
     setSubmitError('');
     
     try {
+      const locationIdToSubmit = locations.length > 1 ? selectedLocationId : null;
       const response = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: cart,
           deliveryDate: deliveryDate || null,
-          promotionCode: promoCode || null
+          promotionCode: promoCode || null,
+          locationId: locationIdToSubmit || null,
         }),
       });
 
@@ -371,6 +403,31 @@ export default function CatalogPage() {
                         className="input"
                       />
                     </div>
+                    {locations.length > 1 ? (
+                      <div>
+                        <label className="label">Ship-To Location</label>
+                        <select
+                          value={selectedLocationId || ''}
+                          onChange={(e) => setSelectedLocationId(e.target.value)}
+                          className="input"
+                        >
+                          {locations.map((location) => (
+                            <option key={location.id} value={location.id}>
+                              {location.location_name} — {location.business_address}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedLocationId && (
+                          <p className="text-xs text-bark-500/60 mt-2">
+                            Ship to: {locations.find((location) => location.id === selectedLocationId)?.business_address}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-bark-500/60">
+                        Ship to: {retailer?.business_address || 'No address on file'}
+                      </div>
+                    )}
                     
                     <div className="pt-4 border-t border-cream-200">
                       <div className="flex justify-between text-lg font-bold text-bark-500 mb-4">

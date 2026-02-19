@@ -13,11 +13,16 @@ import {
   Check,
   CheckCircle,
   FileText,
-  Hash
+  Hash,
+  Plus,
+  Trash2,
+  Edit2,
+  Star
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import type { RetailerLocation } from '@/types';
 
 export default function AccountPage() {
   const { retailer } = useAppStore();
@@ -33,6 +38,26 @@ export default function AccountPage() {
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [locations, setLocations] = useState<RetailerLocation[]>([]);
+  const [locationsLoading, setLocationsLoading] = useState(false);
+  const [locationsError, setLocationsError] = useState('');
+  const [locationNotice, setLocationNotice] = useState('');
+  const [showAddLocation, setShowAddLocation] = useState(false);
+  const [newLocation, setNewLocation] = useState({
+    location_name: '',
+    business_address: '',
+    phone: '',
+    makeDefault: false,
+  });
+  const [editLocationId, setEditLocationId] = useState<string | null>(null);
+  const [editLocation, setEditLocation] = useState({
+    location_name: '',
+    business_address: '',
+    phone: '',
+  });
+  const [isSavingLocation, setIsSavingLocation] = useState(false);
+  const [isDeletingLocationId, setIsDeletingLocationId] = useState<string | null>(null);
+  const [isSettingDefaultId, setIsSettingDefaultId] = useState<string | null>(null);
   
   const supabase = createClientComponentClient();
 
@@ -46,6 +71,193 @@ export default function AccountPage() {
     };
     fetchUserData();
   }, [supabase.auth]);
+
+  const showLocationNotice = (message: string) => {
+    setLocationNotice(message);
+    setTimeout(() => setLocationNotice(''), 3000);
+  };
+
+  const fetchLocations = async () => {
+    setLocationsLoading(true);
+    setLocationsError('');
+    const { data, error } = await supabase
+      .from('retailer_locations')
+      .select('*')
+      .order('is_default', { ascending: false })
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error loading locations:', error);
+      setLocationsError('Unable to load locations.');
+      setLocationsLoading(false);
+      return;
+    }
+
+    setLocations((data || []) as RetailerLocation[]);
+    setLocationsLoading(false);
+  };
+
+  useEffect(() => {
+    fetchLocations();
+  }, [supabase]);
+
+  const handleAddLocation = async () => {
+    if (!newLocation.location_name.trim() || !newLocation.business_address.trim()) {
+      showLocationNotice('Location name and address are required.');
+      return;
+    }
+
+    setIsSavingLocation(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        showLocationNotice('Please sign in again.');
+        return;
+      }
+
+      const shouldBeDefault = newLocation.makeDefault || locations.length === 0;
+      const { data: insertedLocation, error } = await supabase
+        .from('retailer_locations')
+        .insert({
+          retailer_id: user.id,
+          location_name: newLocation.location_name.trim(),
+          business_address: newLocation.business_address.trim(),
+          phone: newLocation.phone.trim() || null,
+          is_default: shouldBeDefault,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      if (shouldBeDefault && insertedLocation?.id) {
+        await supabase
+          .from('retailer_locations')
+          .update({ is_default: false })
+          .eq('retailer_id', user.id)
+          .neq('id', insertedLocation.id);
+      }
+
+      setNewLocation({ location_name: '', business_address: '', phone: '', makeDefault: false });
+      setShowAddLocation(false);
+      showLocationNotice('Location added.');
+      fetchLocations();
+    } catch (error) {
+      console.error('Error adding location:', error);
+      showLocationNotice('Failed to add location.');
+    } finally {
+      setIsSavingLocation(false);
+    }
+  };
+
+  const handleEditLocation = (location: RetailerLocation) => {
+    setEditLocationId(location.id);
+    setEditLocation({
+      location_name: location.location_name,
+      business_address: location.business_address,
+      phone: location.phone || '',
+    });
+  };
+
+  const handleUpdateLocation = async () => {
+    if (!editLocationId) return;
+    if (!editLocation.location_name.trim() || !editLocation.business_address.trim()) {
+      showLocationNotice('Location name and address are required.');
+      return;
+    }
+
+    setIsSavingLocation(true);
+    try {
+      const { error } = await supabase
+        .from('retailer_locations')
+        .update({
+          location_name: editLocation.location_name.trim(),
+          business_address: editLocation.business_address.trim(),
+          phone: editLocation.phone.trim() || null,
+        })
+        .eq('id', editLocationId);
+
+      if (error) {
+        throw error;
+      }
+
+      setEditLocationId(null);
+      showLocationNotice('Location updated.');
+      fetchLocations();
+    } catch (error) {
+      console.error('Error updating location:', error);
+      showLocationNotice('Failed to update location.');
+    } finally {
+      setIsSavingLocation(false);
+    }
+  };
+
+  const handleSetDefaultLocation = async (locationId: string) => {
+    setIsSettingDefaultId(locationId);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        showLocationNotice('Please sign in again.');
+        return;
+      }
+
+      await supabase
+        .from('retailer_locations')
+        .update({ is_default: false })
+        .eq('retailer_id', user.id);
+
+      const { error } = await supabase
+        .from('retailer_locations')
+        .update({ is_default: true })
+        .eq('id', locationId);
+
+      if (error) {
+        throw error;
+      }
+
+      showLocationNotice('Default location updated.');
+      fetchLocations();
+    } catch (error) {
+      console.error('Error setting default location:', error);
+      showLocationNotice('Failed to update default.');
+    } finally {
+      setIsSettingDefaultId(null);
+    }
+  };
+
+  const handleDeleteLocation = async (location: RetailerLocation) => {
+    setIsDeletingLocationId(location.id);
+    try {
+      const { error } = await supabase
+        .from('retailer_locations')
+        .delete()
+        .eq('id', location.id);
+
+      if (error) {
+        throw error;
+      }
+
+      if (location.is_default) {
+        const remaining = locations.filter((loc) => loc.id !== location.id);
+        if (remaining.length > 0) {
+          await supabase
+            .from('retailer_locations')
+            .update({ is_default: true })
+            .eq('id', remaining[0].id);
+        }
+      }
+
+      showLocationNotice('Location removed.');
+      fetchLocations();
+    } catch (error) {
+      console.error('Error deleting location:', error);
+      showLocationNotice('Failed to delete location.');
+    } finally {
+      setIsDeletingLocationId(null);
+    }
+  };
 
   const [profile, setProfile] = useState({
     businessName: '',
@@ -190,6 +402,7 @@ export default function AccountPage() {
   const tabs = [
     { id: 'profile', label: 'Business Profile', icon: Building },
     { id: 'security', label: 'Security', icon: Lock },
+    { id: 'locations', label: 'Locations', icon: MapPin },
   ];
 
   return (
@@ -432,6 +645,208 @@ export default function AccountPage() {
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'locations' && (
+            <div className="card p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+                <div>
+                  <h2 className="section-title">Locations</h2>
+                  <p className="text-sm text-bark-500/70 mt-1">Manage ship-to addresses for your orders</p>
+                </div>
+                <button onClick={() => setShowAddLocation(true)} className="btn-primary">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Location
+                </button>
+              </div>
+
+              {locationNotice && (
+                <div className="mb-4 p-3 bg-cream-200 rounded-xl text-sm text-bark-500">
+                  {locationNotice}
+                </div>
+              )}
+
+              {locationsError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
+                  {locationsError}
+                </div>
+              )}
+
+              {showAddLocation && (
+                <div className="mb-6 p-4 bg-cream-200 rounded-xl space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">Location Name</label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={newLocation.location_name}
+                        onChange={(e) => setNewLocation({ ...newLocation, location_name: e.target.value })}
+                        placeholder="Warehouse, Storefront, etc."
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Phone (Optional)</label>
+                      <input
+                        type="tel"
+                        className="input"
+                        value={newLocation.phone}
+                        onChange={(e) => setNewLocation({ ...newLocation, phone: e.target.value })}
+                        placeholder="(555) 555-5555"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="label">Business Address</label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={newLocation.business_address}
+                        onChange={(e) => setNewLocation({ ...newLocation, business_address: e.target.value })}
+                        placeholder="123 Main St, City, State ZIP"
+                      />
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-bark-500">
+                    <input
+                      type="checkbox"
+                      checked={newLocation.makeDefault}
+                      onChange={(e) => setNewLocation({ ...newLocation, makeDefault: e.target.checked })}
+                      className="rounded border-cream-300 text-bark-500 focus:ring-bark-500"
+                    />
+                    Make this the default ship-to location
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button onClick={handleAddLocation} disabled={isSavingLocation} className="btn-primary">
+                      {isSavingLocation ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Location'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowAddLocation(false);
+                        setNewLocation({ location_name: '', business_address: '', phone: '', makeDefault: false });
+                      }}
+                      className="btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {locationsLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <div className="w-8 h-8 border-2 border-bark-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : locations.length === 0 ? (
+                <div className="p-6 bg-cream-200 rounded-xl text-sm text-bark-500/70">
+                  No locations added yet. Add a location to manage alternate ship-to addresses.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {locations.map((location) => (
+                    <div key={location.id} className="p-4 bg-cream-200 rounded-xl">
+                      {editLocationId === location.id ? (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="label">Location Name</label>
+                              <input
+                                type="text"
+                                className="input"
+                                value={editLocation.location_name}
+                                onChange={(e) => setEditLocation({ ...editLocation, location_name: e.target.value })}
+                              />
+                            </div>
+                            <div>
+                              <label className="label">Phone (Optional)</label>
+                              <input
+                                type="tel"
+                                className="input"
+                                value={editLocation.phone}
+                                onChange={(e) => setEditLocation({ ...editLocation, phone: e.target.value })}
+                              />
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="label">Business Address</label>
+                              <input
+                                type="text"
+                                className="input"
+                                value={editLocation.business_address}
+                                onChange={(e) => setEditLocation({ ...editLocation, business_address: e.target.value })}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <button onClick={handleUpdateLocation} disabled={isSavingLocation} className="btn-primary">
+                              {isSavingLocation ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Changes'}
+                            </button>
+                            <button
+                              onClick={() => setEditLocationId(null)}
+                              className="btn-secondary"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-bark-500">{location.location_name}</p>
+                              {location.is_default && (
+                                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                  <Star className="w-3 h-3" />
+                                  Default
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-bark-500/70 mt-1">{location.business_address}</p>
+                            {location.phone && (
+                              <p className="text-sm text-bark-500/70 mt-1">{location.phone}</p>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {!location.is_default && (
+                              <button
+                                onClick={() => handleSetDefaultLocation(location.id)}
+                                disabled={isSettingDefaultId === location.id}
+                                className="btn-secondary"
+                              >
+                                {isSettingDefaultId === location.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  'Make Default'
+                                )}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleEditLocation(location)}
+                              className="btn-secondary"
+                            >
+                              <Edit2 className="w-4 h-4 mr-2" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteLocation(location)}
+                              disabled={isDeletingLocationId === location.id}
+                              className="btn-secondary text-red-600 hover:text-red-700"
+                            >
+                              {isDeletingLocationId === location.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Delete
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
