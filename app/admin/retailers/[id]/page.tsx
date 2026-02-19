@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
@@ -187,6 +187,8 @@ export default function AdminRetailerDetailPage() {
   const [isDeletingLocationId, setIsDeletingLocationId] = useState<string | null>(null);
   const [isSettingDefaultId, setIsSettingDefaultId] = useState<string | null>(null);
   const [locationNotice, setLocationNotice] = useState('');
+  const [hasSyncedProfileLocation, setHasSyncedProfileLocation] = useState(false);
+  const hasSyncedProfileLocationRef = useRef(false);
 
   const showLocationNotice = (message: string) => {
     setLocationNotice(message);
@@ -214,7 +216,64 @@ export default function AdminRetailerDetailPage() {
 
         setRetailer(retailerData);
         setOrders(normalizeOrders((ordersData || []) as Order[]));
-        setLocations((locationsData || []) as RetailerLocation[]);
+        const nextLocations = (locationsData || []) as RetailerLocation[];
+        setLocations(nextLocations);
+
+        if (!hasSyncedProfileLocationRef.current && retailerData?.business_address) {
+          const normalizedProfileAddress = retailerData.business_address.trim().toLowerCase();
+          const matchingLocation = nextLocations.find(
+            (location) => location.business_address.trim().toLowerCase() === normalizedProfileAddress
+          );
+
+          if (!matchingLocation) {
+            const { data: insertedLocation, error: insertError } = await supabase
+              .from('retailer_locations')
+              .insert({
+                retailer_id: retailerData.id,
+                location_name: 'Primary Address',
+                business_address: retailerData.business_address,
+                phone: retailerData.phone || null,
+                is_default: true,
+              })
+              .select()
+              .single();
+
+            if (insertError) throw insertError;
+
+            if (insertedLocation?.id) {
+              await supabase
+                .from('retailer_locations')
+                .update({ is_default: false })
+                .eq('retailer_id', retailerData.id)
+                .neq('id', insertedLocation.id);
+            }
+
+            setHasSyncedProfileLocation(true);
+            hasSyncedProfileLocationRef.current = true;
+            fetchData();
+            return;
+          }
+
+          if (!matchingLocation.is_default) {
+            await supabase
+              .from('retailer_locations')
+              .update({ is_default: false })
+              .eq('retailer_id', retailerData.id);
+
+            await supabase
+              .from('retailer_locations')
+              .update({ is_default: true })
+              .eq('id', matchingLocation.id);
+
+            setHasSyncedProfileLocation(true);
+            hasSyncedProfileLocationRef.current = true;
+            fetchData();
+            return;
+          }
+
+          setHasSyncedProfileLocation(true);
+          hasSyncedProfileLocationRef.current = true;
+        }
       } catch (fetchError) {
         console.error('Error loading retailer details:', fetchError);
         setError('Unable to load retailer details.');
@@ -222,6 +281,11 @@ export default function AdminRetailerDetailPage() {
         setIsLoading(false);
       }
   };
+
+  useEffect(() => {
+    setHasSyncedProfileLocation(false);
+    hasSyncedProfileLocationRef.current = false;
+  }, [retailerId]);
 
   useEffect(() => {
     fetchData();
