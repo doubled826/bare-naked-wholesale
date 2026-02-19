@@ -56,7 +56,7 @@ export default function AdminOrdersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [retailers, setRetailers] = useState<RetailerOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
-  const [newOrder, setNewOrder] = useState({ retailerId: '', deliveryDate: '', promotionCode: '', locationId: '', items: [{ productId: '', quantity: 1 }] });
+  const [newOrder, setNewOrder] = useState({ retailerId: '', deliveryDate: '', promotionCode: '', locationId: '', includeSamples: false, items: [{ productId: '', quantity: 1 }] });
   const [isCreating, setIsCreating] = useState(false);
   const [locationOptions, setLocationOptions] = useState<LocationOption[]>([]);
   const [locationsLoading, setLocationsLoading] = useState(false);
@@ -317,6 +317,7 @@ export default function AdminOrdersPage() {
           retailerId: newOrder.retailerId,
           deliveryDate: newOrder.deliveryDate || null,
           promotionCode: newOrder.promotionCode || null,
+          includeSamples: Boolean(newOrder.includeSamples),
           locationId: newOrder.locationId || null,
           items: newOrder.items.map((item) => ({ productId: item.productId, quantity: Number(item.quantity) || 1 })),
         }),
@@ -325,7 +326,7 @@ export default function AdminOrdersPage() {
       if (!data.success) throw new Error(data.error || 'Failed to create order');
       showNotification('Order created!');
       setShowCreateModal(false);
-      setNewOrder({ retailerId: '', deliveryDate: '', promotionCode: '', locationId: '', items: [{ productId: '', quantity: 1 }] });
+      setNewOrder({ retailerId: '', deliveryDate: '', promotionCode: '', locationId: '', includeSamples: false, items: [{ productId: '', quantity: 1 }] });
       setLocationOptions([]);
       fetchOrders();
     } catch (error) {
@@ -462,6 +463,19 @@ export default function AdminOrdersPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Promotion Code</label>
                   <input type="text" value={newOrder.promotionCode} onChange={(e) => setNewOrder({ ...newOrder, promotionCode: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
                 </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  id="include-samples"
+                  type="checkbox"
+                  checked={newOrder.includeSamples}
+                  onChange={(e) => setNewOrder({ ...newOrder, includeSamples: e.target.checked })}
+                  className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <label htmlFor="include-samples" className="text-sm font-medium text-gray-700">
+                  Add Samples
+                </label>
+                <span className="text-xs text-gray-500">Show samples in order history</span>
               </div>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">

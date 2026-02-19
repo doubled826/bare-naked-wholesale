@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const { retailerId, items, deliveryDate, promotionCode, locationId } = await request.json();
+    const { retailerId, items, deliveryDate, promotionCode, locationId, includeSamples } = await request.json();
 
     if (!retailerId || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: 'Invalid order payload' }, { status: 400 });
@@ -89,6 +89,8 @@ export async function POST(request: Request) {
       shipToLocation = location;
     }
 
+    const shouldIncludeSamples = Boolean(includeSamples) || Boolean(sampleRequest?.id);
+
     const { data: order, error: orderError } = await adminClient
       .from('orders')
       .insert({
@@ -100,7 +102,7 @@ export async function POST(request: Request) {
         promotion_code: promotionCode || null,
         subtotal,
         total,
-        include_samples: !!sampleRequest?.id,
+        include_samples: shouldIncludeSamples,
       })
       .select()
       .single();
@@ -125,7 +127,7 @@ export async function POST(request: Request) {
       console.error('Order items error:', itemsError);
     }
 
-    if (sampleRequest?.id) {
+    if (sampleRequest?.id && shouldIncludeSamples) {
       const { error: sampleUpdateError } = await adminClient
         .from('sample_requests')
         .update({
