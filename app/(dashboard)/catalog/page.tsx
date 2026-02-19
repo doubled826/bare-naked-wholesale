@@ -47,16 +47,42 @@ export default function CatalogPage() {
 
       const nextLocations = (locationData || []) as RetailerLocation[];
       setLocations(nextLocations);
-      if (nextLocations.length > 1) {
-        const defaultLocation = nextLocations.find((location) => location.is_default);
-        setSelectedLocationId(defaultLocation?.id || nextLocations[0]?.id || null);
-      } else {
-        setSelectedLocationId(null);
-      }
     };
 
     fetchLocations();
   }, [supabase]);
+
+  const normalizedProfileAddress = retailer?.business_address?.trim().toLowerCase();
+  const hasProfileLocation = Boolean(
+    normalizedProfileAddress &&
+      locations.some((location) => location.business_address.trim().toLowerCase() === normalizedProfileAddress)
+  );
+  const profileLocation = retailer?.business_address && retailer?.id && !hasProfileLocation
+    ? {
+        id: 'profile',
+        retailer_id: retailer.id,
+        location_name: 'Primary Address',
+        business_address: retailer.business_address,
+        phone: retailer.phone || null,
+        is_default: locations.length === 0,
+      }
+    : null;
+  const dropdownLocations = profileLocation ? [profileLocation, ...locations] : locations;
+
+  useEffect(() => {
+    if (dropdownLocations.length > 1) {
+      const defaultLocation = dropdownLocations.find((location) => location.is_default);
+      setSelectedLocationId(defaultLocation?.id || dropdownLocations[0]?.id || null);
+      return;
+    }
+
+    if (dropdownLocations.length === 1) {
+      setSelectedLocationId(dropdownLocations[0].id);
+      return;
+    }
+
+    setSelectedLocationId(null);
+  }, [locations, retailer?.business_address, retailer?.id, retailer?.phone]);
 
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -154,7 +180,8 @@ export default function CatalogPage() {
     setSubmitError('');
     
     try {
-      const locationIdToSubmit = locations.length > 1 ? selectedLocationId : null;
+      const locationIdToSubmit =
+        dropdownLocations.length > 1 && selectedLocationId !== 'profile' ? selectedLocationId : null;
       const response = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -403,7 +430,7 @@ export default function CatalogPage() {
                         className="input"
                       />
                     </div>
-                    {locations.length > 1 ? (
+                    {dropdownLocations.length > 1 ? (
                       <div>
                         <label className="label">Ship-To Location</label>
                         <select
@@ -411,7 +438,7 @@ export default function CatalogPage() {
                           onChange={(e) => setSelectedLocationId(e.target.value)}
                           className="input"
                         >
-                          {locations.map((location) => (
+                          {dropdownLocations.map((location) => (
                             <option key={location.id} value={location.id}>
                               {location.location_name} — {location.business_address}
                             </option>
@@ -419,7 +446,7 @@ export default function CatalogPage() {
                         </select>
                         {selectedLocationId && (
                           <p className="text-xs text-bark-500/60 mt-2">
-                            Ship to: {locations.find((location) => location.id === selectedLocationId)?.business_address}
+                            Ship to: {dropdownLocations.find((location) => location.id === selectedLocationId)?.business_address}
                           </p>
                         )}
                       </div>

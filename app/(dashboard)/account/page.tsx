@@ -42,6 +42,7 @@ export default function AccountPage() {
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [locationsError, setLocationsError] = useState('');
   const [locationNotice, setLocationNotice] = useState('');
+  const [hasSyncedProfileLocation, setHasSyncedProfileLocation] = useState(false);
   const [showAddLocation, setShowAddLocation] = useState(false);
   const [newLocation, setNewLocation] = useState({
     location_name: '',
@@ -93,8 +94,34 @@ export default function AccountPage() {
       return;
     }
 
-    setLocations((data || []) as RetailerLocation[]);
+    const nextLocations = (data || []) as RetailerLocation[];
+    setLocations(nextLocations);
     setLocationsLoading(false);
+
+    if (!hasSyncedProfileLocation && retailer?.business_address) {
+      const normalizedProfileAddress = retailer.business_address.trim().toLowerCase();
+      const matchesProfileAddress = nextLocations.some(
+        (location) => location.business_address.trim().toLowerCase() === normalizedProfileAddress
+      );
+
+      if (!matchesProfileAddress) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from('retailer_locations').insert({
+            retailer_id: user.id,
+            location_name: 'Primary Address',
+            business_address: retailer.business_address,
+            phone: retailer.phone || null,
+            is_default: nextLocations.length === 0,
+          });
+          setHasSyncedProfileLocation(true);
+          fetchLocations();
+          return;
+        }
+      }
+
+      setHasSyncedProfileLocation(true);
+    }
   };
 
   useEffect(() => {
@@ -138,6 +165,16 @@ export default function AccountPage() {
           .update({ is_default: false })
           .eq('retailer_id', user.id)
           .neq('id', insertedLocation.id);
+      }
+
+      if (insertedLocation?.id) {
+        fetch('/api/retailer-locations/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ locationId: insertedLocation.id }),
+        }).catch((notifyError) => {
+          console.error('Failed to notify team about location:', notifyError);
+        });
       }
 
       setNewLocation({ location_name: '', business_address: '', phone: '', makeDefault: false });
