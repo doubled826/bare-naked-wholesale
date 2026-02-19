@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 
 interface Retailer {
@@ -170,9 +170,30 @@ export default function AdminRetailerDetailPage() {
   const [locations, setLocations] = useState<RetailerLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showAddLocation, setShowAddLocation] = useState(false);
+  const [newLocation, setNewLocation] = useState({
+    location_name: '',
+    business_address: '',
+    phone: '',
+    makeDefault: false,
+  });
+  const [editLocationId, setEditLocationId] = useState<string | null>(null);
+  const [editLocation, setEditLocation] = useState({
+    location_name: '',
+    business_address: '',
+    phone: '',
+  });
+  const [isSavingLocation, setIsSavingLocation] = useState(false);
+  const [isDeletingLocationId, setIsDeletingLocationId] = useState<string | null>(null);
+  const [isSettingDefaultId, setIsSettingDefaultId] = useState<string | null>(null);
+  const [locationNotice, setLocationNotice] = useState('');
 
-  useEffect(() => {
-    const fetchData = async () => {
+  const showLocationNotice = (message: string) => {
+    setLocationNotice(message);
+    setTimeout(() => setLocationNotice(''), 3000);
+  };
+
+  const fetchData = async () => {
       if (!retailerId) return;
       setIsLoading(true);
       setError('');
@@ -202,8 +223,151 @@ export default function AdminRetailerDetailPage() {
       }
     };
 
+  };
+
+  useEffect(() => {
     fetchData();
   }, [retailerId, supabase]);
+
+  const handleAddLocation = async () => {
+    if (!retailerId) return;
+    if (!newLocation.location_name.trim() || !newLocation.business_address.trim()) {
+      showLocationNotice('Location name and address are required.');
+      return;
+    }
+
+    setIsSavingLocation(true);
+    try {
+      const shouldBeDefault = newLocation.makeDefault || locations.length === 0;
+      const { data: insertedLocation, error: insertError } = await supabase
+        .from('retailer_locations')
+        .insert({
+          retailer_id: retailerId,
+          location_name: newLocation.location_name.trim(),
+          business_address: newLocation.business_address.trim(),
+          phone: newLocation.phone.trim() || null,
+          is_default: shouldBeDefault,
+        })
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+
+      if (shouldBeDefault && insertedLocation?.id) {
+        await supabase
+          .from('retailer_locations')
+          .update({ is_default: false })
+          .eq('retailer_id', retailerId)
+          .neq('id', insertedLocation.id);
+      }
+
+      setNewLocation({ location_name: '', business_address: '', phone: '', makeDefault: false });
+      setShowAddLocation(false);
+      showLocationNotice('Location added.');
+      fetchData();
+    } catch (addError) {
+      console.error('Error adding location:', addError);
+      showLocationNotice('Failed to add location.');
+    } finally {
+      setIsSavingLocation(false);
+    }
+  };
+
+  const handleEditLocation = (location: RetailerLocation) => {
+    setEditLocationId(location.id);
+    setEditLocation({
+      location_name: location.location_name,
+      business_address: location.business_address,
+      phone: location.phone || '',
+    });
+  };
+
+  const handleUpdateLocation = async () => {
+    if (!editLocationId) return;
+    if (!editLocation.location_name.trim() || !editLocation.business_address.trim()) {
+      showLocationNotice('Location name and address are required.');
+      return;
+    }
+
+    setIsSavingLocation(true);
+    try {
+      const { error: updateError } = await supabase
+        .from('retailer_locations')
+        .update({
+          location_name: editLocation.location_name.trim(),
+          business_address: editLocation.business_address.trim(),
+          phone: editLocation.phone.trim() || null,
+        })
+        .eq('id', editLocationId);
+
+      if (updateError) throw updateError;
+
+      setEditLocationId(null);
+      showLocationNotice('Location updated.');
+      fetchData();
+    } catch (updateError) {
+      console.error('Error updating location:', updateError);
+      showLocationNotice('Failed to update location.');
+    } finally {
+      setIsSavingLocation(false);
+    }
+  };
+
+  const handleSetDefaultLocation = async (locationId: string) => {
+    if (!retailerId) return;
+    setIsSettingDefaultId(locationId);
+    try {
+      await supabase
+        .from('retailer_locations')
+        .update({ is_default: false })
+        .eq('retailer_id', retailerId);
+
+      const { error: defaultError } = await supabase
+        .from('retailer_locations')
+        .update({ is_default: true })
+        .eq('id', locationId);
+
+      if (defaultError) throw defaultError;
+
+      showLocationNotice('Default location updated.');
+      fetchData();
+    } catch (defaultError) {
+      console.error('Error setting default location:', defaultError);
+      showLocationNotice('Failed to update default.');
+    } finally {
+      setIsSettingDefaultId(null);
+    }
+  };
+
+  const handleDeleteLocation = async (location: RetailerLocation) => {
+    setIsDeletingLocationId(location.id);
+    try {
+      const { error: deleteError } = await supabase
+        .from('retailer_locations')
+        .delete()
+        .eq('id', location.id);
+
+      if (deleteError) throw deleteError;
+
+      if (location.is_default) {
+        const remaining = locations.filter((loc) => loc.id !== location.id);
+        if (remaining.length > 0) {
+          await supabase
+            .from('retailer_locations')
+            .update({ is_default: true })
+            .eq('id', remaining[0].id);
+        }
+      }
+
+      showLocationNotice('Location removed.');
+      fetchData();
+    } catch (deleteError) {
+      console.error('Error deleting location:', deleteError);
+      showLocationNotice('Failed to delete location.');
+    } finally {
+      setIsDeletingLocationId(null);
+    }
+  };
 
   const ordersForStats = useMemo(() => orders.filter((order) => order.status !== 'canceled'), [orders]);
 
@@ -367,30 +531,174 @@ export default function AdminRetailerDetailPage() {
       </div>
 
       <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Locations</h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Locations</h2>
+            <p className="text-sm text-gray-500">Manage ship-to locations for this retailer.</p>
+          </div>
+          <button onClick={() => setShowAddLocation(true)} className="inline-flex items-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">
+            <Plus className="w-4 h-4" />
+            Add Location
+          </button>
+        </div>
+
+        {locationNotice && (
+          <div className="mb-4 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm px-3 py-2">
+            {locationNotice}
+          </div>
+        )}
+
+        {showAddLocation && (
+          <div className="mb-6 rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Location Name</label>
+                <input
+                  type="text"
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  value={newLocation.location_name}
+                  onChange={(e) => setNewLocation({ ...newLocation, location_name: e.target.value })}
+                  placeholder="Warehouse, Storefront, etc."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone (Optional)</label>
+                <input
+                  type="tel"
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  value={newLocation.phone}
+                  onChange={(e) => setNewLocation({ ...newLocation, phone: e.target.value })}
+                  placeholder="(555) 555-5555"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Business Address</label>
+                <input
+                  type="text"
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  value={newLocation.business_address}
+                  onChange={(e) => setNewLocation({ ...newLocation, business_address: e.target.value })}
+                  placeholder="123 Main St, City, State ZIP"
+                />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={newLocation.makeDefault}
+                onChange={(e) => setNewLocation({ ...newLocation, makeDefault: e.target.checked })}
+                className="rounded border-gray-300 text-bark-500 focus:ring-bark-500"
+              />
+              Make this the default ship-to location
+            </label>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button onClick={handleAddLocation} disabled={isSavingLocation} className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 disabled:opacity-50">
+                {isSavingLocation ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Location'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddLocation(false);
+                  setNewLocation({ location_name: '', business_address: '', phone: '', makeDefault: false });
+                }}
+                className="inline-flex items-center justify-center px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {locations.length === 0 ? (
           <p className="text-sm text-gray-500">No ship-to locations on file.</p>
         ) : (
           <div className="space-y-3">
             {locations.map((location) => (
-              <div key={location.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 rounded-lg border border-gray-100">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium text-gray-900">{location.location_name}</p>
-                    {location.is_default && (
-                      <span className="text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                        Default
-                      </span>
-                    )}
+              <div key={location.id} className="flex flex-col gap-3 p-3 rounded-lg border border-gray-100">
+                {editLocationId === location.id ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Location Name</label>
+                        <input
+                          type="text"
+                          className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                          value={editLocation.location_name}
+                          onChange={(e) => setEditLocation({ ...editLocation, location_name: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Phone (Optional)</label>
+                        <input
+                          type="tel"
+                          className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                          value={editLocation.phone}
+                          onChange={(e) => setEditLocation({ ...editLocation, phone: e.target.value })}
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Business Address</label>
+                        <input
+                          type="text"
+                          className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                          value={editLocation.business_address}
+                          onChange={(e) => setEditLocation({ ...editLocation, business_address: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <button onClick={handleUpdateLocation} disabled={isSavingLocation} className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 disabled:opacity-50">
+                        {isSavingLocation ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Changes'}
+                      </button>
+                      <button onClick={() => setEditLocationId(null)} className="inline-flex items-center justify-center px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-sm text-gray-500">{location.business_address}</p>
-                  {location.phone && (
-                    <p className="text-sm text-gray-500">{location.phone}</p>
-                  )}
-                </div>
-                <div className="text-xs text-gray-400">
-                  Added {new Date(location.created_at).toLocaleDateString()}
-                </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-gray-900">{location.location_name}</p>
+                        {location.is_default && (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                            <Star className="w-3 h-3" />
+                            Default
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-500">{location.business_address}</p>
+                      {location.phone && (
+                        <p className="text-sm text-gray-500">{location.phone}</p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {!location.is_default && (
+                        <button
+                          onClick={() => handleSetDefaultLocation(location.id)}
+                          disabled={isSettingDefaultId === location.id}
+                          className="inline-flex items-center justify-center px-3 py-1.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          {isSettingDefaultId === location.id ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Make Default'}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleEditLocation(location)}
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteLocation(location)}
+                        disabled={isDeletingLocationId === location.id}
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 border border-gray-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {isDeletingLocationId === location.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

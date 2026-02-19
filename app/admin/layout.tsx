@@ -10,6 +10,7 @@ import {
   Users, 
   Package, 
   FolderOpen,
+  BarChart2,
   LogOut,
   Menu,
   X,
@@ -23,6 +24,7 @@ const navigation = [
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
   { name: 'Products', href: '/admin/products', icon: Package },
   { name: 'Resources', href: '/admin/resources', icon: FolderOpen },
+  { name: 'Insights', href: '/admin/insights', icon: BarChart2 },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
