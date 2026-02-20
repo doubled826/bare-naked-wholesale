@@ -114,6 +114,9 @@ export default function MessagesPage() {
       if (!conversation && payload?.conversation) {
         setConversation(payload.conversation as Conversation);
       }
+      if (payload?.message) {
+        setMessages((current) => [...current, payload.message as Message]);
+      }
 
       setMessageBody('');
       setStatus('success');

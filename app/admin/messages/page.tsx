@@ -139,6 +139,24 @@ export default function AdminMessagesPage() {
         throw new Error(payload?.error || 'Failed to send message');
       }
 
+      const payload = await response.json();
+      if (payload?.message) {
+        setMessages((current) => [...current, payload.message as Message]);
+        setConversations((current) => {
+          const updated = current.map((item) =>
+            item.id === activeConversation.id
+              ? {
+                  ...item,
+                  last_message_at: payload.message.created_at,
+                  last_message_preview: payload.message.body.slice(0, 140),
+                }
+              : item
+          );
+          const target = updated.find((item) => item.id === activeConversation.id);
+          const rest = updated.filter((item) => item.id !== activeConversation.id);
+          return target ? [target, ...rest] : updated;
+        });
+      }
       setMessageBody('');
     } catch (error) {
       setStatus('error');
