@@ -73,7 +73,17 @@ export async function POST(request: Request) {
       .single();
 
     if (!retailer) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+      return NextResponse.json(
+        {
+          error: 'Unauthorized',
+          debug: {
+            authUserId: user.id,
+            authEmail: user.email,
+            retailerFound: false,
+          },
+        },
+        { status: 403 }
+      );
     }
 
     let conversation = null as null | { id: string };
