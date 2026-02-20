@@ -135,3 +135,22 @@ export interface Resource {
   created_at?: string;
   updated_at?: string;
 }
+
+export interface Conversation {
+  id: string;
+  retailer_id: string;
+  last_message_at?: string | null;
+  last_message_preview?: string | null;
+  last_sender_role?: 'retailer' | 'admin' | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  sender_role: 'retailer' | 'admin';
+  sender_id: string;
+  body: string;
+  created_at: string;
+}

@@ -349,3 +349,107 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_retailer();
+
+-- Conversations (retailer <-> admin)
+CREATE TABLE IF NOT EXISTS conversations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  retailer_id UUID UNIQUE REFERENCES retailers(id) ON DELETE CASCADE,
+  last_message_at TIMESTAMPTZ,
+  last_message_preview TEXT,
+  last_sender_role TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Messages
+CREATE TABLE IF NOT EXISTS messages (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
+  sender_role TEXT NOT NULL CHECK (sender_role IN ('retailer', 'admin')),
+  sender_id UUID NOT NULL,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_retailer_id ON conversations(retailer_id);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at DESC);
+
+ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+
+-- Retailer conversation access
+CREATE POLICY "Retailers can view their conversation"
+  ON conversations FOR SELECT
+  USING (auth.uid() = retailer_id);
+
+CREATE POLICY "Retailers can create their conversation"
+  ON conversations FOR INSERT
+  WITH CHECK (auth.uid() = retailer_id);
+
+CREATE POLICY "Retailers can update their conversation"
+  ON conversations FOR UPDATE
+  USING (auth.uid() = retailer_id);
+
+-- Admin conversation access
+CREATE POLICY "Admins can view conversations"
+  ON conversations FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins can update conversations"
+  ON conversations FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+-- Retailer message access
+CREATE POLICY "Retailers can view their messages"
+  ON messages FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM conversations
+      WHERE conversations.id = messages.conversation_id
+      AND conversations.retailer_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Retailers can create their messages"
+  ON messages FOR INSERT
+  WITH CHECK (
+    sender_role = 'retailer'
+    AND sender_id = auth.uid()
+    AND EXISTS (
+      SELECT 1 FROM conversations
+      WHERE conversations.id = messages.conversation_id
+      AND conversations.retailer_id = auth.uid()
+    )
+  );
+
+-- Admin message access
+CREATE POLICY "Admins can view messages"
+  ON messages FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins can create messages"
+  ON messages FOR INSERT
+  WITH CHECK (
+    sender_role = 'admin'
+    AND sender_id = auth.uid()
+    AND EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
