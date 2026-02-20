@@ -80,6 +80,12 @@ export function Sidebar() {
   }, [supabaseClient, retailer?.id]);
 
   useEffect(() => {
+    if (pathname.startsWith('/messages')) {
+      setUnreadCount(0);
+    }
+  }, [pathname]);
+
+  useEffect(() => {
     if (!retailer?.id) return;
 
     const conversationChannel = supabaseClient
