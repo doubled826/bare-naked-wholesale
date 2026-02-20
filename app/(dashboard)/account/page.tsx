@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import type { RetailerLocation } from '@/types';
+import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
 
 export default function AccountPage() {
   const { retailer } = useAppStore();
@@ -46,14 +47,20 @@ export default function AccountPage() {
   const [showAddLocation, setShowAddLocation] = useState(false);
   const [newLocation, setNewLocation] = useState({
     location_name: '',
-    business_address: '',
+    businessStreet: '',
+    businessCity: '',
+    businessState: '',
+    businessZip: '',
     phone: '',
     makeDefault: false,
   });
   const [editLocationId, setEditLocationId] = useState<string | null>(null);
   const [editLocation, setEditLocation] = useState({
     location_name: '',
-    business_address: '',
+    businessStreet: '',
+    businessCity: '',
+    businessState: '',
+    businessZip: '',
     phone: '',
   });
   const [isSavingLocation, setIsSavingLocation] = useState(false);
@@ -129,8 +136,14 @@ export default function AccountPage() {
   }, [supabase]);
 
   const handleAddLocation = async () => {
-    if (!newLocation.location_name.trim() || !newLocation.business_address.trim()) {
-      showLocationNotice('Location name and address are required.');
+    if (
+      !newLocation.location_name.trim() ||
+      !newLocation.businessStreet.trim() ||
+      !newLocation.businessCity.trim() ||
+      !newLocation.businessState.trim() ||
+      !newLocation.businessZip.trim()
+    ) {
+      showLocationNotice('Location name and full address are required.');
       return;
     }
 
@@ -143,12 +156,18 @@ export default function AccountPage() {
       }
 
       const shouldBeDefault = newLocation.makeDefault || locations.length === 0;
+      const businessAddress = formatBusinessAddress({
+        street: newLocation.businessStreet,
+        city: newLocation.businessCity,
+        state: newLocation.businessState,
+        zip: newLocation.businessZip,
+      });
       const { data: insertedLocation, error } = await supabase
         .from('retailer_locations')
         .insert({
           retailer_id: user.id,
           location_name: newLocation.location_name.trim(),
-          business_address: newLocation.business_address.trim(),
+          business_address: businessAddress,
           phone: newLocation.phone.trim() || null,
           is_default: shouldBeDefault,
         })
@@ -177,7 +196,15 @@ export default function AccountPage() {
         });
       }
 
-      setNewLocation({ location_name: '', business_address: '', phone: '', makeDefault: false });
+      setNewLocation({
+        location_name: '',
+        businessStreet: '',
+        businessCity: '',
+        businessState: '',
+        businessZip: '',
+        phone: '',
+        makeDefault: false,
+      });
       setShowAddLocation(false);
       showLocationNotice('Location added.');
       fetchLocations();
@@ -190,28 +217,45 @@ export default function AccountPage() {
   };
 
   const handleEditLocation = (location: RetailerLocation) => {
+    const parsed = parseBusinessAddress(location.business_address || '');
+
     setEditLocationId(location.id);
     setEditLocation({
       location_name: location.location_name,
-      business_address: location.business_address,
+      businessStreet: parsed.street || location.business_address || '',
+      businessCity: parsed.city || '',
+      businessState: parsed.state || '',
+      businessZip: parsed.zip || '',
       phone: location.phone || '',
     });
   };
 
   const handleUpdateLocation = async () => {
     if (!editLocationId) return;
-    if (!editLocation.location_name.trim() || !editLocation.business_address.trim()) {
-      showLocationNotice('Location name and address are required.');
+    if (
+      !editLocation.location_name.trim() ||
+      !editLocation.businessStreet.trim() ||
+      !editLocation.businessCity.trim() ||
+      !editLocation.businessState.trim() ||
+      !editLocation.businessZip.trim()
+    ) {
+      showLocationNotice('Location name and full address are required.');
       return;
     }
 
     setIsSavingLocation(true);
     try {
+      const businessAddress = formatBusinessAddress({
+        street: editLocation.businessStreet,
+        city: editLocation.businessCity,
+        state: editLocation.businessState,
+        zip: editLocation.businessZip,
+      });
       const { error } = await supabase
         .from('retailer_locations')
         .update({
           location_name: editLocation.location_name.trim(),
-          business_address: editLocation.business_address.trim(),
+          business_address: businessAddress,
           phone: editLocation.phone.trim() || null,
         })
         .eq('id', editLocationId);
@@ -298,7 +342,10 @@ export default function AccountPage() {
 
   const [profile, setProfile] = useState({
     businessName: '',
-    businessAddress: '',
+    businessStreet: '',
+    businessCity: '',
+    businessState: '',
+    businessZip: '',
     name: '',
     email: '',
     phone: '',
@@ -308,9 +355,13 @@ export default function AccountPage() {
 
   // Update profile state when retailer or userMetadata changes
   useEffect(() => {
+    const fallbackStreet = retailer?.business_address || userMetadata?.business_address || '';
     setProfile({
       businessName: retailer?.company_name || userMetadata?.company_name || '',
-      businessAddress: retailer?.business_address || userMetadata?.business_address || '',
+      businessStreet: userMetadata?.business_street || fallbackStreet,
+      businessCity: userMetadata?.business_city || '',
+      businessState: userMetadata?.business_state || '',
+      businessZip: userMetadata?.business_zip || '',
       name: userMetadata?.display_name || userMetadata?.full_name || '',
       email: userMetadata?.email || '',
       phone: retailer?.phone || userMetadata?.phone || '',
@@ -323,6 +374,13 @@ export default function AccountPage() {
     setIsSaving(true);
     
     try {
+      const businessAddress = formatBusinessAddress({
+        street: profile.businessStreet,
+        city: profile.businessCity,
+        state: profile.businessState,
+        zip: profile.businessZip,
+      });
+
       // Update user metadata
       const { error: userError } = await supabase.auth.updateUser({
         data: {
@@ -330,7 +388,11 @@ export default function AccountPage() {
           full_name: profile.name,
           phone: profile.phone,
           company_name: profile.businessName,
-          business_address: profile.businessAddress,
+          business_address: businessAddress,
+          business_street: profile.businessStreet?.trim(),
+          business_city: profile.businessCity?.trim(),
+          business_state: profile.businessState?.trim(),
+          business_zip: profile.businessZip?.trim(),
           tax_id: profile.taxId,
         }
       });
@@ -344,7 +406,7 @@ export default function AccountPage() {
           .from('retailers')
           .update({
             company_name: profile.businessName,
-            business_address: profile.businessAddress,
+            business_address: businessAddress,
             phone: profile.phone,
             tax_id: profile.taxId,
           })
@@ -358,7 +420,10 @@ export default function AccountPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           businessName: profile.businessName,
-          businessAddress: profile.businessAddress,
+          businessStreet: profile.businessStreet,
+          businessCity: profile.businessCity,
+          businessState: profile.businessState,
+          businessZip: profile.businessZip,
           name: profile.name,
           phone: profile.phone,
           taxId: profile.taxId,
@@ -507,22 +572,56 @@ export default function AccountPage() {
                       value={profile.businessName}
                       onChange={(e) => setProfile({ ...profile, businessName: e.target.value })}
                       className="input pl-10"
+                      autoComplete="organization"
                     />
                   </div>
                 </div>
 
                 {/* Business Address */}
                 <div>
-                  <label htmlFor="businessAddress" className="label">Business Address</label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bark-500/40" />
-                    <input
-                      id="businessAddress"
-                      type="text"
-                      value={profile.businessAddress}
-                      onChange={(e) => setProfile({ ...profile, businessAddress: e.target.value })}
-                      className="input pl-10"
-                    />
+                  <label htmlFor="businessStreet" className="label">Business Address</label>
+                  <div className="space-y-3">
+                    <div className="relative">
+                      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bark-500/40" />
+                      <input
+                        id="businessStreet"
+                        type="text"
+                        value={profile.businessStreet}
+                        onChange={(e) => setProfile({ ...profile, businessStreet: e.target.value })}
+                        className="input pl-10"
+                        autoComplete="address-line1"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <input
+                        id="businessCity"
+                        type="text"
+                        value={profile.businessCity}
+                        onChange={(e) => setProfile({ ...profile, businessCity: e.target.value })}
+                        className="input"
+                        placeholder="City"
+                        autoComplete="address-level2"
+                      />
+                      <input
+                        id="businessState"
+                        type="text"
+                        value={profile.businessState}
+                        onChange={(e) => setProfile({ ...profile, businessState: e.target.value })}
+                        className="input"
+                        placeholder="State"
+                        autoComplete="address-level1"
+                      />
+                      <input
+                        id="businessZip"
+                        type="text"
+                        value={profile.businessZip}
+                        onChange={(e) => setProfile({ ...profile, businessZip: e.target.value })}
+                        className="input"
+                        placeholder="ZIP"
+                        autoComplete="postal-code"
+                        inputMode="numeric"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -537,6 +636,7 @@ export default function AccountPage() {
                       value={profile.name}
                       onChange={(e) => setProfile({ ...profile, name: e.target.value })}
                       className="input pl-10"
+                      autoComplete="name"
                     />
                   </div>
                 </div>
@@ -568,6 +668,7 @@ export default function AccountPage() {
                       value={profile.phone}
                       onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
                       className="input pl-10"
+                      autoComplete="tel"
                     />
                   </div>
                 </div>
@@ -731,17 +832,48 @@ export default function AccountPage() {
                         value={newLocation.phone}
                         onChange={(e) => setNewLocation({ ...newLocation, phone: e.target.value })}
                         placeholder="(555) 555-5555"
+                        autoComplete="tel"
                       />
                     </div>
                     <div className="md:col-span-2">
                       <label className="label">Business Address</label>
-                      <input
-                        type="text"
-                        className="input"
-                        value={newLocation.business_address}
-                        onChange={(e) => setNewLocation({ ...newLocation, business_address: e.target.value })}
-                        placeholder="123 Main St, City, State ZIP"
-                      />
+                      <div className="space-y-3">
+                        <input
+                          type="text"
+                          className="input"
+                          value={newLocation.businessStreet}
+                          onChange={(e) => setNewLocation({ ...newLocation, businessStreet: e.target.value })}
+                          placeholder="123 Main St"
+                          autoComplete="shipping address-line1"
+                        />
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <input
+                            type="text"
+                            className="input"
+                            value={newLocation.businessCity}
+                            onChange={(e) => setNewLocation({ ...newLocation, businessCity: e.target.value })}
+                            placeholder="City"
+                            autoComplete="shipping address-level2"
+                          />
+                          <input
+                            type="text"
+                            className="input"
+                            value={newLocation.businessState}
+                            onChange={(e) => setNewLocation({ ...newLocation, businessState: e.target.value })}
+                            placeholder="State"
+                            autoComplete="shipping address-level1"
+                          />
+                          <input
+                            type="text"
+                            className="input"
+                            value={newLocation.businessZip}
+                            onChange={(e) => setNewLocation({ ...newLocation, businessZip: e.target.value })}
+                            placeholder="ZIP"
+                            autoComplete="shipping postal-code"
+                            inputMode="numeric"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <label className="flex items-center gap-2 text-sm text-bark-500">
@@ -760,7 +892,15 @@ export default function AccountPage() {
                     <button
                       onClick={() => {
                         setShowAddLocation(false);
-                        setNewLocation({ location_name: '', business_address: '', phone: '', makeDefault: false });
+                        setNewLocation({
+                          location_name: '',
+                          businessStreet: '',
+                          businessCity: '',
+                          businessState: '',
+                          businessZip: '',
+                          phone: '',
+                          makeDefault: false,
+                        });
                       }}
                       className="btn-secondary"
                     >
@@ -801,16 +941,47 @@ export default function AccountPage() {
                                 className="input"
                                 value={editLocation.phone}
                                 onChange={(e) => setEditLocation({ ...editLocation, phone: e.target.value })}
+                                autoComplete="tel"
                               />
                             </div>
                             <div className="md:col-span-2">
                               <label className="label">Business Address</label>
-                              <input
-                                type="text"
-                                className="input"
-                                value={editLocation.business_address}
-                                onChange={(e) => setEditLocation({ ...editLocation, business_address: e.target.value })}
-                              />
+                              <div className="space-y-3">
+                                <input
+                                  type="text"
+                                  className="input"
+                                  value={editLocation.businessStreet}
+                                  onChange={(e) => setEditLocation({ ...editLocation, businessStreet: e.target.value })}
+                                  autoComplete="shipping address-line1"
+                                />
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                  <input
+                                    type="text"
+                                    className="input"
+                                    value={editLocation.businessCity}
+                                    onChange={(e) => setEditLocation({ ...editLocation, businessCity: e.target.value })}
+                                    placeholder="City"
+                                    autoComplete="shipping address-level2"
+                                  />
+                                  <input
+                                    type="text"
+                                    className="input"
+                                    value={editLocation.businessState}
+                                    onChange={(e) => setEditLocation({ ...editLocation, businessState: e.target.value })}
+                                    placeholder="State"
+                                    autoComplete="shipping address-level1"
+                                  />
+                                  <input
+                                    type="text"
+                                    className="input"
+                                    value={editLocation.businessZip}
+                                    onChange={(e) => setEditLocation({ ...editLocation, businessZip: e.target.value })}
+                                    placeholder="ZIP"
+                                    autoComplete="shipping postal-code"
+                                    inputMode="numeric"
+                                  />
+                                </div>
+                              </div>
                             </div>
                           </div>
                           <div className="flex flex-col sm:flex-row gap-2">

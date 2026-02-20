@@ -2,6 +2,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { sendTeamEmail } from '@/lib/email';
+import { formatBusinessAddress } from '@/lib/address';
 
 export async function POST(request: Request) {
   try {
@@ -12,7 +13,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { businessName, businessAddress, name, phone, taxId, accountNumber } = await request.json();
+    const {
+      businessName,
+      businessStreet,
+      businessCity,
+      businessState,
+      businessZip,
+      name,
+      phone,
+      taxId,
+      accountNumber,
+    } = await request.json();
+
+    const formattedBusinessAddress = formatBusinessAddress({
+      street: businessStreet,
+      city: businessCity,
+      state: businessState,
+      zip: businessZip,
+    });
 
     await sendTeamEmail({
       subject: 'Retailer Account Updated',
@@ -24,7 +42,7 @@ Account Number: ${accountNumber || 'Not provided'}
 Contact Name: ${name}
 Email: ${user.email}
 Phone: ${phone}
-Address: ${businessAddress}
+Address: ${formattedBusinessAddress || 'Not provided'}
 Tax ID: ${taxId}
       `.trim(),
     });

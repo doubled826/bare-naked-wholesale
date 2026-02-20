@@ -2,11 +2,30 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { sendTeamEmail } from '@/lib/email';
+import { formatBusinessAddress } from '@/lib/address';
 
 export async function POST(request: Request) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
-    const { businessName, businessAddress, name, email, password, phone, taxId } = await request.json();
+    const {
+      businessName,
+      businessStreet,
+      businessCity,
+      businessState,
+      businessZip,
+      name,
+      email,
+      password,
+      phone,
+      taxId,
+    } = await request.json();
+
+    const formattedBusinessAddress = formatBusinessAddress({
+      street: businessStreet,
+      city: businessCity,
+      state: businessState,
+      zip: businessZip,
+    });
 
     // 1. Create the auth user with metadata
     // IMPORTANT: Use 'company_name' to match the database trigger!
@@ -17,7 +36,11 @@ export async function POST(request: Request) {
         data: {
           display_name: name,
           company_name: businessName,      // Changed from business_name to company_name
-          business_address: businessAddress,
+          business_address: formattedBusinessAddress,
+          business_street: businessStreet?.trim(),
+          business_city: businessCity?.trim(),
+          business_state: businessState?.trim(),
+          business_zip: businessZip?.trim(),
           phone: phone,
           tax_id: taxId,
         },
@@ -46,7 +69,7 @@ Business Name: ${businessName}
 Contact Name: ${name}
 Email: ${email}
 Phone: ${phone}
-Address: ${businessAddress}
+Address: ${formattedBusinessAddress}
 Tax ID: ${taxId}
         `.trim(),
       });

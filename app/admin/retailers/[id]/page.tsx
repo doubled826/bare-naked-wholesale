@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
+import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
 
 interface Retailer {
   id: string;
@@ -173,14 +174,20 @@ export default function AdminRetailerDetailPage() {
   const [showAddLocation, setShowAddLocation] = useState(false);
   const [newLocation, setNewLocation] = useState({
     location_name: '',
-    business_address: '',
+    businessStreet: '',
+    businessCity: '',
+    businessState: '',
+    businessZip: '',
     phone: '',
     makeDefault: false,
   });
   const [editLocationId, setEditLocationId] = useState<string | null>(null);
   const [editLocation, setEditLocation] = useState({
     location_name: '',
-    business_address: '',
+    businessStreet: '',
+    businessCity: '',
+    businessState: '',
+    businessZip: '',
     phone: '',
   });
   const [isSavingLocation, setIsSavingLocation] = useState(false);
@@ -293,20 +300,32 @@ export default function AdminRetailerDetailPage() {
 
   const handleAddLocation = async () => {
     if (!retailerId) return;
-    if (!newLocation.location_name.trim() || !newLocation.business_address.trim()) {
-      showLocationNotice('Location name and address are required.');
+    if (
+      !newLocation.location_name.trim() ||
+      !newLocation.businessStreet.trim() ||
+      !newLocation.businessCity.trim() ||
+      !newLocation.businessState.trim() ||
+      !newLocation.businessZip.trim()
+    ) {
+      showLocationNotice('Location name and full address are required.');
       return;
     }
 
     setIsSavingLocation(true);
     try {
       const shouldBeDefault = newLocation.makeDefault || locations.length === 0;
+      const businessAddress = formatBusinessAddress({
+        street: newLocation.businessStreet,
+        city: newLocation.businessCity,
+        state: newLocation.businessState,
+        zip: newLocation.businessZip,
+      });
       const { data: insertedLocation, error: insertError } = await supabase
         .from('retailer_locations')
         .insert({
           retailer_id: retailerId,
           location_name: newLocation.location_name.trim(),
-          business_address: newLocation.business_address.trim(),
+          business_address: businessAddress,
           phone: newLocation.phone.trim() || null,
           is_default: shouldBeDefault,
         })
@@ -323,7 +342,15 @@ export default function AdminRetailerDetailPage() {
           .neq('id', insertedLocation.id);
       }
 
-      setNewLocation({ location_name: '', business_address: '', phone: '', makeDefault: false });
+      setNewLocation({
+        location_name: '',
+        businessStreet: '',
+        businessCity: '',
+        businessState: '',
+        businessZip: '',
+        phone: '',
+        makeDefault: false,
+      });
       setShowAddLocation(false);
       showLocationNotice('Location added.');
       fetchData();
@@ -336,28 +363,45 @@ export default function AdminRetailerDetailPage() {
   };
 
   const handleEditLocation = (location: RetailerLocation) => {
+    const parsed = parseBusinessAddress(location.business_address || '');
+
     setEditLocationId(location.id);
     setEditLocation({
       location_name: location.location_name,
-      business_address: location.business_address,
+      businessStreet: parsed.street || location.business_address || '',
+      businessCity: parsed.city || '',
+      businessState: parsed.state || '',
+      businessZip: parsed.zip || '',
       phone: location.phone || '',
     });
   };
 
   const handleUpdateLocation = async () => {
     if (!editLocationId) return;
-    if (!editLocation.location_name.trim() || !editLocation.business_address.trim()) {
-      showLocationNotice('Location name and address are required.');
+    if (
+      !editLocation.location_name.trim() ||
+      !editLocation.businessStreet.trim() ||
+      !editLocation.businessCity.trim() ||
+      !editLocation.businessState.trim() ||
+      !editLocation.businessZip.trim()
+    ) {
+      showLocationNotice('Location name and full address are required.');
       return;
     }
 
     setIsSavingLocation(true);
     try {
+      const businessAddress = formatBusinessAddress({
+        street: editLocation.businessStreet,
+        city: editLocation.businessCity,
+        state: editLocation.businessState,
+        zip: editLocation.businessZip,
+      });
       const { error: updateError } = await supabase
         .from('retailer_locations')
         .update({
           location_name: editLocation.location_name.trim(),
-          business_address: editLocation.business_address.trim(),
+          business_address: businessAddress,
           phone: editLocation.phone.trim() || null,
         })
         .eq('id', editLocationId);
@@ -631,17 +675,48 @@ export default function AdminRetailerDetailPage() {
                   value={newLocation.phone}
                   onChange={(e) => setNewLocation({ ...newLocation, phone: e.target.value })}
                   placeholder="(555) 555-5555"
+                  autoComplete="tel"
                 />
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Business Address</label>
-                <input
-                  type="text"
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
-                  value={newLocation.business_address}
-                  onChange={(e) => setNewLocation({ ...newLocation, business_address: e.target.value })}
-                  placeholder="123 Main St, City, State ZIP"
-                />
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                    value={newLocation.businessStreet}
+                    onChange={(e) => setNewLocation({ ...newLocation, businessStreet: e.target.value })}
+                    placeholder="123 Main St"
+                    autoComplete="shipping address-line1"
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <input
+                      type="text"
+                      className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                      value={newLocation.businessCity}
+                      onChange={(e) => setNewLocation({ ...newLocation, businessCity: e.target.value })}
+                      placeholder="City"
+                      autoComplete="shipping address-level2"
+                    />
+                    <input
+                      type="text"
+                      className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                      value={newLocation.businessState}
+                      onChange={(e) => setNewLocation({ ...newLocation, businessState: e.target.value })}
+                      placeholder="State"
+                      autoComplete="shipping address-level1"
+                    />
+                    <input
+                      type="text"
+                      className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                      value={newLocation.businessZip}
+                      onChange={(e) => setNewLocation({ ...newLocation, businessZip: e.target.value })}
+                      placeholder="ZIP"
+                      autoComplete="shipping postal-code"
+                      inputMode="numeric"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-600">
@@ -660,7 +735,15 @@ export default function AdminRetailerDetailPage() {
               <button
                 onClick={() => {
                   setShowAddLocation(false);
-                  setNewLocation({ location_name: '', business_address: '', phone: '', makeDefault: false });
+                  setNewLocation({
+                    location_name: '',
+                    businessStreet: '',
+                    businessCity: '',
+                    businessState: '',
+                    businessZip: '',
+                    phone: '',
+                    makeDefault: false,
+                  });
                 }}
                 className="inline-flex items-center justify-center px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50"
               >
@@ -695,16 +778,47 @@ export default function AdminRetailerDetailPage() {
                           className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
                           value={editLocation.phone}
                           onChange={(e) => setEditLocation({ ...editLocation, phone: e.target.value })}
+                          autoComplete="tel"
                         />
                       </div>
                       <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 mb-1">Business Address</label>
-                        <input
-                          type="text"
-                          className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
-                          value={editLocation.business_address}
-                          onChange={(e) => setEditLocation({ ...editLocation, business_address: e.target.value })}
-                        />
+                        <div className="space-y-3">
+                          <input
+                            type="text"
+                            className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                            value={editLocation.businessStreet}
+                            onChange={(e) => setEditLocation({ ...editLocation, businessStreet: e.target.value })}
+                            autoComplete="shipping address-line1"
+                          />
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <input
+                              type="text"
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                              value={editLocation.businessCity}
+                              onChange={(e) => setEditLocation({ ...editLocation, businessCity: e.target.value })}
+                              placeholder="City"
+                              autoComplete="shipping address-level2"
+                            />
+                            <input
+                              type="text"
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                              value={editLocation.businessState}
+                              onChange={(e) => setEditLocation({ ...editLocation, businessState: e.target.value })}
+                              placeholder="State"
+                              autoComplete="shipping address-level1"
+                            />
+                            <input
+                              type="text"
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                              value={editLocation.businessZip}
+                              onChange={(e) => setEditLocation({ ...editLocation, businessZip: e.target.value })}
+                              placeholder="ZIP"
+                              autoComplete="shipping postal-code"
+                              inputMode="numeric"
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
                     <div className="flex flex-col sm:flex-row gap-2">

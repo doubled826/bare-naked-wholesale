@@ -7,7 +7,10 @@ import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
 export default function SignupPage() {
   const [formData, setFormData] = useState({
     businessName: '',
-    businessAddress: '',
+    businessStreet: '',
+    businessCity: '',
+    businessState: '',
+    businessZip: '',
     name: '',
     email: '',
     password: '',
@@ -111,25 +114,65 @@ export default function SignupPage() {
               onChange={handleChange}
               placeholder="Pet Paradise Boutique"
               className="input"
+              autoComplete="organization"
               required
             />
           </div>
 
           {/* Business Address */}
           <div>
-            <label htmlFor="businessAddress" className="label">
+            <label htmlFor="businessStreet" className="label">
               Business Address
             </label>
-            <input
-              id="businessAddress"
-              name="businessAddress"
-              type="text"
-              value={formData.businessAddress}
-              onChange={handleChange}
-              placeholder="123 Main St, City, State 12345"
-              className="input"
-              required
-            />
+            <div className="space-y-3">
+              <input
+                id="businessStreet"
+                name="businessStreet"
+                type="text"
+                value={formData.businessStreet}
+                onChange={handleChange}
+                placeholder="123 Main St"
+                className="input"
+                autoComplete="address-line1"
+                required
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <input
+                  id="businessCity"
+                  name="businessCity"
+                  type="text"
+                  value={formData.businessCity}
+                  onChange={handleChange}
+                  placeholder="City"
+                  className="input"
+                  autoComplete="address-level2"
+                  required
+                />
+                <input
+                  id="businessState"
+                  name="businessState"
+                  type="text"
+                  value={formData.businessState}
+                  onChange={handleChange}
+                  placeholder="State"
+                  className="input"
+                  autoComplete="address-level1"
+                  required
+                />
+                <input
+                  id="businessZip"
+                  name="businessZip"
+                  type="text"
+                  value={formData.businessZip}
+                  onChange={handleChange}
+                  placeholder="ZIP"
+                  className="input"
+                  autoComplete="postal-code"
+                  inputMode="numeric"
+                  required
+                />
+              </div>
+            </div>
           </div>
 
           {/* Contact Name */}
@@ -145,6 +188,7 @@ export default function SignupPage() {
               onChange={handleChange}
               placeholder="John Smith"
               className="input"
+              autoComplete="name"
               required
             />
           </div>
@@ -162,6 +206,7 @@ export default function SignupPage() {
               onChange={handleChange}
               placeholder="orders@petparadise.com"
               className="input"
+              autoComplete="email"
               required
             />
           </div>
@@ -182,6 +227,7 @@ export default function SignupPage() {
                 className="input pr-12"
                 required
                 minLength={6}
+                autoComplete="new-password"
               />
               <button
                 type="button"
@@ -206,6 +252,7 @@ export default function SignupPage() {
               onChange={handleChange}
               placeholder="(555) 123-4567"
               className="input"
+              autoComplete="tel"
               required
             />
           </div>
