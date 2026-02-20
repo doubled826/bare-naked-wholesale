@@ -66,13 +66,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: messageRecord });
     }
 
-    const { data: retailer } = await supabase
+    const { data: retailer, error: retailerError } = await supabase
       .from('retailers')
       .select('id, company_name, business_name, account_number, phone, business_address')
       .eq('id', user.id)
       .single();
 
-    if (!retailer) {
+    if (retailerError || !retailer) {
       return NextResponse.json(
         {
           error: 'Unauthorized',
@@ -80,6 +80,8 @@ export async function POST(request: Request) {
             authUserId: user.id,
             authEmail: user.email,
             retailerFound: false,
+            retailerError: retailerError?.message || null,
+            retailerErrorCode: retailerError?.code || null,
           },
         },
         { status: 403 }
