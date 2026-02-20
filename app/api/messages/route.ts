@@ -109,13 +109,18 @@ export async function POST(request: Request) {
     }
 
     const businessName = retailer.company_name || 'Retailer';
+    const contactName =
+      (user.user_metadata?.display_name as string | undefined) ||
+      (user.user_metadata?.full_name as string | undefined) ||
+      (user.user_metadata?.name as string | undefined) ||
+      businessName;
     const { data: messageRecord, error: messageError } = await supabase
       .from('messages')
       .insert({
         conversation_id: conversation.id,
         sender_role: 'retailer',
         sender_id: user.id,
-        sender_name: businessName,
+        sender_name: contactName,
         body: message,
       })
       .select('*')
