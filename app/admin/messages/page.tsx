@@ -14,7 +14,7 @@ interface Conversation {
     id: string;
     company_name: string;
     account_number: string;
-  };
+  } | null;
 }
 
 interface Message {
@@ -43,9 +43,14 @@ export default function AdminMessagesPage() {
         .select('id, retailer_id, last_message_at, last_message_preview, retailer:retailers(id, company_name, account_number)')
         .order('last_message_at', { ascending: false, nullsFirst: true });
 
-      setConversations((data || []) as Conversation[]);
-      if (data && data.length > 0) {
-        setActiveConversation((current) => current ?? (data[0] as Conversation));
+      const normalized = (data || []).map((item: any) => ({
+        ...item,
+        retailer: Array.isArray(item.retailer) ? item.retailer[0] ?? null : item.retailer ?? null,
+      })) as Conversation[];
+
+      setConversations(normalized);
+      if (normalized.length > 0) {
+        setActiveConversation((current) => current ?? normalized[0]);
       }
     };
 
@@ -75,7 +80,8 @@ export default function AdminMessagesPage() {
     const channel = supabase
       .channel('admin-conversations')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, (payload) => {
-        setConversations((current) => [payload.new as Conversation, ...current]);
+        const incoming = payload.new as Conversation;
+        setConversations((current) => [incoming, ...current]);
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, (payload) => {
         const updated = payload.new as Conversation;
