@@ -142,6 +142,7 @@ export interface Conversation {
   last_message_at?: string | null;
   last_message_preview?: string | null;
   last_sender_role?: 'retailer' | 'admin' | null;
+  last_read_by_retailer_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -151,6 +152,7 @@ export interface Message {
   conversation_id: string;
   sender_role: 'retailer' | 'admin';
   sender_id: string;
+  sender_name?: string | null;
   body: string;
   created_at: string;
 }

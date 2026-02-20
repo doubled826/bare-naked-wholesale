@@ -357,6 +357,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   last_message_at TIMESTAMPTZ,
   last_message_preview TEXT,
   last_sender_role TEXT,
+  last_read_by_retailer_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -367,6 +368,7 @@ CREATE TABLE IF NOT EXISTS messages (
   conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
   sender_role TEXT NOT NULL CHECK (sender_role IN ('retailer', 'admin')),
   sender_id UUID NOT NULL,
+  sender_name TEXT,
   body TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );

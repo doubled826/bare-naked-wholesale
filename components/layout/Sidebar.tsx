@@ -18,6 +18,8 @@ import {
 import { cn, getInitials } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { createClient } from '@/lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useEffect, useState } from 'react';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -32,6 +34,8 @@ export function Sidebar() {
   const pathname = usePathname();
   const { sidebarOpen, setSidebarOpen, retailer, setRetailer, clearCart } = useAppStore();
   const supabase = createClient();
+  const supabaseClient = createClientComponentClient();
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -42,6 +46,100 @@ export function Sidebar() {
 
   // Get the business name - check both possible field names
   const businessName = retailer?.company_name || retailer?.business_name || 'Retailer';
+
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      if (!retailer?.id) return;
+
+      const { data: conversation } = await supabaseClient
+        .from('conversations')
+        .select('id, last_read_by_retailer_at')
+        .eq('retailer_id', retailer.id)
+        .single();
+
+      if (!conversation?.id) {
+        setUnreadCount(0);
+        return;
+      }
+
+      let query = supabaseClient
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversation.id)
+        .eq('sender_role', 'admin');
+
+      if (conversation.last_read_by_retailer_at) {
+        query = query.gt('created_at', conversation.last_read_by_retailer_at);
+      }
+
+      const { count } = await query;
+      setUnreadCount(count || 0);
+    };
+
+    fetchUnreadCount();
+  }, [supabaseClient, retailer?.id]);
+
+  useEffect(() => {
+    if (!retailer?.id) return;
+
+    const conversationChannel = supabaseClient
+      .channel(`conversation-${retailer.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'conversations', filter: `retailer_id=eq.${retailer.id}` },
+        () => {
+          supabaseClient
+            .from('conversations')
+            .select('id, last_read_by_retailer_at')
+            .eq('retailer_id', retailer.id)
+            .single()
+            .then(({ data }) => {
+              if (!data?.id) {
+                setUnreadCount(0);
+                return;
+              }
+
+              let query = supabaseClient
+                .from('messages')
+                .select('id', { count: 'exact', head: true })
+                .eq('conversation_id', data.id)
+                .eq('sender_role', 'admin');
+
+              if (data.last_read_by_retailer_at) {
+                query = query.gt('created_at', data.last_read_by_retailer_at);
+              }
+
+              query.then(({ count }) => setUnreadCount(count || 0));
+            });
+        }
+      )
+      .subscribe();
+
+    const messagesChannel = supabaseClient
+      .channel(`message-notify-${retailer.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `sender_role=eq.admin` },
+        (payload) => {
+          const message = payload.new as { conversation_id: string };
+          supabaseClient
+            .from('conversations')
+            .select('id, last_read_by_retailer_at')
+            .eq('retailer_id', retailer.id)
+            .single()
+            .then(({ data }) => {
+              if (!data?.id || data.id !== message.conversation_id) return;
+              setUnreadCount((current) => current + 1);
+            });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabaseClient.removeChannel(conversationChannel);
+      supabaseClient.removeChannel(messagesChannel);
+    };
+  }, [supabaseClient, retailer?.id]);
 
   return (
     <>
@@ -91,7 +189,10 @@ export function Sidebar() {
                   className={cn('sidebar-link', isActive && 'active')}
                 >
                   <item.icon className="w-5 h-5" />
-                  {item.name}
+                  <span className="flex-1">{item.name}</span>
+                  {item.name === 'Message' && unreadCount > 0 && (
+                    <span className="ml-auto w-2.5 h-2.5 rounded-full bg-red-500" />
+                  )}
                 </Link>
               );
             })}

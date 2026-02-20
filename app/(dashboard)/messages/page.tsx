@@ -11,6 +11,7 @@ interface Conversation {
   retailer_id: string;
   last_message_at: string | null;
   last_message_preview: string | null;
+  last_read_by_retailer_at?: string | null;
 }
 
 interface Message {
@@ -18,6 +19,7 @@ interface Message {
   conversation_id: string;
   sender_role: 'retailer' | 'admin';
   sender_id: string;
+  sender_name?: string | null;
   body: string;
   created_at: string;
 }
@@ -67,6 +69,21 @@ export default function MessagesPage() {
 
     loadMessages();
   }, [supabase, conversation?.id]);
+
+  useEffect(() => {
+    const markAsRead = async () => {
+      if (!conversation?.id || messages.length === 0) return;
+      const latestAdminMessage = [...messages].reverse().find((msg) => msg.sender_role === 'admin');
+      if (!latestAdminMessage) return;
+
+      await supabase
+        .from('conversations')
+        .update({ last_read_by_retailer_at: new Date().toISOString() })
+        .eq('id', conversation.id);
+    };
+
+    markAsRead();
+  }, [supabase, conversation?.id, messages]);
 
   useEffect(() => {
     if (!conversation?.id) return;
@@ -187,6 +204,11 @@ export default function MessagesPage() {
                       : 'bg-cream-200 text-bark-500 rounded-bl-md'
                   )}
                 >
+                  {!isRetailer && (
+                    <p className="text-[11px] uppercase tracking-wide text-bark-500/60 mb-1">
+                      {msg.sender_name || 'Bare Naked Team'}
+                    </p>
+                  )}
                   <p className="whitespace-pre-wrap">{msg.body}</p>
                 </div>
               </div>

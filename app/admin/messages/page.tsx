@@ -22,6 +22,7 @@ interface Message {
   conversation_id: string;
   sender_role: 'retailer' | 'admin';
   sender_id: string;
+  sender_name?: string | null;
   body: string;
   created_at: string;
 }
@@ -252,6 +253,14 @@ export default function AdminMessagesPage() {
                             : 'bg-bark-50 text-gray-800 rounded-bl-md'
                         )}
                       >
+                        <p
+                          className={cn(
+                            'text-[11px] uppercase tracking-wide mb-1',
+                            isAdmin ? 'text-white/70 text-right' : 'text-gray-500'
+                          )}
+                        >
+                          {msg.sender_name || (isAdmin ? 'Admin' : 'Retailer')}
+                        </p>
                         <p className="whitespace-pre-wrap">{msg.body}</p>
                       </div>
                     </div>

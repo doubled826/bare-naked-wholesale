@@ -39,12 +39,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Conversation is required' }, { status: 400 });
       }
 
+      const adminName = adminUser?.name || user.email || 'Admin';
       const { data: messageRecord, error: messageError } = await supabase
         .from('messages')
         .insert({
           conversation_id: conversationId,
           sender_role: 'admin',
           sender_id: user.id,
+          sender_name: adminName,
           body: message,
         })
         .select('*')
@@ -106,12 +108,14 @@ export async function POST(request: Request) {
       conversation = createdConversation as { id: string };
     }
 
+    const businessName = retailer.company_name || 'Retailer';
     const { data: messageRecord, error: messageError } = await supabase
       .from('messages')
       .insert({
         conversation_id: conversation.id,
         sender_role: 'retailer',
         sender_id: user.id,
+        sender_name: businessName,
         body: message,
       })
       .select('*')
@@ -130,7 +134,6 @@ export async function POST(request: Request) {
       })
       .eq('id', conversation.id);
 
-    const businessName = retailer.company_name || 'Retailer';
     const emailText = [
       messageRecord.body,
       '',
