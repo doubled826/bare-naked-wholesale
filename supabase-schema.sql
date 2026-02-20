@@ -374,12 +374,37 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Community feed posts
+CREATE TABLE IF NOT EXISTS feed_posts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  retailer_id UUID REFERENCES retailers(id) ON DELETE CASCADE,
+  author_name TEXT NOT NULL,
+  is_admin BOOLEAN DEFAULT false,
+  body TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Community feed comments
+CREATE TABLE IF NOT EXISTS feed_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  post_id UUID REFERENCES feed_posts(id) ON DELETE CASCADE,
+  retailer_id UUID REFERENCES retailers(id) ON DELETE SET NULL,
+  author_name TEXT NOT NULL,
+  is_admin BOOLEAN DEFAULT false,
+  body TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_conversations_retailer_id ON conversations(retailer_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feed_posts_created_at ON feed_posts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feed_comments_post_id ON feed_comments(post_id);
 
 ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feed_posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feed_comments ENABLE ROW LEVEL SECURITY;
 
 -- Retailer conversation access
 CREATE POLICY "Retailers can view their conversation"
@@ -452,6 +477,66 @@ CREATE POLICY "Admins can create messages"
     sender_role = 'admin'
     AND sender_id = auth.uid()
     AND EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Retailers can delete their messages"
+  ON messages FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM conversations
+      WHERE conversations.id = messages.conversation_id
+      AND conversations.retailer_id = auth.uid()
+    )
+  );
+
+-- Community feed access (retailers)
+CREATE POLICY "Retailers can view all feed posts"
+  ON feed_posts FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Retailers can create their own feed posts"
+  ON feed_posts FOR INSERT
+  WITH CHECK (auth.uid() = retailer_id);
+
+CREATE POLICY "Retailers can view all feed comments"
+  ON feed_comments FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Retailers can create their own feed comments"
+  ON feed_comments FOR INSERT
+  WITH CHECK (auth.uid() = retailer_id);
+
+-- Community feed access (admins)
+CREATE POLICY "Admins can manage feed posts"
+  ON feed_posts FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins can manage feed comments"
+  ON feed_comments FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
       SELECT 1 FROM admin_users
       WHERE admin_users.id = auth.uid()
     )

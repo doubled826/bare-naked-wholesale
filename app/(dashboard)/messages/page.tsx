@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { CheckCircle2, MessageCircle, Send, Sparkles, AlertCircle } from 'lucide-react';
+import { CheckCircle2, MessageCircle, Send, Sparkles, AlertCircle, Trash2 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
@@ -33,6 +33,8 @@ export default function MessagesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
+  const [isClearing, setIsClearing] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const businessName = retailer?.company_name || retailer?.business_name || 'Retailer';
 
@@ -69,6 +71,11 @@ export default function MessagesPage() {
 
     loadMessages();
   }, [supabase, conversation?.id]);
+
+  useEffect(() => {
+    if (!messagesEndRef.current) return;
+    messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages]);
 
   useEffect(() => {
     const markAsRead = async () => {
@@ -145,6 +152,37 @@ export default function MessagesPage() {
     }
   };
 
+  const handleClearHistory = async () => {
+    if (!conversation?.id || isClearing) return;
+
+    const confirmed = window.confirm('This will permanently delete your chat history. Continue?');
+    if (!confirmed) return;
+
+    setIsClearing(true);
+    setStatus('idle');
+    setErrorMessage('');
+
+    try {
+      const response = await fetch('/api/messages/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId: conversation.id }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Failed to clear chat history');
+      }
+
+      setMessages([]);
+    } catch (error) {
+      setStatus('error');
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to clear chat history');
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   const isSendDisabled = !messageBody.trim() || isSubmitting;
 
   const emptyState = useMemo(() => {
@@ -187,6 +225,19 @@ export default function MessagesPage() {
       </div>
 
       <div className="card p-6 lg:p-8 space-y-6">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-bark-500">Conversation</p>
+          <button
+            type="button"
+            onClick={handleClearHistory}
+            disabled={!messages.length || isClearing}
+            className="inline-flex items-center gap-2 text-xs font-semibold text-bark-500/70 hover:text-red-600 transition-colors disabled:opacity-50"
+          >
+            <Trash2 className="w-4 h-4" />
+            {isClearing ? 'Clearing...' : 'Clear chat history'}
+          </button>
+        </div>
+
         <div className="space-y-4 max-h-[420px] overflow-y-auto pr-2">
           {emptyState}
           {messages.map((msg) => {
@@ -214,6 +265,7 @@ export default function MessagesPage() {
               </div>
             );
           })}
+          <div ref={messagesEndRef} />
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
