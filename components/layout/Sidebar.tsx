@@ -8,6 +8,7 @@ import {
   Package, 
   User, 
   FolderOpen,
+  MessageSquare,
   LogOut,
   Menu,
   X,
@@ -23,6 +24,7 @@ const navigation = [
   { name: 'Product Catalog', href: '/catalog', icon: ShoppingBag },
   { name: 'Order History', href: '/orders', icon: Package },
   { name: 'Resources', href: '/resources', icon: FolderOpen },
+  { name: 'Message', href: '/messages', icon: MessageSquare },
   { name: 'Account', href: '/account', icon: User },
 ];
 

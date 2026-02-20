@@ -11,6 +11,7 @@ import {
   Package, 
   FolderOpen,
   BarChart2,
+  MessageSquare,
   LogOut,
   Menu,
   X,
@@ -24,6 +25,7 @@ const navigation = [
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
   { name: 'Products', href: '/admin/products', icon: Package },
   { name: 'Resources', href: '/admin/resources', icon: FolderOpen },
+  { name: 'Message', href: '/admin/messages', icon: MessageSquare },
   { name: 'Insights', href: '/admin/insights', icon: BarChart2 },
 ];
 
