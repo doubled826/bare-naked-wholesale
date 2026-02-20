@@ -358,6 +358,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   last_message_preview TEXT,
   last_sender_role TEXT,
   last_read_by_retailer_at TIMESTAMPTZ,
+  archived_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

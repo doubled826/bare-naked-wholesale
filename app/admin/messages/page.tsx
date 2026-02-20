@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { AlertCircle, MessageCircle, Send, Sparkles } from 'lucide-react';
+import { AlertCircle, MessageCircle, Send, Sparkles, Archive } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Conversation {
@@ -36,12 +36,14 @@ export default function AdminMessagesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [status, setStatus] = useState<'idle' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
+  const [isArchiving, setIsArchiving] = useState(false);
 
   useEffect(() => {
     const loadConversations = async () => {
       const { data } = await supabase
         .from('conversations')
-        .select('id, retailer_id, last_message_at, last_message_preview, retailer:retailers(id, company_name, account_number)')
+        .select('id, retailer_id, last_message_at, last_message_preview, archived_at, retailer:retailers(id, company_name, account_number)')
+        .is('archived_at', null)
         .order('last_message_at', { ascending: false, nullsFirst: true });
 
       const normalized = (data || []).map((item: any) => ({
@@ -167,6 +169,40 @@ export default function AdminMessagesPage() {
     }
   };
 
+  const handleArchive = async () => {
+    if (!activeConversation || isArchiving) return;
+
+    setIsArchiving(true);
+    setStatus('idle');
+    setErrorMessage('');
+
+    try {
+      const response = await fetch('/api/admin/conversations/archive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId: activeConversation.id }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Failed to archive conversation');
+      }
+
+      setConversations((current) => current.filter((item) => item.id !== activeConversation.id));
+      setActiveConversation((current) => {
+        if (!current || current.id !== activeConversation.id) return current;
+        const remaining = conversations.filter((item) => item.id !== activeConversation.id);
+        return remaining.length > 0 ? remaining[0] : null;
+      });
+      setMessages([]);
+    } catch (error) {
+      setStatus('error');
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to archive conversation');
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
   const emptyState = useMemo(() => {
     if (conversations.length > 0) return null;
     return (
@@ -233,11 +269,22 @@ export default function AdminMessagesPage() {
           {!activeConversation && emptyState}
           {activeConversation && (
             <>
-              <div className="border-b border-gray-100 pb-4 mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">
-                  {activeConversation.retailer?.company_name || 'Retailer'}
-                </h2>
-                <p className="text-sm text-gray-500">{activeConversation.retailer?.account_number || ''}</p>
+              <div className="border-b border-gray-100 pb-4 mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    {activeConversation.retailer?.company_name || 'Retailer'}
+                  </h2>
+                  <p className="text-sm text-gray-500">{activeConversation.retailer?.account_number || ''}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleArchive}
+                  disabled={isArchiving}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:border-bark-200 hover:text-bark-600 hover:bg-bark-50 transition-colors disabled:opacity-50"
+                >
+                  <Archive className="w-4 h-4" />
+                  {isArchiving ? 'Archiving...' : 'Archive Chat'}
+                </button>
               </div>
 
               <div className="flex-1 space-y-4 overflow-y-auto pr-2">
