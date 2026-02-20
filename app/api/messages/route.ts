@@ -68,7 +68,7 @@ export async function POST(request: Request) {
 
     const { data: retailer, error: retailerError } = await supabase
       .from('retailers')
-      .select('id, company_name, business_name, account_number, phone, business_address')
+      .select('id, company_name, account_number, phone, business_address')
       .eq('id', user.id)
       .single();
 
@@ -76,13 +76,6 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: 'Unauthorized',
-          debug: {
-            authUserId: user.id,
-            authEmail: user.email,
-            retailerFound: false,
-            retailerError: retailerError?.message || null,
-            retailerErrorCode: retailerError?.code || null,
-          },
         },
         { status: 403 }
       );
@@ -137,7 +130,7 @@ export async function POST(request: Request) {
       })
       .eq('id', conversation.id);
 
-    const businessName = retailer.company_name || retailer.business_name || 'Retailer';
+    const businessName = retailer.company_name || 'Retailer';
     const emailText = [
       messageRecord.body,
       '',
