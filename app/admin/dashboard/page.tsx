@@ -43,7 +43,7 @@ export default function AdminDashboard() {
   const [topRetailers, setTopRetailers] = useState<TopRetailer[]>([]);
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState<'day' | 'week' | 'month'>('week');
+  const [timeRange, setTimeRange] = useState<'day' | 'yesterday' | 'week' | 'month'>('week');
 
   useEffect(() => { fetchDashboardData(); }, [timeRange]);
 
@@ -58,11 +58,22 @@ export default function AdminDashboard() {
 
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfYesterday = new Date(today);
+      startOfYesterday.setDate(today.getDate() - 1);
       const startOfWeek = new Date(today);
       startOfWeek.setDate(today.getDate() - today.getDay());
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const rangeStart = timeRange === 'day' ? today : timeRange === 'week' ? startOfWeek : startOfMonth;
-      const rangeOrders = validOrders.filter(o => new Date(o.created_at) >= rangeStart);
+      const rangeStart =
+        timeRange === 'day' ? today :
+        timeRange === 'yesterday' ? startOfYesterday :
+        timeRange === 'week' ? startOfWeek :
+        startOfMonth;
+      const rangeEnd = timeRange === 'yesterday' ? today : null;
+      const inRange = (dateValue: string) => {
+        const date = new Date(dateValue);
+        return date >= rangeStart && (!rangeEnd || date < rangeEnd);
+      };
+      const rangeOrders = validOrders.filter(o => inRange(o.created_at));
 
       const statsData: DashboardStats = {
         totalOrders: rangeOrders.length,
@@ -81,7 +92,7 @@ export default function AdminDashboard() {
       const productSales = new Map<string, { name: string; size: string; total_sold: number; total_revenue: number }>();
       let unitsSold = 0;
       orderItems?.forEach((item: any) => {
-        if (item.product && item.order && item.order.status !== 'canceled' && new Date(item.order.created_at) >= rangeStart) {
+        if (item.product && item.order && item.order.status !== 'canceled' && inRange(item.order.created_at)) {
           const key = item.product.id;
           const existing = productSales.get(key) || { name: item.product.name, size: item.product.size, total_sold: 0, total_revenue: 0 };
           existing.total_sold += item.quantity;
@@ -143,13 +154,13 @@ export default function AdminDashboard() {
       {/* Time range selector */}
       <div className="flex justify-end">
         <div className="inline-flex rounded-lg border border-gray-200 p-1 bg-white">
-          {(['day', 'week', 'month'] as const).map((range) => (
+          {(['day', 'yesterday', 'week', 'month'] as const).map((range) => (
             <button 
               key={range} 
               onClick={() => setTimeRange(range)} 
               className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${timeRange === range ? 'bg-bark-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
             >
-              {range === 'day' ? 'Today' : range === 'week' ? 'This Week' : 'This Month'}
+              {range === 'day' ? 'Today' : range === 'yesterday' ? 'Yesterday' : range === 'week' ? 'This Week' : 'This Month'}
             </button>
           ))}
         </div>
