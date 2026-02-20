@@ -136,6 +136,7 @@ export async function POST(request: Request) {
         last_message_at: messageRecord.created_at,
         last_message_preview: messageRecord.body.slice(0, 140),
         last_sender_role: 'retailer',
+        archived_at: null,
       })
       .eq('id', conversation.id);
 
