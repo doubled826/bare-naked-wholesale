@@ -37,6 +37,11 @@ type RetailerRecord = {
   created_at: string;
 };
 
+type RetailerLocationRecord = {
+  id: string;
+  created_at: string;
+};
+
 type RetailerStats = {
   id: string;
   company_name: string;
@@ -88,7 +93,7 @@ export default function AdminInsightsPage() {
   const [unitsSold, setUnitsSold] = useState(0);
   const [avgOrderValue, setAvgOrderValue] = useState(0);
   const [activeRetailers, setActiveRetailers] = useState(0);
-  const [newRetailersThisMonth, setNewRetailersThisMonth] = useState(0);
+  const [newLocationsThisMonth, setNewLocationsThisMonth] = useState(0);
   const [reorderRate, setReorderRate] = useState(0);
   const [atRiskRetailers, setAtRiskRetailers] = useState<AtRiskRetailer[]>([]);
   const [stateRevenue, setStateRevenue] = useState<{ state: string; revenue: number }[]>([]);
@@ -114,6 +119,10 @@ export default function AdminInsightsPage() {
       const { data: retailers } = await supabase
         .from('retailers')
         .select('id, company_name, business_address, created_at');
+
+      const { data: retailerLocations } = await supabase
+        .from('retailer_locations')
+        .select('id, created_at');
 
       const validOrders = (orders as OrderRecord[] | null || []).filter(order => order.status !== 'canceled');
       const totalRevenueValue = validOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
@@ -174,7 +183,11 @@ export default function AdminInsightsPage() {
         const createdAt = new Date(retailer.created_at);
         return createdAt >= startOfMonth;
       }).length;
-      setNewRetailersThisMonth(newRetailersCount);
+      const newLocationCount = (retailerLocations as RetailerLocationRecord[] | null || []).filter(location => {
+        const createdAt = new Date(location.created_at);
+        return createdAt >= startOfMonth;
+      }).length;
+      setNewLocationsThisMonth(newRetailersCount + newLocationCount);
 
       const reorderCount = Array.from(retailerStats.values()).filter(retailer => retailer.total_orders >= 2).length;
       setReorderRate(activeRetailerCount > 0 ? (reorderCount / activeRetailerCount) * 100 : 0);
@@ -295,8 +308,8 @@ export default function AdminInsightsPage() {
             <p className="text-2xl font-bold text-gray-900 mt-1">{activeRetailers}</p>
           </div>
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <p className="text-sm text-gray-500">New Retailers This Month</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{newRetailersThisMonth}</p>
+            <p className="text-sm text-gray-500">New Retail Locations This Month</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">{newLocationsThisMonth}</p>
           </div>
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
             <p className="text-sm text-gray-500">Reorder Rate</p>
