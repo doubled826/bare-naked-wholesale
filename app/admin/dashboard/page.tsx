@@ -54,7 +54,12 @@ export default function AdminDashboard() {
         .from('orders')
         .select('id, total, status, created_at, retailer:retailers(id, company_name)');
       const validOrders = (orders || []).filter(o => o.status !== 'canceled');
-      const { data: retailers } = await supabase.from('retailers').select('id');
+      const { count: retailerCount } = await supabase
+        .from('retailers')
+        .select('id', { count: 'exact', head: true });
+      const { count: locationCount } = await supabase
+        .from('retailer_locations')
+        .select('id', { count: 'exact', head: true });
 
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -81,7 +86,7 @@ export default function AdminDashboard() {
         shippedOrders: rangeOrders.filter(o => o.status === 'shipped').length,
         totalRevenue: rangeOrders.reduce((sum, o) => sum + (o.total || 0), 0),
         unitsSold: 0,
-        totalRetailers: retailers?.length || 0,
+        totalRetailers: (retailerCount || 0) + (locationCount || 0),
       };
       setStats(statsData);
 
@@ -200,17 +205,12 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Total Retailers</p>
+              <p className="text-sm text-gray-500">Total Locations</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{stats?.totalRetailers}</p>
             </div>
             <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
               <Users className="w-6 h-6 text-purple-600" />
             </div>
-          </div>
-          <div className="mt-4 flex items-center text-sm">
-            <span className="text-purple-600 font-medium flex items-center">
-              <TrendingUp className="w-4 h-4 mr-1" />Active accounts
-            </span>
           </div>
         </div>
 
