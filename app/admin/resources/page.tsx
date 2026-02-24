@@ -455,17 +455,17 @@ export default function AdminResourcesPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                  <input
-                    list="resource-categories"
+                  <select
                     value={formData.category || ''}
                     onChange={(event) => setFormData({ ...formData, category: event.target.value })}
                     className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
-                  />
-                  <datalist id="resource-categories">
-                    {categorySuggestions.map((category) => (
-                      <option key={category} value={category} />
+                  >
+                    {categories.filter((category) => category !== 'All').map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
                     ))}
-                  </datalist>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Sort Order</label>
