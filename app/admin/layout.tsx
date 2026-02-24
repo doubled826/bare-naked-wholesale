@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 
 const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+  { name: 'Feed', href: '/admin/feed', icon: MessageSquare },
   { name: 'Orders', href: '/admin/orders', icon: ShoppingCart },
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
   { name: 'Products', href: '/admin/products', icon: Package },
@@ -189,12 +190,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 {navigation.find(n => n.href === pathname)?.name || 'Admin'}
               </h2>
             </div>
-            <Link 
-              href="/dashboard" 
-              className="text-sm text-bark-500 hover:text-bark-600 font-medium"
-            >
-              View Retailer Portal →
-            </Link>
+
           </div>
         </header>
 

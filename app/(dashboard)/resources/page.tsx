@@ -67,7 +67,8 @@ export default function ResourcesPage() {
         .map((resource) => resource.category)
         .filter((category): category is string => Boolean(category))
     );
-    return ['All', ...Array.from(set).sort()];
+    const ordered = ['All', ...Object.keys(categoryMeta), ...Array.from(set).sort()];
+    return Array.from(new Set(ordered));
   }, [resources]);
 
   const filteredResources = useMemo(() => {

@@ -60,9 +60,11 @@ export default function AdminOrdersPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [locationOptions, setLocationOptions] = useState<LocationOption[]>([]);
   const [locationsLoading, setLocationsLoading] = useState(false);
+  const [retailerSearch, setRetailerSearch] = useState('');
 
   useEffect(() => { fetchOrders(); fetchOptions(); }, []);
   useEffect(() => { filterOrders(); }, [orders, searchQuery, statusFilter, startDate, endDate]);
+  useEffect(() => { if (!showCreateModal) setRetailerSearch(''); }, [showCreateModal]);
   useEffect(() => {
     if (!orderParam || orders.length === 0) return;
     const matchingOrder = orders.find((order) => order.id === orderParam);
@@ -141,6 +143,12 @@ export default function AdminOrdersPage() {
     if (endDate) filtered = filtered.filter(o => new Date(o.created_at) <= new Date(`${endDate}T23:59:59.999`));
     setFilteredOrders(filtered);
   };
+
+  const filteredRetailers = retailerSearch
+    ? retailers.filter((retailer) =>
+        retailer.company_name.toLowerCase().includes(retailerSearch.toLowerCase().trim())
+      )
+    : retailers;
 
   const toLocalDateInput = (date: Date) => {
     const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -423,12 +431,33 @@ export default function AdminOrdersPage() {
             <div className="space-y-5">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Retailer</label>
-                <select value={newOrder.retailerId} onChange={(e) => setNewOrder({ ...newOrder, retailerId: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500">
-                  <option value="">Select retailer</option>
-                  {retailers.map((retailer) => (
-                    <option key={retailer.id} value={retailer.id}>{retailer.company_name}</option>
-                  ))}
-                </select>
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    placeholder="Search retailers..."
+                    value={retailerSearch}
+                    onChange={(e) => setRetailerSearch(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  />
+                  <select
+                    value={newOrder.retailerId}
+                    onChange={(e) => setNewOrder({ ...newOrder, retailerId: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  >
+                    <option value="">Select retailer</option>
+                    {filteredRetailers.length === 0 ? (
+                      <option value="" disabled>
+                        No retailers match that search
+                      </option>
+                    ) : (
+                      filteredRetailers.map((retailer) => (
+                        <option key={retailer.id} value={retailer.id}>
+                          {retailer.company_name}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Ship-To Location</label>
