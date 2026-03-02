@@ -5,6 +5,7 @@ export interface Retailer {
   business_address: string;
   phone: string;
   account_number: string;
+  logo_url?: string | null;
   email?: string;
   tax_id?: string;  // Add this line
   created_at?: string;
@@ -87,6 +88,7 @@ export interface AdminUser {
   id: string;
   email: string;
   name?: string;
+  avatar_url?: string | null;
   created_at: string;
 }
 

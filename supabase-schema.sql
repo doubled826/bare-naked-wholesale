@@ -11,12 +11,16 @@ CREATE TABLE IF NOT EXISTS retailers (
   company_name TEXT NOT NULL, -- Changed from business_name to match code
   business_address TEXT NOT NULL,
   phone TEXT NOT NULL,
+  logo_url TEXT,
   -- Automatically generates BNP-1000, BNP-1001, etc.
   account_number TEXT UNIQUE DEFAULT ('BNP-' || nextval('retailer_account_seq')::text),
   status TEXT DEFAULT 'pending', -- Added for approval flow
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE retailers
+  ADD COLUMN IF NOT EXISTS logo_url TEXT;
 
 -- Products table
 CREATE TABLE products (
@@ -379,32 +383,69 @@ CREATE TABLE IF NOT EXISTS feed_posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   retailer_id UUID REFERENCES retailers(id) ON DELETE CASCADE,
   author_name TEXT NOT NULL,
+  author_avatar_url TEXT,
   is_admin BOOLEAN DEFAULT false,
   body TEXT NOT NULL,
+  image_url TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE feed_posts
+  ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE feed_posts
+  ADD COLUMN IF NOT EXISTS author_avatar_url TEXT;
 
 -- Community feed comments
 CREATE TABLE IF NOT EXISTS feed_comments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_id UUID REFERENCES feed_posts(id) ON DELETE CASCADE,
+  parent_comment_id UUID REFERENCES feed_comments(id) ON DELETE CASCADE,
   retailer_id UUID REFERENCES retailers(id) ON DELETE SET NULL,
   author_name TEXT NOT NULL,
+  author_avatar_url TEXT,
   is_admin BOOLEAN DEFAULT false,
   body TEXT NOT NULL,
+  image_url TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE feed_comments
+  ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE feed_comments
+  ADD COLUMN IF NOT EXISTS parent_comment_id UUID REFERENCES feed_comments(id) ON DELETE CASCADE;
+ALTER TABLE feed_comments
+  ADD COLUMN IF NOT EXISTS author_avatar_url TEXT;
+
+ALTER TABLE admin_users
+  ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+
+-- Feed likes
+CREATE TABLE IF NOT EXISTS feed_likes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  target_type TEXT NOT NULL CHECK (target_type IN ('post', 'comment')),
+  target_id UUID NOT NULL,
+  user_id UUID NOT NULL,
+  retailer_id UUID REFERENCES retailers(id) ON DELETE SET NULL,
+  is_admin BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE (target_type, target_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_feed_likes_target ON feed_likes(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_feed_likes_user_id ON feed_likes(user_id);
 
 CREATE INDEX IF NOT EXISTS idx_conversations_retailer_id ON conversations(retailer_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_feed_posts_created_at ON feed_posts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_feed_comments_post_id ON feed_comments(post_id);
+CREATE INDEX IF NOT EXISTS idx_feed_comments_parent_id ON feed_comments(parent_comment_id);
 
 ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feed_posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feed_comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feed_likes ENABLE ROW LEVEL SECURITY;
 
 -- Retailer conversation access
 CREATE POLICY "Retailers can view their conversation"
@@ -541,3 +582,107 @@ CREATE POLICY "Admins can manage feed comments"
       WHERE admin_users.id = auth.uid()
     )
   );
+
+-- Feed likes access (retailers)
+CREATE POLICY "Retailers can view all feed likes"
+  ON feed_likes FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Retailers can like as themselves"
+  ON feed_likes FOR INSERT
+  WITH CHECK (
+    user_id = auth.uid()
+    AND retailer_id = auth.uid()
+    AND is_admin = false
+  );
+
+CREATE POLICY "Retailers can remove their own likes"
+  ON feed_likes FOR DELETE
+  USING (user_id = auth.uid());
+
+-- Feed likes access (admins)
+CREATE POLICY "Admins can manage feed likes"
+  ON feed_likes FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+-- RPC: Top retailers by revenue (for feed badges)
+CREATE OR REPLACE FUNCTION public.get_top_retailers_by_revenue(limit_count integer DEFAULT 10)
+RETURNS TABLE(retailer_id uuid)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT orders.retailer_id
+  FROM orders
+  WHERE orders.retailer_id IS NOT NULL
+    AND orders.status IS DISTINCT FROM 'canceled'
+  GROUP BY orders.retailer_id
+  ORDER BY SUM(COALESCE(orders.total, 0)) DESC
+  LIMIT limit_count;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_top_retailers_by_revenue(integer) TO authenticated;
+
+-- Storage bucket for feed images
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('feed-media', 'feed-media', true)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('profile-media', 'profile-media', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Storage policies for feed media
+DO $$
+BEGIN
+  CREATE POLICY "Feed media is public"
+    ON storage.objects FOR SELECT
+    USING (bucket_id = 'feed-media');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END
+$$;
+
+DO $$
+BEGIN
+  CREATE POLICY "Authenticated can upload feed media"
+    ON storage.objects FOR INSERT
+    TO authenticated
+    WITH CHECK (bucket_id = 'feed-media');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END
+$$;
+
+DO $$
+BEGIN
+  CREATE POLICY "Profile media is public"
+    ON storage.objects FOR SELECT
+    USING (bucket_id = 'profile-media');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END
+$$;
+
+DO $$
+BEGIN
+  CREATE POLICY "Authenticated can upload profile media"
+    ON storage.objects FOR INSERT
+    TO authenticated
+    WITH CHECK (bucket_id = 'profile-media');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END
+$$;

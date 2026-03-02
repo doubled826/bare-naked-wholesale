@@ -17,7 +17,8 @@ import {
   Plus,
   Trash2,
   Edit2,
-  Star
+  Star,
+  ImagePlus
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
@@ -26,7 +27,7 @@ import type { RetailerLocation } from '@/types';
 import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
 
 export default function AccountPage() {
-  const { retailer } = useAppStore();
+  const { retailer, setRetailer } = useAppStore();
   const [activeTab, setActiveTab] = useState('profile');
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -66,6 +67,12 @@ export default function AccountPage() {
   const [isSavingLocation, setIsSavingLocation] = useState(false);
   const [isDeletingLocationId, setIsDeletingLocationId] = useState<string | null>(null);
   const [isSettingDefaultId, setIsSettingDefaultId] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [logoStatus, setLogoStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [logoError, setLogoError] = useState('');
   
   const supabase = createClientComponentClient();
 
@@ -370,6 +377,87 @@ export default function AccountPage() {
     });
   }, [retailer, userMetadata]);
 
+  useEffect(() => {
+    setLogoUrl(retailer?.logo_url || null);
+  }, [retailer?.logo_url]);
+
+  useEffect(() => {
+    if (!logoPreview) return;
+    return () => URL.revokeObjectURL(logoPreview);
+  }, [logoPreview]);
+
+  const handleLogoUpload = async () => {
+    if (!logoFile || isUploadingLogo) return;
+    setIsUploadingLogo(true);
+    setLogoStatus('idle');
+    setLogoError('');
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Please sign in again.');
+
+      const extension = logoFile.name.split('.').pop() || 'png';
+      const path = `retailers/${user.id}/logo-${crypto.randomUUID()}.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from('profile-media')
+        .upload(path, logoFile, { cacheControl: '3600', upsert: true, contentType: logoFile.type });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('profile-media').getPublicUrl(path);
+      const { error: updateError } = await supabase
+        .from('retailers')
+        .update({ logo_url: data.publicUrl })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
+      setLogoUrl(data.publicUrl);
+      setRetailer(retailer ? { ...retailer, logo_url: data.publicUrl } : retailer);
+      setLogoFile(null);
+      if (logoPreview) {
+        URL.revokeObjectURL(logoPreview);
+      }
+      setLogoPreview(null);
+      setLogoStatus('success');
+      setTimeout(() => setLogoStatus('idle'), 3000);
+    } catch (error) {
+      setLogoStatus('error');
+      setLogoError(error instanceof Error ? error.message : 'Unable to upload logo.');
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
+  const handleLogoRemove = async () => {
+    if (isUploadingLogo) return;
+    setIsUploadingLogo(true);
+    setLogoStatus('idle');
+    setLogoError('');
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Please sign in again.');
+
+      const { error } = await supabase
+        .from('retailers')
+        .update({ logo_url: null })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      setLogoUrl(null);
+      setRetailer(retailer ? { ...retailer, logo_url: null } : retailer);
+      setLogoStatus('success');
+      setTimeout(() => setLogoStatus('idle'), 3000);
+    } catch (error) {
+      setLogoStatus('error');
+      setLogoError(error instanceof Error ? error.message : 'Unable to remove logo.');
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     
@@ -545,6 +633,86 @@ export default function AccountPage() {
               <h2 className="section-title mb-6">Business Profile</h2>
 
               <div className="space-y-6">
+                {/* Logo */}
+                <div>
+                  <label className="label">Business Logo</label>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between p-4 bg-cream-200 rounded-xl">
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-2xl bg-white border border-cream-300 overflow-hidden flex items-center justify-center">
+                        {logoPreview || logoUrl ? (
+                          <img
+                            src={logoPreview || logoUrl || ''}
+                            alt="Business logo"
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <span className="text-sm font-semibold text-bark-500">
+                            {profile.businessName
+                              .split(' ')
+                              .map((part) => part[0])
+                              .join('')
+                              .slice(0, 2)
+                              .toUpperCase() || 'BN'}
+                          </span>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-bark-500">Upload your store logo</p>
+                        <p className="text-xs text-bark-500/70">
+                          Recommended for a more professional look in the community feed.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="btn-ghost px-3 text-sm">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            if (logoPreview) {
+                              URL.revokeObjectURL(logoPreview);
+                            }
+                            setLogoFile(file);
+                            setLogoPreview(URL.createObjectURL(file));
+                          }}
+                        />
+                        <ImagePlus className="w-4 h-4" />
+                        Choose Logo
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleLogoUpload}
+                        className="btn-primary px-4 py-2 text-sm"
+                        disabled={!logoFile || isUploadingLogo}
+                      >
+                        {isUploadingLogo ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Upload'}
+                      </button>
+                      {(logoUrl || logoPreview) && (
+                        <button
+                          type="button"
+                          onClick={handleLogoRemove}
+                          className="btn-ghost px-3 text-sm text-bark-500/70"
+                          disabled={isUploadingLogo}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {logoStatus === 'success' && (
+                    <div className="mt-3 text-sm text-emerald-700 flex items-center gap-2">
+                      <Check className="w-4 h-4" />
+                      Logo updated.
+                    </div>
+                  )}
+                  {logoStatus === 'error' && (
+                    <div className="mt-3 text-sm text-red-600">{logoError}</div>
+                  )}
+                </div>
+
                 {/* Account Number (readonly) */}
                 <div>
                   <label htmlFor="accountNumber" className="label">Account Number</label>

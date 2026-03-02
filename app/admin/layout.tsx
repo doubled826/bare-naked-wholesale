@@ -12,6 +12,7 @@ import {
   FolderOpen,
   BarChart2,
   MessageSquare,
+  User,
   LogOut,
   Menu,
   X,
@@ -21,12 +22,14 @@ import { cn } from '@/lib/utils';
 
 const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+  { name: 'Feed', href: '/admin/feed', icon: MessageSquare },
   { name: 'Orders', href: '/admin/orders', icon: ShoppingCart },
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
   { name: 'Products', href: '/admin/products', icon: Package },
   { name: 'Resources', href: '/admin/resources', icon: FolderOpen },
   { name: 'Message', href: '/admin/messages', icon: MessageSquare },
   { name: 'Insights', href: '/admin/insights', icon: BarChart2 },
+  { name: 'Account', href: '/admin/account', icon: User },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
