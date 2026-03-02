@@ -447,6 +447,15 @@ ALTER TABLE feed_posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feed_comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feed_likes ENABLE ROW LEVEL SECURITY;
 
+-- Feed read receipts (retailer unread indicator)
+CREATE TABLE IF NOT EXISTS feed_reads (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  retailer_id UUID UNIQUE REFERENCES retailers(id) ON DELETE CASCADE,
+  last_read_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE feed_reads ENABLE ROW LEVEL SECURITY;
+
 -- Retailer conversation access
 CREATE POLICY "Retailers can view their conversation"
   ON conversations FOR SELECT
@@ -604,6 +613,35 @@ CREATE POLICY "Retailers can remove their own likes"
 -- Feed likes access (admins)
 CREATE POLICY "Admins can manage feed likes"
   ON feed_likes FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+-- Feed read access (retailers)
+CREATE POLICY "Retailers can view their feed read state"
+  ON feed_reads FOR SELECT
+  USING (auth.uid() = retailer_id);
+
+CREATE POLICY "Retailers can create their feed read state"
+  ON feed_reads FOR INSERT
+  WITH CHECK (auth.uid() = retailer_id);
+
+CREATE POLICY "Retailers can update their feed read state"
+  ON feed_reads FOR UPDATE
+  USING (auth.uid() = retailer_id);
+
+-- Feed read access (admins)
+CREATE POLICY "Admins can manage feed reads"
+  ON feed_reads FOR ALL
   USING (
     EXISTS (
       SELECT 1 FROM admin_users

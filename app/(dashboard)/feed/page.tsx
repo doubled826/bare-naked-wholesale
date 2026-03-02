@@ -169,6 +169,13 @@ export default function FeedPage() {
   }, []);
 
   useEffect(() => {
+    if (!retailer?.id) return;
+    supabase
+      .from('feed_reads')
+      .upsert({ retailer_id: retailer.id, last_read_at: new Date().toISOString() }, { onConflict: 'retailer_id' });
+  }, [supabase, retailer?.id]);
+
+  useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setCurrentUserId(data.user?.id ?? null);
     });

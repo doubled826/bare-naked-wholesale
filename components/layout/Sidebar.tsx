@@ -9,6 +9,7 @@ import {
   User, 
   FolderOpen,
   MessageSquare,
+  Mail,
   LogOut,
   Menu,
   X,
@@ -27,7 +28,7 @@ const navigation = [
   { name: 'Product Catalog', href: '/catalog', icon: ShoppingBag },
   { name: 'Order History', href: '/orders', icon: Package },
   { name: 'Resources', href: '/resources', icon: FolderOpen },
-  { name: 'Message', href: '/messages', icon: MessageSquare },
+  { name: 'Message', href: '/messages', icon: Mail },
   { name: 'Account', href: '/account', icon: User },
 ];
 
@@ -37,6 +38,7 @@ export function Sidebar() {
   const supabase = createClient();
   const supabaseClient = createClientComponentClient();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadFeed, setUnreadFeed] = useState(false);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -80,9 +82,52 @@ export function Sidebar() {
     fetchUnreadCount();
   }, [supabaseClient, retailer?.id]);
 
+  const markFeedRead = async () => {
+    if (!retailer?.id) return;
+    await supabaseClient
+      .from('feed_reads')
+      .upsert({ retailer_id: retailer.id, last_read_at: new Date().toISOString() }, { onConflict: 'retailer_id' });
+    setUnreadFeed(false);
+  };
+
+  useEffect(() => {
+    const fetchFeedUnread = async () => {
+      if (!retailer?.id) return;
+      const { data: latestPost } = await supabaseClient
+        .from('feed_posts')
+        .select('created_at')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!latestPost?.created_at) {
+        setUnreadFeed(false);
+        return;
+      }
+
+      const { data: readState } = await supabaseClient
+        .from('feed_reads')
+        .select('last_read_at')
+        .eq('retailer_id', retailer.id)
+        .single();
+
+      if (!readState?.last_read_at) {
+        setUnreadFeed(true);
+        return;
+      }
+
+      setUnreadFeed(new Date(readState.last_read_at) < new Date(latestPost.created_at));
+    };
+
+    fetchFeedUnread();
+  }, [supabaseClient, retailer?.id]);
+
   useEffect(() => {
     if (pathname.startsWith('/messages')) {
       setUnreadCount(0);
+    }
+    if (pathname.startsWith('/feed')) {
+      markFeedRead();
     }
   }, [pathname]);
 
@@ -142,11 +187,30 @@ export function Sidebar() {
       )
       .subscribe();
 
+    const feedChannel = supabaseClient
+      .channel('feed-notify')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_posts' }, () => {
+        if (pathname.startsWith('/feed')) {
+          markFeedRead();
+        } else {
+          setUnreadFeed(true);
+        }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_comments' }, () => {
+        if (pathname.startsWith('/feed')) {
+          markFeedRead();
+        } else {
+          setUnreadFeed(true);
+        }
+      })
+      .subscribe();
+
     return () => {
       supabaseClient.removeChannel(conversationChannel);
       supabaseClient.removeChannel(messagesChannel);
+      supabaseClient.removeChannel(feedChannel);
     };
-  }, [supabaseClient, retailer?.id]);
+  }, [supabaseClient, retailer?.id, pathname]);
 
   return (
     <>
@@ -198,6 +262,9 @@ export function Sidebar() {
                   <item.icon className="w-5 h-5" />
                   <span className="flex-1">{item.name}</span>
                   {item.name === 'Message' && unreadCount > 0 && (
+                    <span className="ml-auto w-2.5 h-2.5 rounded-full bg-red-500" />
+                  )}
+                  {item.name === 'Feed' && unreadFeed && (
                     <span className="ml-auto w-2.5 h-2.5 rounded-full bg-red-500" />
                   )}
                 </Link>

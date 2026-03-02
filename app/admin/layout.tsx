@@ -12,6 +12,7 @@ import {
   FolderOpen,
   BarChart2,
   MessageSquare,
+  Mail,
   User,
   LogOut,
   Menu,
@@ -27,7 +28,7 @@ const navigation = [
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
   { name: 'Products', href: '/admin/products', icon: Package },
   { name: 'Resources', href: '/admin/resources', icon: FolderOpen },
-  { name: 'Message', href: '/admin/messages', icon: MessageSquare },
+  { name: 'Message', href: '/admin/messages', icon: Mail },
   { name: 'Insights', href: '/admin/insights', icon: BarChart2 },
   { name: 'Account', href: '/admin/account', icon: User },
 ];
