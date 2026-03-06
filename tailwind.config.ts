@@ -29,7 +29,7 @@ const config: Config = {
           200: '#e8d5c5',
           300: '#d9bba3',
           400: '#c49b7a',
-          500: '#3F1D0B', // PRIMARY - Dark brown
+          500: '#2E1A0A', // PRIMARY - Dark brown
           600: '#381a0a',
           700: '#301609',
           800: '#281307',
