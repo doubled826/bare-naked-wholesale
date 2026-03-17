@@ -16,9 +16,9 @@ const normalizeText = (value?: string) => (value || '').toLowerCase().trim();
 const normalizeSize = (value?: string) => normalizeText(value).replace(/\s+/g, '');
 const sizeStartsWith = (value: string, target: '6' | '12') => value.startsWith(target);
 
-const getAdminOrderItemSortIndex = (item: OrderItem) => {
-  const name = normalizeText(item.product?.name);
-  const size = normalizeSize(item.product?.size);
+const getAdminProductSortIndex = (product: Pick<ProductOption, 'name' | 'size'>) => {
+  const name = normalizeText(product.name);
+  const size = normalizeSize(product.size);
 
   if (name.includes('chicken') && sizeStartsWith(size, '6')) return 0;
   if (name.includes('chicken') && sizeStartsWith(size, '12')) return 1;
@@ -31,6 +31,13 @@ const getAdminOrderItemSortIndex = (item: OrderItem) => {
   if (name.includes('bison')) return 8;
 
   return 999;
+};
+
+const getAdminOrderItemSortIndex = (item: OrderItem) => {
+  return getAdminProductSortIndex({
+    name: item.product?.name || '',
+    size: item.product?.size || '',
+  });
 };
 
 export default function AdminOrdersPage() {
@@ -129,7 +136,17 @@ export default function AdminOrdersPage() {
         supabase.from('products').select('id, name, size, price').order('name')
       ]);
       setRetailers(retailersData || []);
-      setProducts(productsData || []);
+      setProducts(
+        [...(productsData || [])].sort((a, b) => {
+          const indexDiff = getAdminProductSortIndex(a) - getAdminProductSortIndex(b);
+          if (indexDiff !== 0) return indexDiff;
+
+          const nameDiff = normalizeText(a.name).localeCompare(normalizeText(b.name));
+          if (nameDiff !== 0) return nameDiff;
+
+          return normalizeSize(a.size).localeCompare(normalizeSize(b.size));
+        })
+      );
     } catch (error) {
       console.error('Error loading options:', error);
     }
