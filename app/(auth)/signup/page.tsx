@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import Script from 'next/script';
 import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
 
@@ -26,6 +27,7 @@ declare global {
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
 export default function SignupPage() {
+  const searchParams = useSearchParams();
   const [formData, setFormData] = useState({
     businessName: '',
     businessStreet: '',
@@ -41,6 +43,7 @@ export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
   const [success, setSuccess] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileReady, setTurnstileReady] = useState(false);
@@ -74,6 +77,26 @@ export default function SignupPage() {
       }
     };
   }, [turnstileReady]);
+
+  useEffect(() => {
+    const emailFromQuery = searchParams.get('email');
+    const welcome = searchParams.get('welcome');
+
+    if (emailFromQuery) {
+      setFormData((current) => ({
+        ...current,
+        email: current.email || emailFromQuery,
+      }));
+    }
+
+    if (welcome === 'new-portal') {
+      setInfoMessage(
+        'Welcome to the new wholesale portal. It looks like this email has not been set up yet. Create your account to get started.'
+      );
+    } else {
+      setInfoMessage('');
+    }
+  }, [searchParams]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -173,6 +196,12 @@ export default function SignupPage() {
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600 animate-slide-up">
             {error}
+          </div>
+        )}
+
+        {infoMessage && (
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 animate-slide-up">
+            {infoMessage}
           </div>
         )}
 

@@ -2,11 +2,11 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2, Mail, CheckCircle } from 'lucide-react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 export default function ForgotPasswordPage() {
-  const supabase = createClientComponentClient();
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -18,14 +18,23 @@ export default function ForgotPasswordPage() {
     setError('');
 
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+      const response = await fetch('/api/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
       });
 
-      if (error) {
-        setError(error.message);
-      } else {
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || 'Unable to process your request right now.');
+      } else if (data.action === 'signup' && data.redirectTo) {
+        router.push(data.redirectTo);
+        return;
+      } else if (data.action === 'reset') {
         setSuccess(true);
+      } else {
+        setError('Unable to process your request right now.');
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
