@@ -4,6 +4,44 @@ import { NextResponse } from 'next/server';
 import { sendTeamEmail } from '@/lib/email';
 import { formatBusinessAddress } from '@/lib/address';
 
+type TurnstileVerificationResult = {
+  success: boolean;
+  'error-codes'?: string[];
+};
+
+async function verifyTurnstileToken(token: string, remoteIp?: string | null) {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+
+  if (!secret) {
+    console.error('TURNSTILE_SECRET_KEY is not configured');
+    return { success: false, 'error-codes': ['missing-secret'] } satisfies TurnstileVerificationResult;
+  }
+
+  const formData = new FormData();
+  formData.append('secret', secret);
+  formData.append('response', token);
+
+  if (remoteIp) {
+    formData.append('remoteip', remoteIp);
+  }
+
+  try {
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      return { success: false, 'error-codes': ['verification-request-failed'] } satisfies TurnstileVerificationResult;
+    }
+
+    return (await response.json()) as TurnstileVerificationResult;
+  } catch (error) {
+    console.error('Turnstile verification error:', error);
+    return { success: false, 'error-codes': ['verification-request-failed'] } satisfies TurnstileVerificationResult;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
@@ -18,7 +56,23 @@ export async function POST(request: Request) {
       password,
       phone,
       taxId,
+      turnstileToken,
     } = await request.json();
+
+    if (!turnstileToken || typeof turnstileToken !== 'string') {
+      return NextResponse.json({ error: 'Please complete the verification challenge.' }, { status: 400 });
+    }
+
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    const remoteIp =
+      request.headers.get('cf-connecting-ip') ||
+      (forwardedFor ? forwardedFor.split(',')[0].trim() : null);
+    const verification = await verifyTurnstileToken(turnstileToken, remoteIp);
+
+    if (!verification.success) {
+      console.warn('Turnstile rejected signup:', verification['error-codes']);
+      return NextResponse.json({ error: 'Verification failed. Please try again.' }, { status: 400 });
+    }
 
     const formattedBusinessAddress = formatBusinessAddress({
       street: businessStreet,

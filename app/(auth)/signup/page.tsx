@@ -1,8 +1,29 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import Script from 'next/script';
 import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (
+        container: HTMLElement,
+        options: {
+          sitekey: string;
+          callback?: (token: string) => void;
+          'expired-callback'?: () => void;
+          'error-callback'?: () => void;
+        }
+      ) => string;
+      reset: (widgetId?: string) => void;
+      remove: (widgetId?: string) => void;
+    };
+  }
+}
+
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
@@ -21,6 +42,38 @@ export default function SignupPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileReady, setTurnstileReady] = useState(false);
+  const turnstileRef = useRef<HTMLDivElement | null>(null);
+  const widgetIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!turnstileReady || !turnstileSiteKey || !turnstileRef.current || !window.turnstile || widgetIdRef.current) {
+      return;
+    }
+
+    widgetIdRef.current = window.turnstile.render(turnstileRef.current, {
+      sitekey: turnstileSiteKey,
+      callback: (token) => {
+        setTurnstileToken(token);
+        setError('');
+      },
+      'expired-callback': () => {
+        setTurnstileToken('');
+      },
+      'error-callback': () => {
+        setTurnstileToken('');
+        setError('Verification failed to load. Please refresh and try again.');
+      },
+    });
+
+    return () => {
+      if (widgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(widgetIdRef.current);
+        widgetIdRef.current = null;
+      }
+    };
+  }, [turnstileReady]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -28,6 +81,16 @@ export default function SignupPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!turnstileSiteKey) {
+      setError('Signup verification is not configured yet.');
+      return;
+    }
+
+    if (!turnstileToken) {
+      setError('Please complete the verification before creating your account.');
+      return;
+    }
+
     setIsLoading(true);
     setError('');
 
@@ -35,7 +98,7 @@ export default function SignupPage() {
       const response = await fetch('/api/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, turnstileToken }),
       });
 
       const data = await response.json();
@@ -44,9 +107,17 @@ export default function SignupPage() {
         setSuccess(true);
       } else {
         setError(data.error || 'Signup failed. Please try again.');
+        setTurnstileToken('');
+        if (widgetIdRef.current && window.turnstile) {
+          window.turnstile.reset(widgetIdRef.current);
+        }
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
+      setTurnstileToken('');
+      if (widgetIdRef.current && window.turnstile) {
+        window.turnstile.reset(widgetIdRef.current);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -80,6 +151,12 @@ export default function SignupPage() {
 
   return (
     <div className="w-full max-w-md animate-fade-in">
+      <Script
+        src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+        strategy="afterInteractive"
+        onLoad={() => setTurnstileReady(true)}
+      />
+
       {/* Card */}
       <div className="card-elevated p-8 md:p-10">
         {/* Header */}
@@ -274,10 +351,21 @@ export default function SignupPage() {
             />
           </div>
 
+          <div>
+            <label className="label">Verification</label>
+            {turnstileSiteKey ? (
+              <div ref={turnstileRef} />
+            ) : (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                Signup verification is not configured yet.
+              </div>
+            )}
+          </div>
+
           {/* Submit */}
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || !turnstileSiteKey}
             className="btn-primary w-full group mt-6"
           >
             {isLoading ? (
