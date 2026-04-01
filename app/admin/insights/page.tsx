@@ -58,6 +58,12 @@ type AtRiskRetailer = {
   days_since: number;
 };
 
+type MonthlyRevenuePoint = {
+  month: string;
+  revenue: number;
+  paceRevenue: number;
+};
+
 const MS_IN_DAY = 1000 * 60 * 60 * 24;
 
 const formatCompactCurrency = (value: number) =>
@@ -87,7 +93,7 @@ const buildTrailingMonths = (count: number) => {
 export default function AdminInsightsPage() {
   const supabase = createClientComponentClient();
   const [isLoading, setIsLoading] = useState(true);
-  const [monthlyRevenue, setMonthlyRevenue] = useState<{ month: string; revenue: number }[]>([]);
+  const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenuePoint[]>([]);
   const [growthRate, setGrowthRate] = useState(0);
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [unitsSold, setUnitsSold] = useState(0);
@@ -139,18 +145,33 @@ export default function AdminInsightsPage() {
 
       const trailingMonths = buildTrailingMonths(12);
       const revenueByMonth = new Map<string, number>();
+      const paceRevenueByMonth = new Map<string, number>();
+      const today = new Date();
+      const currentDayOfMonth = today.getDate();
+
       validOrders.forEach(order => {
         const date = new Date(order.created_at);
         const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        const orderTotal = Number(order.total) || 0;
         revenueByMonth.set(key, (revenueByMonth.get(key) || 0) + (Number(order.total) || 0));
+
+        const comparableDay = Math.min(
+          currentDayOfMonth,
+          new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate(),
+        );
+        if (date.getDate() <= comparableDay) {
+          paceRevenueByMonth.set(key, (paceRevenueByMonth.get(key) || 0) + orderTotal);
+        }
       });
+
       const monthly = trailingMonths.map(({ key, label }) => ({
         month: label,
         revenue: revenueByMonth.get(key) || 0,
+        paceRevenue: paceRevenueByMonth.get(key) || 0,
       }));
       setMonthlyRevenue(monthly);
-      const last = monthly[monthly.length - 1]?.revenue || 0;
-      const prev = monthly[monthly.length - 2]?.revenue || 0;
+      const last = monthly[monthly.length - 1]?.paceRevenue || 0;
+      const prev = monthly[monthly.length - 2]?.paceRevenue || 0;
       const growth = prev === 0 ? (last > 0 ? 100 : 0) : ((last - prev) / prev) * 100;
       setGrowthRate(growth);
 
@@ -242,8 +263,10 @@ export default function AdminInsightsPage() {
 
   const growthLabel = useMemo(() => {
     const sign = growthRate > 0 ? '+' : '';
-    return `${sign}${growthRate.toFixed(1)}% vs last month`;
+    return `${sign}${growthRate.toFixed(1)}% vs same point last month`;
   }, [growthRate]);
+
+  const growthToneClass = growthRate >= 0 ? 'text-emerald-600' : 'text-amber-600';
 
   if (isLoading) {
     return (
@@ -261,11 +284,21 @@ export default function AdminInsightsPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Revenue & Volume</h3>
-                <p className="text-sm text-gray-500 mt-1">Trailing 12 months revenue</p>
+                <p className="text-sm text-gray-500 mt-1">Trailing 12 months revenue with month-to-date pacing</p>
               </div>
               <div className="text-right">
-                <p className="text-sm text-gray-500">Growth</p>
-                <p className="text-2xl font-semibold text-emerald-600">{growthLabel}</p>
+                <p className="text-sm text-gray-500">Month-to-date pace</p>
+                <p className={`text-2xl font-semibold ${growthToneClass}`}>{growthLabel}</p>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-gray-500">
+              <div className="flex items-center gap-2">
+                <span className="h-0.5 w-6 rounded-full bg-bark-700"></span>
+                <span>Full month revenue</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="h-0.5 w-6 rounded-full border-t-2 border-dashed border-amber-500"></span>
+                <span>Revenue by this day of month</span>
               </div>
             </div>
             <div className="h-72 mt-6">
@@ -274,8 +307,29 @@ export default function AdminInsightsPage() {
                   <CartesianGrid stroke="#E5E7EB" strokeDasharray="3 3" />
                   <XAxis dataKey="month" tick={{ fill: '#6B7280', fontSize: 12 }} />
                   <YAxis tickFormatter={(value) => formatCompactCurrency(value)} tick={{ fill: '#6B7280', fontSize: 12 }} />
-                  <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                  <Line type="monotone" dataKey="revenue" stroke="#3F1D0B" strokeWidth={3} dot={{ r: 4, fill: '#3F1D0B' }} />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [
+                      formatCurrency(Number(value)),
+                      name === 'paceRevenue' ? 'Revenue by this day' : 'Full month revenue',
+                    ]}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="revenue"
+                    name="revenue"
+                    stroke="#3F1D0B"
+                    strokeWidth={3}
+                    dot={{ r: 4, fill: '#3F1D0B' }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="paceRevenue"
+                    name="paceRevenue"
+                    stroke="#D97706"
+                    strokeWidth={2}
+                    strokeDasharray="6 6"
+                    dot={{ r: 3, fill: '#D97706' }}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
