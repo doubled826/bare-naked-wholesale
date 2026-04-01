@@ -88,11 +88,11 @@ export default function AdminRetailersPage() {
         body: JSON.stringify({ retailerId: retailer.id }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result?.error || 'Failed to resend invite');
-      showNotification('Invite resent!');
+      if (!response.ok) throw new Error(result?.error || 'Failed to send setup email');
+      showNotification('Setup email sent!');
     } catch (error) {
       console.error('Error:', error);
-      showNotification('Failed to resend invite');
+      showNotification('Failed to send setup email');
     } finally {
       setResendInviteId(null);
     }
@@ -187,7 +187,7 @@ export default function AdminRetailersPage() {
                           onClick={() => handleResendInvite(retailer)}
                           disabled={resendInviteId === retailer.id}
                           className="p-2 text-emerald-700 hover:bg-emerald-50 rounded-lg disabled:opacity-50"
-                          title="Resend invite"
+                          title="Resend setup link"
                         >
                           {resendInviteId === retailer.id ? <div className="w-4 h-4 border-2 border-emerald-700/30 border-t-emerald-700 rounded-full animate-spin" /> : <Mail className="w-4 h-4" />}
                         </button>

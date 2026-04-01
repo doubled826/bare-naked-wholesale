@@ -68,6 +68,9 @@ export default function LoginPage() {
           <p className="text-bark-500/70">
             Sign in to access your wholesale portal
           </p>
+          <p className="mt-3 text-sm text-bark-500/60">
+            Invited by Bare Naked Pet? Use <Link href="/forgot-password" className="font-medium text-bark-500 hover:text-bark-600">Forgot password</Link> to send yourself a fresh setup link.
+          </p>
         </div>
 
         {error && (
@@ -103,7 +106,7 @@ export default function LoginPage() {
                 href="/forgot-password"
                 className="text-sm font-medium text-bark-500 hover:text-bark-600"
               >
-                Forgot password?
+                Forgot password or need a setup link?
               </Link>
             </div>
             <div className="relative">

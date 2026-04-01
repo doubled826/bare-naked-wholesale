@@ -54,7 +54,7 @@ export default function ForgotPasswordPage() {
             Check your email
           </h1>
           <p className="text-bark-500/70 mb-6">
-            We have sent password reset instructions to <strong>{email}</strong>.
+            We have sent password reset or account setup instructions to <strong>{email}</strong>.
           </p>
           <Link href="/login" className="btn-primary w-full">
             Back to Sign In
@@ -80,10 +80,10 @@ export default function ForgotPasswordPage() {
             <Mail className="w-6 h-6 text-bark-500" />
           </div>
           <h1 className="text-2xl font-bold text-bark-500 mb-2" style={{ fontFamily: 'var(--font-poppins)' }}>
-            Forgot password?
+            Reset password or finish setup
           </h1>
           <p className="text-bark-500/70">
-            No worries, we will send you reset instructions.
+            Enter your email and we will send a fresh sign-in or account setup link.
           </p>
         </div>
 
@@ -118,7 +118,7 @@ export default function ForgotPasswordPage() {
             {isLoading ? (
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : (
-              'Reset password'
+              'Email me a setup link'
             )}
           </button>
         </form>
