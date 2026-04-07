@@ -4,11 +4,11 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { 
-  LayoutDashboard, 
-  ShoppingCart, 
-  Users, 
-  Package, 
+import {
+  LayoutDashboard,
+  ShoppingCart,
+  Users,
+  Package,
   FolderOpen,
   BarChart2,
   MessageSquare,
@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 
 const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+  { name: 'Sales Hub', href: '/admin/sales-hub', icon: Zap },
   { name: 'Feed', href: '/admin/feed', icon: MessageSquare },
   { name: 'Orders', href: '/admin/orders', icon: ShoppingCart },
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
@@ -49,7 +50,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const checkAdminAccess = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      
+
       if (!user) {
         router.push('/login');
         return;
@@ -99,7 +100,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="min-h-screen bg-gray-100">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
@@ -120,7 +121,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </h1>
                 <p className="text-cream-300 text-sm mt-1">Admin Portal</p>
               </div>
-              <button 
+              <button
                 onClick={() => setSidebarOpen(false)}
                 className="lg:hidden text-white"
               >
@@ -140,8 +141,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   onClick={() => setSidebarOpen(false)}
                   className={cn(
                     "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors",
-                    isActive 
-                      ? "bg-cream-100 text-bark-500" 
+                    isActive
+                      ? "bg-cream-100 text-bark-500"
                       : "text-cream-200 hover:bg-bark-400 hover:text-white"
                   )}
                 >

@@ -68,9 +68,6 @@ export default function LoginPage() {
           <p className="text-bark-500/70">
             Sign in to access your wholesale portal
           </p>
-          <p className="mt-3 text-sm text-bark-500/60">
-            Invited by Bare Naked Pet? Use <Link href="/forgot-password" className="font-medium text-bark-500 hover:text-bark-600">Forgot password</Link> to send yourself a fresh setup link.
-          </p>
         </div>
 
         {error && (
@@ -106,7 +103,7 @@ export default function LoginPage() {
                 href="/forgot-password"
                 className="text-sm font-medium text-bark-500 hover:text-bark-600"
               >
-                Forgot password or need a setup link?
+                Forgot password?
               </Link>
             </div>
             <div className="relative">
@@ -145,6 +142,14 @@ export default function LoginPage() {
             )}
           </button>
         </form>
+
+        <div className="mt-5 rounded-xl border border-cream-300 bg-cream-100/80 px-4 py-3 text-sm text-bark-500/70">
+          First time signing in from an email invite?{' '}
+          <Link href="/forgot-password" className="font-medium text-bark-500 hover:text-bark-600">
+            Request a fresh setup link
+          </Link>
+          .
+        </div>
 
         <div className="relative my-8">
           <div className="absolute inset-0 flex items-center">
