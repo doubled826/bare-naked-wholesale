@@ -10,6 +10,15 @@ type SalesHubMessage = {
   content: string;
 };
 
+type OpenAIContentItem =
+  | { type: 'output_text'; text?: string }
+  | { type: 'refusal'; refusal?: string };
+
+type OpenAIOutputItem = {
+  type?: string;
+  content?: OpenAIContentItem[];
+};
+
 async function requireAdmin() {
   const supabase = createRouteHandlerClient({ cookies });
   const adminClient = createSupabaseAdminClient();
@@ -43,16 +52,38 @@ async function requireAdmin() {
 }
 
 function toOpenAIInput(system: string, messages: SalesHubMessage[]) {
-  return [
-    {
-      role: 'system',
-      content: [{ type: 'input_text', text: system }],
-    },
-    ...messages.map(message => ({
+  return messages.map(message => ({
       role: message.role,
       content: [{ type: 'input_text', text: message.content }],
-    })),
-  ];
+    }));
+}
+
+function extractText(data: { output_text?: string; output?: OpenAIOutputItem[] }) {
+  if (typeof data?.output_text === 'string' && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  const content = Array.isArray(data?.output)
+    ? data.output
+        .flatMap(item => (item.type === 'message' && Array.isArray(item.content) ? item.content : []))
+    : [];
+
+  const text = content
+    .filter((item): item is { type: 'output_text'; text?: string } => item.type === 'output_text')
+    .map(item => item.text?.trim() || '')
+    .filter(Boolean)
+    .join('\n');
+
+  if (text) {
+    return text;
+  }
+
+  const refusal = content
+    .filter((item): item is { type: 'refusal'; refusal?: string } => item.type === 'refusal')
+    .map(item => item.refusal?.trim() || '')
+    .find(Boolean);
+
+  return refusal || '';
 }
 
 export async function POST(request: Request) {
@@ -86,6 +117,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model: OPENAI_MODEL,
+        instructions: system,
         input: toOpenAIInput(system, messages),
         max_output_tokens: 600,
       }),
@@ -103,12 +135,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: friendlyError }, { status: response.status });
     }
 
-    const text =
-      typeof data?.output_text === 'string'
-        ? data.output_text
-        : '';
+    const text = extractText(data);
 
     if (!text) {
+      console.error('Sales Hub AI empty response payload:', JSON.stringify(data));
       return NextResponse.json({ error: 'OpenAI returned an empty response.' }, { status: 502 });
     }
 
