@@ -339,30 +339,22 @@ function addDays(days: number): string {
   return d.toISOString().split('T')[0];
 }
 
-// ─── Gemini API helper ────────────────────────────────────────────────────────
+// ─── AI helper ────────────────────────────────────────────────────────────────
 
-const GEMINI_API_KEY = 'AIzaSyDl7IcjpdfnwnFdd5uXhMkCLMw1lTJ-QYw';
-const GEMINI_MODEL = 'gemini-2.0-flash';
+async function generateSalesHubText(messages: { role: string; content: string }[], system: string): Promise<string> {
+  const res = await fetch('/api/admin/sales-hub', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, system }),
+  });
 
-async function askClaude(messages: { role: string; content: string }[], system: string): Promise<string> {
-  const contents = messages.map(m => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }));
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: system }] },
-        contents,
-        generationConfig: { maxOutputTokens: 600 },
-      }),
-    }
-  );
-  const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Something went wrong. Please try again.';
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    throw new Error(data?.error || 'Something went wrong. Please try again.');
+  }
+
+  return data?.text || 'Something went wrong. Please try again.';
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -705,10 +697,11 @@ function AssistantTab() {
     setMessages(next);
     setLoading(true);
     try {
-      const reply = await askClaude(next.map(m => ({ role: m.role, content: m.content })), PLAYBOOK_SYSTEM);
+      const reply = await generateSalesHubText(next.map(m => ({ role: m.role, content: m.content })), PLAYBOOK_SYSTEM);
       setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Error reaching the AI. Please try again.' }]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error reaching the AI. Please try again.';
+      setMessages(prev => [...prev, { role: 'assistant', content: message }]);
     } finally { setLoading(false); }
   }
 
@@ -786,12 +779,14 @@ function TemplatesTab() {
   async function generate() {
     setLoading(true); setOutput('');
     try {
-      const text = await askClaude(
+      const text = await generateSalesHubText(
         [{ role: 'user', content: selectedTemplate.prompt(storeName || 'the store', repName || 'the team') }],
         PLAYBOOK_SYSTEM
       );
       setOutput(text);
-    } catch { setOutput('Error generating email. Please try again.'); }
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : 'Error generating email. Please try again.');
+    }
     finally { setLoading(false); }
   }
 
@@ -850,9 +845,11 @@ function OnePagerTab() {
     const { store, contact, rep, promo, shelf } = fields;
     const prompt = `Create a concise, professional one-pager for ${store || 'the store'} (contact: ${contact || 'the buyer'}), written by ${rep || 'the Bare Naked Pet Co. team'} at Bare Naked Pet Co. It should outline the 30/60/90 day partnership plan including: in-store sampling program, agreed intro promo (${promo || '15–20% off retail'}, brand covers cost), shelf placement (${shelf || 'endcap or eye-level'}), Astro loyalty program enrollment, and the follow-up cadence (6-week check-in, 90-day handoff). Format it cleanly as plain text with clear sections. Make it compelling — this is a sales tool that shows we're invested in their success. Under 300 words.`;
     try {
-      const text = await askClaude([{ role: 'user', content: prompt }], PLAYBOOK_SYSTEM);
+      const text = await generateSalesHubText([{ role: 'user', content: prompt }], PLAYBOOK_SYSTEM);
       setOutput(text);
-    } catch { setOutput('Error generating one-pager. Please try again.'); }
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : 'Error generating one-pager. Please try again.');
+    }
     finally { setLoading(false); }
   }
 
