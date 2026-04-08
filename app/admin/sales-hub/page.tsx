@@ -4,13 +4,13 @@ import { useState, useRef, useEffect } from 'react';
 import {
   BookOpen, CheckSquare, MessageSquare, Mail, FileText,
   ChevronDown, ChevronUp, Check, Send, Copy, RefreshCw,
-  User, Bot, ClipboardList, ChevronRight, StickyNote,
+  User, Bot, ClipboardList, ChevronRight, StickyNote, Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Tab = 'playbook' | 'checklist' | 'assistant' | 'templates' | 'onepager';
+type Tab = 'brand' | 'playbook' | 'checklist' | 'assistant' | 'templates' | 'onepager';
 
 interface CheckItem {
   id: string;
@@ -48,7 +48,159 @@ interface Phase {
   items: string[];
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Brand Constants ──────────────────────────────────────────────────────────
+
+const BRAND_AI_SYSTEM = `You are a brand training assistant for Bare Naked Pet Co., a whole food topper brand for kibble-fed dogs. You help new sales reps understand the brand, voice, positioning, and how to talk about the product confidently with retailers.
+
+BRAND POSITIONING:
+- Bare Naked Pet Co. is the whole food topper brand for kibble-fed dogs
+- They are the practical bridge between kibble and fresh
+- They are NOT: a full fresh food brand, raw purist brand, supplement powder, or treat company
+- Core promise: keep the kibble, add real visible whole food nutrition, upgrade the bowl without a diet overhaul
+
+VOICE PILLARS:
+1. Honest & Transparent — no fluff, no scare tactics, no fake science. Say what's in it and why it matters.
+2. Confident, Not Clinical — explain like at a dog park, not a vet office. Calm authority.
+3. Warm, Approachable, Real — use contractions, sound human. This is daily care, not perfection.
+4. Dog-First — education over selling. Empower choice.
+5. Whole Food First — emphasize visible, real ingredients. Nothing ground into mystery pellets.
+
+WORDS TO USE: whole food nutrition, real ingredients, visible ingredients, gently dried, simple upgrade, everyday nutrition, made for kibble, nothing weird, thoughtfully sourced, practical bridge
+
+WORDS TO AVOID: superfood overload, miracle, magic, cure, heal, "your dog is deficient," hard urgency, trail mix topper
+
+MESSAGING ANCHORS (use in every retailer conversation):
+- Whole food nutrition for kibble-fed dogs
+- Made to mix with kibble
+- Real ingredients you can see
+- No prep. No fridge. No overhaul.
+- The easiest way to make kibble better
+- Not ready for full fresh? This is the next best thing.
+
+EMOTIONAL GOALS — every conversation should leave people feeling:
+- Reassured: "I'm not messing this up."
+- Empowered: "I understand what matters now."
+- Proud: "I care about my dog — and it shows."
+This is NOT a guilt brand. NOT a fear brand. We never shame kibble feeding. We normalize it — and improve it.
+
+CATEGORY FRAMING FOR RETAIL:
+Most pet stores carry kibble, fresh/raw, and treats. Nobody owns the "whole food topper" shelf. That's the gap Bare Naked fills. We're not competing with anything they carry — we're serving the kibble-fed majority who won't switch diets but still want to do more. Additive, not competitive.
+
+Keep answers concise, practical, and in the brand voice. Help reps with scripts, objection handling, ingredient explanations, and retailer conversations. Never be preachy or use scare tactics.`;
+
+interface BrandPillar {
+  number: string;
+  title: string;
+  body: string;
+  example: string;
+}
+
+const BRAND_PILLARS: BrandPillar[] = [
+  {
+    number: '01',
+    title: 'Honest & transparent',
+    body: 'No marketing fluff. No scare tactics. No fake science. Say what\'s in it, say why it matters, say what it doesn\'t do.',
+    example: '"We don\'t believe one topper fixes everything. But adding real food to the bowl? That\'s a meaningful upgrade."',
+  },
+  {
+    number: '02',
+    title: 'Confident, not clinical',
+    body: 'You know your stuff — but you don\'t talk like a vet textbook. No unnecessary jargon. Explain like you would at the dog park.',
+    example: '"Kibble is cooked at high heat, which can strip some nutrients. That\'s why we add gently dried whole foods back in."',
+  },
+  {
+    number: '03',
+    title: 'Warm, approachable, real',
+    body: 'This is about daily care — not perfection. Use contractions. Sound human. Slight humor is welcome, never goofy.',
+    example: '"You\'re already doing your best. This just helps you do it a little better."',
+  },
+  {
+    number: '04',
+    title: 'Dog-first',
+    body: 'The dog always comes before the sale. Education over selling. Empower choice. Invite curiosity.',
+    example: '"Even if you don\'t buy from us, we want you to know what\'s actually in your dog\'s bowl."',
+  },
+  {
+    number: '05',
+    title: 'Whole food first',
+    body: 'We own the phrase "whole food topper." Emphasize real, visible ingredients — nothing ground into mystery pellets, no fillers, no powders.',
+    example: '"You can see every ingredient in the bag. A blueberry looks like a blueberry. That\'s the whole idea."',
+  },
+];
+
+interface BrandObjItem { q: string; a: string; }
+
+const BRAND_OBJECTIONS: BrandObjItem[] = [
+  {
+    q: 'We already carry a raw topper — why do we need this?',
+    a: 'This is a complement, not a replacement. Raw toppers serve customers already thinking about diet transitions. Bare Naked serves the much larger kibble-fed majority who aren\'t going raw but still want to do something better. Different customer, same shelf — additive, not competitive.',
+  },
+  {
+    q: 'How is this different from a supplement powder?',
+    a: 'Supplements are isolated compounds. Bare Naked is whole food — you can see every ingredient. A blueberry looks like a blueberry. It\'s food the dog\'s body recognizes, not something processed into a capsule. That\'s a meaningful difference your staff can communicate in ten seconds on the floor.',
+  },
+  {
+    q: 'Aren\'t there already a lot of toppers out there?',
+    a: 'There are products called toppers, but very few are built specifically for kibble-fed dogs using whole, visible ingredients. Most are powders, freeze-dried mystery blends, or treat-adjacent. We\'re building a category — whole food toppers — that nobody clearly owns yet in independent retail. That\'s the opportunity.',
+  },
+  {
+    q: 'My customers just feed kibble — they won\'t care.',
+    a: 'That\'s exactly who this is for. No prep, no fridge, no extra step. The pitch to your customer is simple: "You\'re already doing the right thing — this just makes it a little better." That\'s a very easy yes for someone who loves their dog but doesn\'t want a complicated feeding routine.',
+  },
+];
+
+const BRAND_QUIZ_QUESTIONS = [
+  {
+    q: 'What is Bare Naked Pet Co.\'s core positioning?',
+    opts: ['A fresh food brand for health-conscious pet parents', 'The whole food topper brand for kibble-fed dogs', 'A raw diet alternative for dogs with allergies', 'A supplement powder to add to any pet\'s diet'],
+    correct: 1,
+    explain: 'Bare Naked is specifically the whole food topper brand for kibble-fed dogs — the practical bridge between kibble and fresh.',
+  },
+  {
+    q: 'Which phrase should you avoid when talking to retailers?',
+    opts: ['Real ingredients you can see', 'Whole food nutrition for kibble-fed dogs', 'Your dog is deficient without this', 'The easiest way to make kibble better'],
+    correct: 2,
+    explain: 'We never use fear or deficiency language. This is not a guilt brand. We empower, we don\'t shame.',
+  },
+  {
+    q: 'A buyer says their customers just feed kibble and won\'t care. What\'s your response?',
+    opts: ['Tell them kibble is actually harmful without toppers', 'Agree and offer a deep discount to close anyway', 'Explain that kibble-fed dogs are exactly the target customer', 'Suggest they only stock one SKU to test'],
+    correct: 2,
+    explain: 'Kibble-fed dog owners are the core customer. We serve the large majority who aren\'t ready to switch diets but want to do a little more.',
+  },
+  {
+    q: 'How should the brand voice sound?',
+    opts: ['Clinical and scientific — like a vet explaining a treatment', 'Hyped and urgent — create FOMO to drive purchases', 'Warm and confident — like a knowledgeable friend at the dog park', 'Formal and corporate — we\'re a premium brand'],
+    correct: 2,
+    explain: 'The voice is warm, confident, and approachable — knowledgeable pet parent, not vet textbook or salesperson.',
+  },
+  {
+    q: 'What emotional state should retailers walk away from a conversation feeling?',
+    opts: ['Scared that they\'ve been missing out', 'Pressured to make a quick decision', 'Guilty for not stocking us sooner', 'Reassured, empowered, and proud'],
+    correct: 3,
+    explain: 'Always: reassured, empowered, proud. Never guilt. Never fear. We are a better-choices brand.',
+  },
+  {
+    q: 'What makes Bare Naked different from a supplement powder?',
+    opts: ['Better packaging and more premium pricing', 'It\'s whole food — real, visible ingredients the dog\'s body recognizes', 'It\'s a powder too, just from natural ingredients', 'It requires refrigeration unlike most supplements'],
+    correct: 1,
+    explain: 'The key differentiator is whole food — real, recognizable ingredients you can actually see. Not isolated compounds or powders.',
+  },
+  {
+    q: 'A retailer says they already carry a raw topper. What do you say?',
+    opts: ['Our product is better than raw — it\'s more practical', 'This is a complement, not a replacement — it serves kibble-fed customers who aren\'t in the raw aisle', 'We\'ll beat whatever margin your raw supplier gives you', 'Apologize for the overlap and offer a discount'],
+    correct: 1,
+    explain: 'Bare Naked serves a different customer — the kibble-majority who won\'t go raw. It\'s additive to the shelf, not competitive.',
+  },
+  {
+    q: 'Which CTA fits the brand voice best?',
+    opts: ['Buy now — limited time offer!', 'Don\'t miss out on this deal', 'Explore the topper', 'Shop today before it sells out'],
+    correct: 2,
+    explain: 'CTAs should be inviting, not transactional. "Explore the topper," "See the ingredients," "Upgrade the bowl." Hard urgency doesn\'t fit.',
+  },
+];
+
+// ─── Sales Constants ──────────────────────────────────────────────────────────
 
 const PLAYBOOK_SYSTEM = `You are the internal sales assistant for Bare Naked Pet Co., a whole-ingredient pet food topper brand. You help sales reps with scripts, objection handling, and strategy. Keep answers concise and practical.
 
@@ -376,6 +528,473 @@ function TabButton({ active, icon: Icon, label, onClick }: {
   );
 }
 
+// ─── Brand Tab ────────────────────────────────────────────────────────────────
+
+function BrandTab() {
+  const [activeSection, setActiveSection] = useState<'foundation' | 'pillars' | 'words' | 'objections' | 'quiz' | 'ask'>('foundation');
+  const [openPillar, setOpenPillar] = useState<number | null>(null);
+  const [openObjIndex, setOpenObjIndex] = useState<number | null>(null);
+
+  // Quiz state
+  const [quizStarted, setQuizStarted] = useState(false);
+  const [shuffledQs] = useState(() => [...BRAND_QUIZ_QUESTIONS].sort(() => Math.random() - 0.5));
+  const [currentQ, setCurrentQ] = useState(0);
+  const [score, setScore] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const [quizDone, setQuizDone] = useState(false);
+
+  // AI Ask state
+  const [askMessages, setAskMessages] = useState<Message[]>([]);
+  const [askInput, setAskInput] = useState('');
+  const [askLoading, setAskLoading] = useState(false);
+  const askBottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    askBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [askMessages, askLoading]);
+
+  function selectAnswer(i: number) {
+    if (selectedAnswer !== null) return;
+    setSelectedAnswer(i);
+    if (i === shuffledQs[currentQ].correct) setScore(s => s + 1);
+  }
+
+  function nextQuestion() {
+    if (currentQ + 1 >= shuffledQs.length) {
+      setQuizDone(true);
+    } else {
+      setCurrentQ(q => q + 1);
+      setSelectedAnswer(null);
+    }
+  }
+
+  function restartQuiz() {
+    setCurrentQ(0);
+    setScore(0);
+    setSelectedAnswer(null);
+    setQuizDone(false);
+    setQuizStarted(false);
+  }
+
+  async function sendAsk(text?: string) {
+    const content = text ?? askInput.trim();
+    if (!content) return;
+    setAskInput('');
+    const next: Message[] = [...askMessages, { role: 'user', content }];
+    setAskMessages(next);
+    setAskLoading(true);
+    try {
+      const reply = await generateSalesHubText(
+        next.map(m => ({ role: m.role, content: m.content })),
+        BRAND_AI_SYSTEM
+      );
+      setAskMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error reaching the AI. Please try again.';
+      setAskMessages(prev => [...prev, { role: 'assistant', content: message }]);
+    } finally {
+      setAskLoading(false);
+    }
+  }
+
+  const BRAND_SECTIONS = [
+    { id: 'foundation', label: 'What we are' },
+    { id: 'pillars', label: 'Voice pillars' },
+    { id: 'words', label: 'Words' },
+    { id: 'objections', label: 'Objections' },
+    { id: 'quiz', label: 'Quiz' },
+    { id: 'ask', label: 'Ask AI' },
+  ] as const;
+
+  const SUGGESTED_BRAND_QS = [
+    'How do I explain what a whole food topper is?',
+    'What\'s the difference between us and a supplement powder?',
+    'How do I describe "gently dried" to a buyer?',
+    'What do I say when a retailer says it seems niche?',
+    'How do I explain the category opportunity to a skeptical buyer?',
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* Inner nav */}
+      <div className="flex flex-wrap gap-1.5">
+        {BRAND_SECTIONS.map(s => (
+          <button
+            key={s.id}
+            onClick={() => setActiveSection(s.id)}
+            className={cn(
+              'px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all duration-150',
+              activeSection === s.id
+                ? 'bg-bark-500 text-white'
+                : 'bg-cream-100 border border-cream-200 text-bark-500/70 hover:text-bark-500 hover:border-bark-500/30'
+            )}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Foundation */}
+      {activeSection === 'foundation' && (
+        <div className="space-y-3">
+          {/* Position statement */}
+          <div className="bg-bark-500 rounded-2xl p-5 text-white">
+            <p className="text-xs font-semibold uppercase tracking-wider text-white/50 mb-2">Core positioning</p>
+            <p className="text-lg font-semibold leading-snug" style={{ fontFamily: 'var(--font-poppins)' }}>
+              The whole food topper brand for kibble-fed dogs.
+            </p>
+            <p className="text-sm text-white/70 mt-2 leading-relaxed">
+              The practical bridge between kibble and fresh — helping dog parents add real, visible whole food nutrition without overhauling their dog's diet.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* We are */}
+            <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 mb-3">We are</p>
+              <ul className="space-y-2">
+                {['Whole food toppers', 'Made to mix with kibble', 'The practical bridge between kibble and fresh', 'Real, visible ingredients', 'No prep. No fridge. No overhaul.'].map(item => (
+                  <li key={item} className="flex items-start gap-2 text-sm text-emerald-800">
+                    <Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-emerald-600" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* We are not */}
+            <div className="bg-red-50 border border-red-100 rounded-2xl p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-red-700 mb-3">We are not</p>
+              <ul className="space-y-2">
+                {['A full fresh food brand', 'A raw purist brand', 'A supplement powder', 'A treat company', 'A diet overhaul'].map(item => (
+                  <li key={item} className="flex items-start gap-2 text-sm text-red-800">
+                    <span className="mt-0.5 flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center text-red-500 font-bold text-xs">✕</span>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          {/* Messaging anchors */}
+          <div className="bg-cream-100 rounded-2xl border border-cream-200 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50 mb-3">Messaging anchors — use these in every retailer conversation</p>
+            <div className="space-y-2">
+              {[
+                'Whole food nutrition for kibble-fed dogs',
+                'Made to mix with kibble',
+                'Real ingredients you can see',
+                'No prep. No fridge. No overhaul.',
+                'The easiest way to make kibble better',
+                'Not ready for full fresh? This is the next best thing.',
+              ].map(anchor => (
+                <div key={anchor} className="flex items-center gap-2.5 bg-white rounded-xl border border-cream-200 px-3.5 py-2.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-bark-500/40 flex-shrink-0" />
+                  <span className="text-sm text-bark-500">{anchor}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Emotional goals */}
+          <div className="bg-cream-100 rounded-2xl border border-cream-200 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50 mb-3">Emotional goals — every conversation should leave people feeling</p>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: 'Reassured', sub: '"I\'m not messing this up."' },
+                { label: 'Empowered', sub: '"I understand what matters now."' },
+                { label: 'Proud', sub: '"I care about my dog — and it shows."' },
+              ].map(({ label, sub }) => (
+                <div key={label} className="bg-white rounded-xl border border-cream-200 p-3 text-center">
+                  <p className="text-sm font-semibold text-bark-500">{label}</p>
+                  <p className="text-xs text-bark-500/50 mt-1 italic leading-snug">{sub}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-bark-500/50 mt-3 pt-3 border-t border-cream-200 italic">
+              This is not a guilt brand. This is not a fear brand. We never shame kibble feeding. We normalize it — and improve it.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Voice Pillars */}
+      {activeSection === 'pillars' && (
+        <div className="space-y-3">
+          <p className="text-sm text-bark-500/60 leading-relaxed">
+            Five non-negotiable principles that govern how we talk about Bare Naked — in retail conversations, emails, and every customer touchpoint.
+          </p>
+          {BRAND_PILLARS.map((pillar, i) => (
+            <div key={i} className="bg-cream-100 rounded-2xl border border-cream-200 overflow-hidden">
+              <button
+                onClick={() => setOpenPillar(openPillar === i ? null : i)}
+                className="w-full flex items-center gap-4 px-5 py-4 text-left"
+              >
+                <span className="text-xs font-semibold text-bark-500/30 font-mono w-6 flex-shrink-0">{pillar.number}</span>
+                <span className="font-semibold text-bark-500 flex-1" style={{ fontFamily: 'var(--font-poppins)' }}>{pillar.title}</span>
+                {openPillar === i ? <ChevronUp className="w-4 h-4 text-bark-500/40" /> : <ChevronDown className="w-4 h-4 text-bark-500/40" />}
+              </button>
+              {openPillar === i && (
+                <div className="px-5 pb-5 space-y-3 border-t border-cream-200 pt-4">
+                  <p className="text-sm text-bark-500 leading-relaxed">{pillar.body}</p>
+                  <div className="bg-white rounded-xl border border-cream-200 p-3.5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/40 mb-1.5">Example</p>
+                    <p className="text-sm text-bark-500 italic leading-relaxed">{pillar.example}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Words */}
+      {activeSection === 'words' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 mb-3">Use more of</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  'Whole food nutrition', 'Real ingredients', 'Visible ingredients',
+                  'Gently dried', 'Simple upgrade', 'Everyday nutrition',
+                  'Thoughtfully sourced', 'Made for kibble', 'Nothing weird',
+                  'Practical bridge', 'Small change, big difference', 'Transparency',
+                ].map(w => (
+                  <span key={w} className="text-xs bg-white border border-emerald-100 text-emerald-800 px-2.5 py-1 rounded-lg font-medium">{w}</span>
+                ))}
+              </div>
+            </div>
+            <div className="bg-red-50 border border-red-100 rounded-2xl p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-red-700 mb-3">Avoid</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  'Superfood overload', 'Miracle / magic', 'Cure / heal',
+                  'Your dog is deficient', 'Most pet parents don\'t realize…',
+                  'Hard urgency', 'Trail mix topper', 'Buy now',
+                  'Don\'t miss out', 'Changes everything',
+                ].map(w => (
+                  <span key={w} className="text-xs bg-white border border-red-100 text-red-700 px-2.5 py-1 rounded-lg font-medium">{w}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-cream-100 rounded-2xl border border-cream-200 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50 mb-3">Voice spectrum — where we sit</p>
+            <div className="space-y-3">
+              {[
+                { left: 'Friendly', right: 'Formal', position: 20 },
+                { left: 'Playful', right: 'Serious', position: 60 },
+                { left: 'Emotional', right: 'Scientific', position: 50 },
+                { left: 'Mass market', right: 'Premium', position: 70 },
+                { left: 'Salesy', right: 'Educational', position: 75 },
+              ].map(({ left, right, position }) => (
+                <div key={left} className="flex items-center gap-3">
+                  <span className="text-xs text-bark-500/60 w-24 text-right flex-shrink-0">{left}</span>
+                  <div className="flex-1 relative h-1.5 bg-cream-200 rounded-full">
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-bark-500 border-2 border-white shadow-sm"
+                      style={{ left: `${position}%`, transform: 'translate(-50%, -50%)' }}
+                    />
+                  </div>
+                  <span className="text-xs text-bark-500/60 w-24 flex-shrink-0">{right}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Objections */}
+      {activeSection === 'objections' && (
+        <div className="space-y-3">
+          <p className="text-sm text-bark-500/60">Common pushback from retail buyers — and how to respond confidently. Practice these until they feel natural.</p>
+          {BRAND_OBJECTIONS.map((obj, i) => (
+            <div key={i} className="bg-cream-100 rounded-2xl border border-cream-200 overflow-hidden">
+              <button
+                onClick={() => setOpenObjIndex(openObjIndex === i ? null : i)}
+                className="w-full flex items-center justify-between px-5 py-4 text-left"
+              >
+                <span className="text-sm font-medium text-bark-500 pr-4">{obj.q}</span>
+                {openObjIndex === i ? <ChevronUp className="w-4 h-4 text-bark-500/40 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-bark-500/40 flex-shrink-0" />}
+              </button>
+              {openObjIndex === i && (
+                <div className="px-5 pb-5 border-t border-cream-200 pt-4">
+                  <div className="bg-white rounded-xl border border-cream-200 p-3.5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/40 mb-1.5">Suggested response</p>
+                    <p className="text-sm text-bark-500 leading-relaxed">{obj.a}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Quiz */}
+      {activeSection === 'quiz' && (
+        <div>
+          {!quizStarted && !quizDone && (
+            <div className="bg-cream-100 rounded-2xl border border-cream-200 p-6 text-center">
+              <p className="font-semibold text-bark-500 text-lg mb-2" style={{ fontFamily: 'var(--font-poppins)' }}>Brand knowledge quiz</p>
+              <p className="text-sm text-bark-500/60 mb-5">{shuffledQs.length} questions covering positioning, voice, and objection handling.</p>
+              <button onClick={() => setQuizStarted(true)} className="btn-primary px-6 py-2.5">Start quiz</button>
+            </div>
+          )}
+
+          {quizStarted && !quizDone && (
+            <div className="bg-cream-100 rounded-2xl border border-cream-200 p-5 space-y-4">
+              {/* Progress */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs text-bark-500/50">
+                  <span>Question {currentQ + 1} of {shuffledQs.length}</span>
+                  <span>{score} correct</span>
+                </div>
+                <div className="w-full bg-cream-200 rounded-full h-1.5">
+                  <div
+                    className="bg-bark-500 h-1.5 rounded-full transition-all duration-300"
+                    style={{ width: `${((currentQ) / shuffledQs.length) * 100}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Question */}
+              <p className="text-base font-medium text-bark-500 leading-snug">{shuffledQs[currentQ].q}</p>
+
+              {/* Options */}
+              <div className="space-y-2">
+                {shuffledQs[currentQ].opts.map((opt, i) => {
+                  const isCorrect = i === shuffledQs[currentQ].correct;
+                  const isSelected = i === selectedAnswer;
+                  let optStyle = 'bg-white border-cream-200 text-bark-500 hover:border-bark-500/30';
+                  if (selectedAnswer !== null) {
+                    if (isCorrect) optStyle = 'bg-emerald-50 border-emerald-300 text-emerald-800';
+                    else if (isSelected) optStyle = 'bg-red-50 border-red-300 text-red-700';
+                    else optStyle = 'bg-white border-cream-200 text-bark-500/40';
+                  }
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => selectAnswer(i)}
+                      disabled={selectedAnswer !== null}
+                      className={cn('w-full text-left px-4 py-3 rounded-xl border text-sm transition-all duration-150', optStyle)}
+                    >
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Feedback */}
+              {selectedAnswer !== null && (
+                <div className={cn('rounded-xl border p-3.5 text-sm leading-relaxed',
+                  selectedAnswer === shuffledQs[currentQ].correct
+                    ? 'bg-emerald-50 border-emerald-100 text-emerald-800'
+                    : 'bg-red-50 border-red-100 text-red-800'
+                )}>
+                  {shuffledQs[currentQ].explain}
+                </div>
+              )}
+
+              {selectedAnswer !== null && (
+                <div className="flex justify-end">
+                  <button onClick={nextQuestion} className="btn-primary px-5 py-2 text-sm">
+                    {currentQ + 1 >= shuffledQs.length ? 'See results' : 'Next question →'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {quizDone && (
+            <div className="bg-cream-100 rounded-2xl border border-cream-200 p-6 text-center space-y-3">
+              <p className="text-4xl font-semibold text-bark-500">{score}/{shuffledQs.length}</p>
+              <p className="text-sm text-bark-500/60">
+                {Math.round((score / shuffledQs.length) * 100)}% — {
+                  score >= 7 ? "You're ready to get on the phone. Great work." :
+                    score >= 5 ? 'Good foundation — review the voice pillars and objections sections and try again.' :
+                      'Keep studying the brand guide and give it another shot. You\'ll get there.'
+                }
+              </p>
+              <button onClick={restartQuiz} className="btn-secondary px-5 py-2 text-sm mt-2">Retake quiz</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Ask AI */}
+      {activeSection === 'ask' && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {SUGGESTED_BRAND_QS.map(q => (
+              <button
+                key={q}
+                onClick={() => sendAsk(q)}
+                className="text-xs px-3 py-1.5 rounded-lg bg-cream-100 border border-cream-200 text-bark-500/70 hover:text-bark-500 hover:border-bark-500/30 transition-colors"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+          <div className="bg-cream-100 rounded-2xl border border-cream-200 flex flex-col" style={{ minHeight: 380 }}>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ maxHeight: 380 }}>
+              {askMessages.length === 0 && (
+                <div className="flex items-start gap-3">
+                  <div className="w-7 h-7 rounded-full bg-bark-500 flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="bg-white rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-bark-500 border border-cream-200 max-w-lg">
+                    Hey — I'm your Bare Naked brand guide. Ask me anything about how to explain the product, what language to use (or avoid), how to frame the category for a skeptical buyer, or how to handle tough questions. I'm here to help you sound confident and on-brand.
+                  </div>
+                </div>
+              )}
+              {askMessages.map((msg, i) => (
+                <div key={i} className={cn('flex items-start gap-3', msg.role === 'user' && 'flex-row-reverse')}>
+                  <div className={cn('w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0', msg.role === 'user' ? 'bg-cream-200' : 'bg-bark-500')}>
+                    {msg.role === 'user' ? <User className="w-4 h-4 text-bark-500" /> : <Bot className="w-4 h-4 text-white" />}
+                  </div>
+                  <div className={cn('px-4 py-2.5 rounded-2xl text-sm border max-w-lg whitespace-pre-wrap',
+                    msg.role === 'user'
+                      ? 'bg-bark-500 text-white border-bark-500 rounded-tr-sm'
+                      : 'bg-white text-bark-500 border-cream-200 rounded-tl-sm')}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+              {askLoading && (
+                <div className="flex items-start gap-3">
+                  <div className="w-7 h-7 rounded-full bg-bark-500 flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="bg-white rounded-2xl rounded-tl-sm px-4 py-3 border border-cream-200 flex gap-1">
+                    {[0, 1, 2].map(i => (
+                      <span key={i} className="w-1.5 h-1.5 rounded-full bg-bark-500/40 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div ref={askBottomRef} />
+            </div>
+            <div className="border-t border-cream-200 p-3 flex gap-2">
+              <input
+                value={askInput}
+                onChange={e => setAskInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendAsk()}
+                placeholder="Ask about the brand, voice, positioning, or objection handling..."
+                className="input text-sm py-2 flex-1"
+              />
+              <button onClick={() => sendAsk()} disabled={askLoading || !askInput.trim()} className="btn-primary px-4 py-2">
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Playbook Tab ─────────────────────────────────────────────────────────────
 
 function PlaybookTab() {
@@ -436,7 +1055,7 @@ function PlaybookTab() {
   );
 }
 
-// ─── Checklist Tab (v2) ───────────────────────────────────────────────────────
+// ─── Checklist Tab ────────────────────────────────────────────────────────────
 
 function ChecklistTab() {
   const [sections, setSections] = useState<CheckSection[]>(INITIAL_SECTIONS);
@@ -517,7 +1136,6 @@ function ChecklistTab() {
 
   return (
     <div className="space-y-5">
-      {/* Progress bar */}
       <div className="bg-cream-100 rounded-2xl border border-cream-200 p-4">
         <div className="flex justify-between items-center mb-2">
           <span className="text-sm font-medium text-bark-500">{checkedCount} of {total} complete</span>
@@ -531,7 +1149,6 @@ function ChecklistTab() {
         )}
       </div>
 
-      {/* Checklist sections */}
       {sections.map((section, si) => (
         <div key={si}>
           <p className="text-xs font-semibold text-bark-500/50 uppercase tracking-wider mb-2">{section.title}</p>
@@ -546,9 +1163,7 @@ function ChecklistTab() {
                     item.checked ? 'bg-emerald-50 border-emerald-100' : 'bg-cream-100 border-cream-200'
                   )}
                 >
-                  {/* Item header row */}
                   <div className="flex items-start gap-3 p-3.5">
-                    {/* Checkbox */}
                     <button
                       onClick={() => toggleCheck(si, item.id)}
                       className={cn(
@@ -558,20 +1173,15 @@ function ChecklistTab() {
                     >
                       {item.checked && <Check className="w-3 h-3 text-white" />}
                     </button>
-
-                    {/* Label + note */}
                     <div className="flex-1 min-w-0">
                       <p className={cn('text-sm font-medium text-bark-500', item.checked && 'line-through text-bark-500/50')}>
                         {item.label}
                       </p>
                       <p className="text-xs text-bark-500/50 mt-0.5">{item.note}</p>
-                      {/* Agreement summary when collapsed */}
                       {!isExpanded && item.agreement && (
                         <p className="text-xs text-emerald-700 mt-1 font-medium">→ {item.agreement}</p>
                       )}
                     </div>
-
-                    {/* Expand toggle */}
                     <button
                       onClick={() => setExpandedItem(isExpanded ? null : item.id)}
                       className="flex-shrink-0 flex items-center gap-1 text-xs text-bark-500/40 hover:text-bark-500 transition-colors mt-0.5 px-1"
@@ -580,16 +1190,12 @@ function ChecklistTab() {
                       {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                     </button>
                   </div>
-
-                  {/* Expanded: talking point + agreement field */}
                   {isExpanded && (
                     <div className="px-4 pb-4 space-y-3 border-t border-cream-200 pt-3">
-                      {/* Talking point */}
                       <div className="bg-white rounded-xl border border-cream-200 p-3">
                         <p className="text-xs font-semibold text-bark-500/50 uppercase tracking-wide mb-1.5">Suggested talking point</p>
                         <p className="text-sm text-bark-500 italic leading-relaxed">{item.talkingPoint}</p>
                       </div>
-                      {/* Agreement notes */}
                       <div>
                         <p className="text-xs font-semibold text-bark-500/50 uppercase tracking-wide mb-1.5">What did you agree on?</p>
                         <textarea
@@ -609,7 +1215,6 @@ function ChecklistTab() {
         </div>
       ))}
 
-      {/* Pipedrive sync */}
       <div className="bg-cream-100 rounded-2xl border border-cream-200 p-4 space-y-3">
         <p className="text-sm font-semibold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
           Save to Pipedrive
@@ -898,9 +1503,10 @@ function OnePagerTab() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SalesHubPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('playbook');
+  const [activeTab, setActiveTab] = useState<Tab>('brand');
 
   const tabs: { id: Tab; icon: React.ElementType; label: string }[] = [
+    { id: 'brand', icon: Layers, label: 'Brand guide' },
     { id: 'playbook', icon: BookOpen, label: 'Playbook' },
     { id: 'checklist', icon: CheckSquare, label: 'Onboarding checklist' },
     { id: 'assistant', icon: MessageSquare, label: 'AI assistant' },
@@ -912,7 +1518,7 @@ export default function SalesHubPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="page-title">Sales Hub</h1>
-        <p className="text-bark-500/60 text-sm mt-1">Playbook, onboarding checklist, AI assistant, and retailer tools — all in one place.</p>
+        <p className="text-bark-500/60 text-sm mt-1">Brand guide, playbook, onboarding checklist, AI assistant, and retailer tools — all in one place.</p>
       </div>
       <div className="flex flex-wrap gap-1.5 bg-cream-100 p-1.5 rounded-2xl border border-cream-200">
         {tabs.map(t => (
@@ -920,6 +1526,7 @@ export default function SalesHubPage() {
         ))}
       </div>
       <div>
+        {activeTab === 'brand' && <BrandTab />}
         {activeTab === 'playbook' && <PlaybookTab />}
         {activeTab === 'checklist' && <ChecklistTab />}
         {activeTab === 'assistant' && <AssistantTab />}
