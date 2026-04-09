@@ -250,20 +250,36 @@ interface BrandObjItem { q: string; a: string; }
 
 const BRAND_OBJECTIONS: BrandObjItem[] = [
   {
-    q: 'We already carry a raw topper — why do we need this?',
-    a: 'This is a complement, not a replacement. Raw toppers serve customers already thinking about diet transitions. Bare Naked serves the much larger kibble-fed majority who aren\'t going raw but still want to do something better. Different customer, same shelf — additive, not competitive.',
+    q: 'Do you work with a distributor?',
+    a: 'We ship direct to all of our stores. Super easy online ordering system. We have no minimums, free shipping, and free customer samples to help get the ball rolling.',
   },
   {
-    q: 'How is this different from a supplement powder?',
-    a: 'Supplements are isolated compounds. Bare Naked is whole food — you can see every ingredient. A blueberry looks like a blueberry. It\'s food the dog\'s body recognizes, not something processed into a capsule. That\'s a meaningful difference your staff can communicate in ten seconds on the floor.',
+    q: 'Where is your product made?',
+    a: 'Our product is proudly made in the US. We source our proteins from Oregon — the fruits and veggies come from either the US, Canada, or Mexico depending on seasonality and freshness. All the freeze-drying and packaging is done in Utah, near Salt Lake City.',
   },
   {
-    q: 'Aren\'t there already a lot of toppers out there?',
-    a: 'There are products called toppers, but very few are built specifically for kibble-fed dogs using whole, visible ingredients. Most are powders, freeze-dried mystery blends, or treat-adjacent. We\'re building a category — whole food toppers — that nobody clearly owns yet in independent retail. That\'s the opportunity.',
+    q: 'What is your pricing?',
+    a: 'I\'ll send you over our price sheet, but our 6oz bag retails for $25 and the 12oz bag retails at $45. That breaks down to a little over $1 per serving for the customer.',
   },
   {
-    q: 'My customers just feed kibble — they won\'t care.',
-    a: 'That\'s exactly who this is for. No prep, no fridge, no extra step. The pitch to your customer is simple: "You\'re already doing the right thing — this just makes it a little better." That\'s a very easy yes for someone who loves their dog but doesn\'t want a complicated feeding routine.',
+    q: 'Where do you source your ingredients?',
+    a: 'We source our proteins from Oregon — the fruits and veggies come from either the US, Canada, or Mexico depending on seasonality and freshness.',
+  },
+  {
+    q: 'Are you on Astro?',
+    a: 'Yes! We have a loyalty program through Astro (Buy 10 Get 1 Free) and we run promos through Astro as well.',
+  },
+  {
+    q: 'Do you have any other products?',
+    a: 'Yes! We also have single-ingredient, novel protein treats: Minnows (whole minnows), Bison (bison liver), and Lamb (lamb heart).',
+  },
+  {
+    q: 'Are you on Chewy or Amazon?',
+    a: 'Nope. We proudly only sell through our network of independent retailers (about 325+ and growing) alongside our Shopify store. No need to worry about getting undercut by a big e-tailer.',
+  },
+  {
+    q: 'What if I don\'t know the answer to a question?',
+    a: 'That\'s a great question. I\'m not 100% sure of the answer, but I\'ll ask and we\'ll get an answer for you.',
   },
 ];
 
@@ -1008,7 +1024,7 @@ function BrandTab() {
 
       {activeSection === 'objections' && (
         <div className="space-y-3">
-          <p className="text-sm text-bark-500/60">Common pushback from retail buyers — and how to respond confidently. Practice these until they feel natural.</p>
+          <p className="text-sm text-bark-500/60">The most common questions that come up on intro calls — straight from the script. Know these cold.</p>
           {BRAND_OBJECTIONS.map((obj, i) => (
             <div key={i} className="bg-cream-100 rounded-2xl border border-cream-200 overflow-hidden">
               <button onClick={() => setOpenObjIndex(openObjIndex === i ? null : i)} className="w-full flex items-center justify-between px-5 py-4 text-left">
@@ -1018,8 +1034,8 @@ function BrandTab() {
               {openObjIndex === i && (
                 <div className="px-5 pb-5 border-t border-cream-200 pt-4">
                   <div className="bg-white rounded-xl border border-cream-200 p-3.5">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/40 mb-1.5">Suggested response</p>
-                    <p className="text-sm text-bark-500 leading-relaxed">{obj.a}</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/40 mb-1.5">Your answer</p>
+                    <p className="text-sm text-bark-500 leading-relaxed italic">"{obj.a}"</p>
                   </div>
                 </div>
               )}
