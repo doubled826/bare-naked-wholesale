@@ -4,13 +4,13 @@ import { useState, useRef, useEffect } from 'react';
 import {
   BookOpen, CheckSquare, MessageSquare, Mail, FileText,
   ChevronDown, ChevronUp, Check, Send, Copy, RefreshCw,
-  User, Bot, ClipboardList, ChevronRight, StickyNote, Layers,
+  User, Bot, ClipboardList, ChevronRight, StickyNote, Layers, Phone,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Tab = 'brand' | 'playbook' | 'checklist' | 'assistant' | 'templates' | 'onepager';
+type Tab = 'brand' | 'callscript' | 'playbook' | 'checklist' | 'assistant' | 'templates' | 'onepager';
 
 interface CheckItem {
   id: string;
@@ -47,6 +47,124 @@ interface Phase {
   bg: string;
   items: string[];
 }
+
+// ─── Call Script Constants ────────────────────────────────────────────────────
+
+interface ScriptStep {
+  number: string;
+  title: string;
+  lines: string[];
+  note?: string;
+  branches?: { label: string; color: string; lines: string[]; sub?: { label: string; lines: string[] }[] }[];
+}
+
+const SCRIPT_STEPS: ScriptStep[] = [
+  {
+    number: '01',
+    title: 'Intro',
+    lines: [
+      '"Hi, I was hoping to talk to someone about a potential new product for the store… Do you know who I should speak to?"',
+    ],
+    note: 'Pause — let them respond. This is just a starting point — make this intro your own. Goal is to find the right person in a way that feels natural to you.',
+  },
+  {
+    number: '02',
+    title: 'Why you called',
+    lines: [
+      '"My name is [YOUR NAME], calling from Bare Naked Pet Co. I was hoping to send you some samples of our product."',
+    ],
+    note: 'Keep it light and easy — you\'re offering them something free.',
+  },
+  {
+    number: '03',
+    title: '"What is your product?"',
+    lines: [
+      '"We have a pretty cool topper for dogs. Only five ingredients, gently freeze-dried raw. One protein, two fruits and two veggies. Visually speaking, it\'s very different from other toppers on the shelf. Would love to send you some samples so you can see for yourself!"',
+    ],
+    note: 'Lead with the visual — it sells itself. No need to over-explain.',
+  },
+  {
+    number: '04',
+    title: 'Ask for email + samples',
+    lines: [
+      '"Would love to send over an email with more info, and maybe some samples so you can see for yourself!"',
+    ],
+    note: 'Pause and let them respond. 9 out of 10 will say "Sure!"',
+  },
+  {
+    number: '05',
+    title: 'Close',
+    lines: [],
+    branches: [
+      {
+        label: 'If YES',
+        color: 'emerald',
+        lines: [
+          '"Great! What\'s the best email for you?"',
+          '"And is [STORE ADDRESS] a good shipping address?"',
+          '"Awesome. I\'ll send over that email and we\'ll get some samples sent your way for staff and any VIP customers you want to share them with."',
+        ],
+      },
+      {
+        label: 'If NO',
+        color: 'amber',
+        lines: [
+          '"No worries at all. Would it make sense for me to just send you an email for now?"',
+        ],
+        sub: [
+          {
+            label: 'If YES to email only',
+            lines: [
+              '"What\'s the best email for you? Awesome. Sounds good, [NAME] — excited to show you what we\'re doing."',
+            ],
+          },
+          {
+            label: 'If NO to everything',
+            lines: [
+              '"No worries, I really appreciate your time. Have a great day."',
+            ],
+          },
+        ],
+      },
+    ],
+  },
+];
+
+interface CommonQ {
+  q: string;
+  a: string;
+}
+
+const COMMON_QUESTIONS: CommonQ[] = [
+  {
+    q: 'Do you work with a distributor?',
+    a: 'We ship direct to all of our stores. Super easy online ordering system. We have no minimums, free shipping, and free customer samples to help get the ball rolling.',
+  },
+  {
+    q: 'Where is your product made?',
+    a: 'Our product is proudly made in the US. We source our proteins from Oregon — the fruits and veggies come from either the US, Canada, or Mexico depending on seasonality and freshness. All the freeze-drying and packaging is done in Utah, near Salt Lake City.',
+  },
+  {
+    q: 'What is your pricing?',
+    a: 'I\'ll send you over our price sheet, but our 6oz bag retails for $25 and the 12oz bag retails at $45. That breaks down to a little over $1 per serving for the customer.',
+  },
+  {
+    q: 'Where do you source your ingredients?',
+    a: 'We source our proteins from Oregon — the fruits and veggies come from either the US, Canada, or Mexico depending on seasonality and freshness.',
+  },
+  {
+    q: 'Are you on Astro?',
+    a: 'Yes! We have a loyalty program through Astro (Buy 10 Get 1 Free) and we run promos through Astro as well.',
+  },
+  {
+    q: 'Do you have any other products?',
+    a: 'Yes! We also have single-ingredient, novel protein treats: Minnows (whole minnows), Bison (bison liver), and Lamb (lamb heart).',
+  },
+  {
+    q: 'Are you on Chewy or Amazon?',
+    a: 'Nope. We proudly only sell through our network of independent retailers (about 325+ and growing) alongside our Shopify store. No need to worry about getting undercut by a big e-tailer.',
+  },
+];
 
 // ─── Brand Constants ──────────────────────────────────────────────────────────
 
@@ -206,19 +324,36 @@ const PLAYBOOK_SYSTEM = `You are the internal sales assistant for Bare Naked Pet
 
 BRAND PITCH: "We help pet parents bridge the gap between kibble and raw with zero-compromise toppers."
 
-PROSPECTING: Cold call or in-person visit. Lead with the whole-ingredient differentiator. Send sample kit with table tent + QR code linking to brand video. Include 10–20 samples for VIP customers plus staff trial product. Follow up 5–7 days after samples arrive — ask "How did your shop dog like it?" not "Ready to buy?" Introduce the 30/60/90 plan early to signal long-term investment.
+INTRO CALL SCRIPT:
+1. INTRO: "Hi, I was hoping to talk to someone about a potential new product for the store… Do you know who I should speak to?" — Pause and let them respond. Make it your own.
+2. WHY YOU CALLED: "My name is [NAME], calling from Bare Naked Pet Co. I was hoping to send you some samples of our product."
+3. PRODUCT DESCRIPTION: "We have a pretty cool topper for dogs. Only five ingredients, gently freeze-dried raw. One protein, two fruits and two veggies. Visually speaking, it's very different from other toppers on the shelf. Would love to send you some samples so you can see for yourself!"
+4. ASK FOR EMAIL + SAMPLES: "Would love to send over an email with more info, and maybe some samples so you can see for yourself!" — 9/10 will say Sure!
+5. CLOSE — If YES: "Great! What's the best email for you? And is [STORE ADDRESS] a good shipping address? Awesome. I'll send over that email and we'll get some samples sent your way for staff and any VIP customers you want to share them with." — If NO to samples: "No worries at all. Would it make sense for me to just send you an email for now?" — If NO to everything: "No worries, I really appreciate your time. Have a great day."
 
-ONBOARDING CALL CHECKLIST: Portal walkthrough, Astro loyalty enrollment, Astro offers enrollment, sampling program agreement (sample-to-size bags at register), shelf placement discussion (endcap preferred — eye-level is buy-level — brand covers cost), intro promo agreement (15–20% off retail, brand covers cost, 2–4 weeks), 2026 promo calendar share, staff training one-pagers, explain 30/60/90 cadence, confirm 6-week check-in on calendar.
+COMMON QUESTIONS & ANSWERS:
+- Distributor: "We ship direct. No minimums, free shipping, free customer samples."
+- Where made: "Proudly made in the US. Proteins from Oregon, fruits/veggies from US, Canada, or Mexico depending on seasonality. Freeze-drying and packaging done in Utah near Salt Lake City."
+- Pricing: "6oz retails for $25, 12oz retails for $45. That's just over $1/serving for the customer."
+- Ingredients sourcing: "Proteins from Oregon, fruits/veggies from US, Canada, or Mexico depending on seasonality and freshness."
+- Astro: "Yes — Loyalty program (Buy 10 Get 1 Free) and promos through Astro."
+- Other products: "Single-ingredient novel protein treats: Minnows (whole minnows), Bison (bison liver), Lamb (lamb heart)."
+- Chewy/Amazon: "Nope — only through our 325+ independent retailers and our Shopify store. No risk of getting undercut by e-tailers."
+- Unknown question: "That's a great question. I'm not 100% sure of the answer, but I'll ask and get back to you."
 
-30-DAY PLAN: Heavy sampling, eye-level or endcap shelf placement, 15–20% introductory promo via Astro to lower the barrier and get customers on the hamster wheel.
+PROSPECTING: Cold call or in-person visit. Lead with the whole-ingredient differentiator. Send sample kit with table tent + QR code. 10–20 samples for VIP customers plus staff trial. Follow up 5–7 days after samples arrive — ask "How did your shop dog like it?" not "Ready to buy?"
 
-60-DAY CALL: Pulse check — is product moving? Staff recommending it? Troubleshoot if slow: demo day, refresh shelf talkers, BOGO or gift with purchase. Execute corrections immediately.
+ONBOARDING CALL CHECKLIST: Portal walkthrough, Astro loyalty enrollment, Astro offers enrollment, sampling program agreement, shelf placement (endcap preferred — eye-level is buy-level — brand covers cost), intro promo (15–20% off retail, brand covers cost, 2–4 weeks), 2026 promo calendar share, staff training one-pagers, 30/60/90 cadence, confirm 6-week check-in.
 
-90-DAY HANDOFF: Review wins, hand over annual Astro promo calendar, reinforce portal use, transition to standard account management. Frame positively: "We're graduating you, not leaving you." Ongoing support: monthly newsletter, Astro promo alerts, self-serve portal.
+30-DAY PLAN: Heavy sampling, eye-level or endcap shelf placement, 15–20% introductory promo via Astro.
 
-ASTRO: Platform for wholesale ordering, loyalty program (Buy 10 Get 1), monthly promos, and promotional offers. Retailers should sign up on the onboarding call. They must opt into each individual offer, so make sure they have the promo calendar so they can plan signage and stock up in advance.
+60-DAY CALL: Pulse check — is product moving? Staff recommending it? Troubleshoot if slow: demo day, refresh shelf talkers, BOGO or gift with purchase.
 
-KEY OBJECTION — "I'm not sure it'll sell": Present the 30/60/90 plan as the answer. "We have a full game plan — sampling, endcap placement, an intro promo, and the Astro loyalty program. We're invested in making this work in your store."`;
+90-DAY HANDOFF: Review wins, hand over annual Astro promo calendar, reinforce portal use, transition to standard account management. Frame positively: "We're graduating you, not leaving you."
+
+ASTRO: Platform for wholesale ordering, loyalty program (Buy 10 Get 1), monthly promos. Retailers must opt into each individual offer — give them the promo calendar so they can plan ahead.
+
+KEY OBJECTION — "I'm not sure it'll sell": Present the 30/60/90 plan. "We have a full game plan — sampling, endcap placement, an intro promo, and the Astro loyalty program. We're invested in making this work in your store."`;
 
 const PHASES: Phase[] = [
   {
@@ -355,7 +490,7 @@ const INITIAL_SECTIONS: CheckSection[] = [
         id: 'astro-loyalty',
         label: 'Enrolled in Astro loyalty program',
         note: 'Buy 10 Get 1 — punch card starts immediately',
-        talkingPoint: '"While you\'re in Astro — make sure you\'re signed up for our loyalty program. It\'s a Buy 10, Get 1 free deal and it starts accumulating from your very first order. Your customers don\'t have to do anything extra — it all happens through you. We want to make sure you\'re getting credit from day one."',
+        talkingPoint: '"While you\'re in Astro — make sure you\'re signed up for our loyalty program. It\'s a Buy 10, Get 1 free deal and it starts accumulating from your very first order. We want to make sure you\'re getting credit from day one."',
         agreementPlaceholder: 'e.g. Enrolled — confirmed in Astro portal during call',
         checked: false,
         agreement: '',
@@ -364,7 +499,7 @@ const INITIAL_SECTIONS: CheckSection[] = [
         id: 'astro-offers',
         label: 'Aware of Astro offers and opted in',
         note: 'They must opt into each offer individually — flag this clearly',
-        talkingPoint: '"One heads up — we run promotional offers through Astro throughout the year, but they do require you to opt in to each one individually. So it\'s really important you\'re keeping an eye on those. The easiest way to stay on top of it is the promo calendar — it shows you everything we have planned so you can opt in ahead of time and even build out any signage or marketing around it."',
+        talkingPoint: '"One heads up — we run promotional offers through Astro throughout the year, but they do require you to opt in to each one individually. So it\'s really important you\'re keeping an eye on those. The easiest way to stay on top of it is the promo calendar."',
         agreementPlaceholder: 'e.g. Opted into current offer, noted they need to opt in manually each time',
         checked: false,
         agreement: '',
@@ -373,7 +508,7 @@ const INITIAL_SECTIONS: CheckSection[] = [
         id: 'astro-calendar',
         label: 'Promo calendar sent and reviewed together',
         note: 'Give them lead time to plan signage, stock up, and build marketing around events',
-        talkingPoint: '"Let me share our 2026 promo calendar with you — it\'s subject to change but gives you a solid picture of what\'s coming. Things like National Pet Month, holiday promos, that kind of stuff. The idea is that if you know a 15% off event is coming in six weeks, you can plan your signage, make sure you\'re stocked up, maybe put it on your social. We want to give you as much lead time as possible so you can really capitalize on these."',
+        talkingPoint: '"Let me share our 2026 promo calendar with you — it\'s subject to change but gives you a solid picture of what\'s coming. Things like National Pet Month, holiday promos, that kind of stuff. We want to give you as much lead time as possible so you can really capitalize on these."',
         agreementPlaceholder: 'e.g. Calendar sent via email, they noted the May promo and want to build signage',
         checked: false,
         agreement: '',
@@ -387,7 +522,7 @@ const INITIAL_SECTIONS: CheckSection[] = [
         id: 'portal',
         label: 'Walked through the wholesale ordering portal',
         note: 'Reordering, sample requests, marketing assets, staff training one-pagers',
-        talkingPoint: '"Let me give you a quick tour of the portal — this is your 24/7 resource for everything. Reordering is right here, sample requests here, and we also have staff training one-pagers you can print out so your team knows how to talk about the product confidently when customers ask."',
+        talkingPoint: '"Let me give you a quick tour of the portal — this is your 24/7 resource for everything. Reordering, sample requests, and staff training one-pagers you can print so your team knows how to talk about the product confidently when customers ask."',
         agreementPlaceholder: 'e.g. Toured portal, they bookmarked it, noted the staff one-pagers',
         checked: false,
         agreement: '',
@@ -396,7 +531,7 @@ const INITIAL_SECTIONS: CheckSection[] = [
         id: 'cadence',
         label: 'Explained the 30/60/90 follow-up cadence',
         note: 'Set clear expectations — when they\'ll hear from us and why',
-        talkingPoint: '"Here\'s how we like to stay in touch after today. We\'ll give you a call in about 6 weeks — just a quick check-in to see how sampling is going, how the promo landed, if there\'s anything we can adjust. Then again around the 90-day mark, we\'ll do a full recap and at that point you\'ll be transitioning to our normal account flow which is a little less hands-on, but we\'re always here if you need us."',
+        talkingPoint: '"Here\'s how we like to stay in touch after today. We\'ll check in around 6 weeks — just a quick pulse check on sampling, the promo, and anything we can adjust. Then around the 90-day mark we\'ll do a full recap and transition you to our normal account flow."',
         agreementPlaceholder: 'e.g. They\'re good with the cadence, prefer email over calls for check-ins',
         checked: false,
         agreement: '',
@@ -405,7 +540,7 @@ const INITIAL_SECTIONS: CheckSection[] = [
         id: 'checkin-booked',
         label: '6-week check-in call booked',
         note: 'Get a date and time before hanging up — send Calendly link if needed',
-        talkingPoint: '"Before we wrap up — let\'s actually get that 6-week call on the calendar now so it doesn\'t fall through the cracks. I can send you a Calendly link and you can grab whatever time works best, or we can pick something right now. What\'s easier for you?"',
+        talkingPoint: '"Before we wrap up — let\'s get that 6-week call on the calendar now so it doesn\'t fall through the cracks. I can send you a Calendly link or we can pick something right now. What\'s easier for you?"',
         agreementPlaceholder: 'e.g. Booked for May 19 at 2pm EST / Calendly link sent',
         checked: false,
         agreement: '',
@@ -414,7 +549,7 @@ const INITIAL_SECTIONS: CheckSection[] = [
         id: 'materials',
         label: 'Table tent + QR code materials confirmed sent',
         note: 'Verify shipping address and quantity',
-        talkingPoint: '"Last thing — we\'ll be sending over your table tent and QR code materials. The QR code links customers to a short brand video that gets them excited about the product. Can you confirm the best shipping address? And how many do you think you\'ll need?"',
+        talkingPoint: '"Last thing — we\'ll be sending over your table tent and QR code materials. The QR code links customers to a short brand video. Can you confirm the best shipping address? And how many do you think you\'ll need?"',
         agreementPlaceholder: 'e.g. Shipping to 123 Main St, need 3 table tents for 3 checkout locations',
         checked: false,
         agreement: '',
@@ -499,17 +634,12 @@ async function generateSalesHubText(messages: { role: string; content: string }[
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages, system }),
   });
-
   const data = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
-    throw new Error(data?.error || 'Something went wrong. Please try again.');
-  }
-
+  if (!res.ok) throw new Error(data?.error || 'Something went wrong. Please try again.');
   return data?.text || 'Something went wrong. Please try again.';
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Tab Button ───────────────────────────────────────────────────────────────
 
 function TabButton({ active, icon: Icon, label, onClick }: {
   active: boolean; icon: React.ElementType; label: string; onClick: () => void;
@@ -528,6 +658,143 @@ function TabButton({ active, icon: Icon, label, onClick }: {
   );
 }
 
+// ─── Call Script Tab ──────────────────────────────────────────────────────────
+
+function CallScriptTab() {
+  const [openQ, setOpenQ] = useState<number | null>(null);
+  const [activeView, setActiveView] = useState<'script' | 'faq'>('script');
+
+  const branchColors: Record<string, string> = {
+    emerald: 'bg-emerald-50 border-emerald-200 text-emerald-800',
+    amber: 'bg-amber-50 border-amber-200 text-amber-800',
+  };
+  const branchLabelColors: Record<string, string> = {
+    emerald: 'text-emerald-700 bg-emerald-100',
+    amber: 'text-amber-700 bg-amber-100',
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Mindset banner */}
+      <div className="bg-bark-500 rounded-2xl p-4 text-white">
+        <p className="text-xs font-semibold uppercase tracking-wider text-white/50 mb-1">Before you dial</p>
+        <p className="text-sm font-medium leading-relaxed">
+          Relax and enjoy. Speak slower than you think. Be friendly. You're offering free samples of a great product — no pressure. You're going to do great.
+        </p>
+      </div>
+
+      {/* Script / FAQ toggle */}
+      <div className="flex gap-1.5">
+        {(['script', 'faq'] as const).map(v => (
+          <button
+            key={v}
+            onClick={() => setActiveView(v)}
+            className={cn(
+              'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+              activeView === v ? 'bg-bark-500 text-white' : 'bg-cream-100 border border-cream-200 text-bark-500/70 hover:text-bark-500'
+            )}
+          >
+            {v === 'script' ? 'Call script' : 'Common questions'}
+          </button>
+        ))}
+      </div>
+
+      {/* SCRIPT VIEW */}
+      {activeView === 'script' && (
+        <div className="space-y-3">
+          {SCRIPT_STEPS.map((step, i) => (
+            <div key={i} className="bg-cream-100 rounded-2xl border border-cream-200 overflow-hidden">
+              {/* Step header */}
+              <div className="flex items-center gap-4 px-5 py-4 border-b border-cream-200">
+                <span className="text-xs font-semibold text-bark-500/30 font-mono w-6 flex-shrink-0">{step.number}</span>
+                <span className="font-semibold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>{step.title}</span>
+              </div>
+
+              <div className="px-5 py-4 space-y-3">
+                {/* Main lines */}
+                {step.lines.map((line, j) => (
+                  <div key={j} className="bg-white rounded-xl border border-cream-200 p-4">
+                    <p className="text-sm text-bark-500 leading-relaxed italic">{line}</p>
+                  </div>
+                ))}
+
+                {/* Note */}
+                {step.note && (
+                  <p className="text-xs text-bark-500/50 leading-relaxed pl-1">{step.note}</p>
+                )}
+
+                {/* Branches */}
+                {step.branches && (
+                  <div className="space-y-3 pt-1">
+                    {step.branches.map((branch, bi) => (
+                      <div key={bi} className={cn('rounded-xl border p-4 space-y-2.5', branchColors[branch.color])}>
+                        <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-md', branchLabelColors[branch.color])}>
+                          {branch.label}
+                        </span>
+                        {branch.lines.map((line, li) => (
+                          <p key={li} className="text-sm leading-relaxed italic pl-1">{line}</p>
+                        ))}
+                        {branch.sub && (
+                          <div className="space-y-2 pt-1 pl-2 border-l-2 border-current/20 ml-1">
+                            {branch.sub.map((sub, si) => (
+                              <div key={si}>
+                                <p className="text-xs font-semibold mb-1 opacity-70">{sub.label}</p>
+                                {sub.lines.map((line, li) => (
+                                  <p key={li} className="text-sm leading-relaxed italic">{line}</p>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* Fallback note */}
+          <div className="bg-cream-100 rounded-2xl border border-cream-200 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50 mb-2">If they ask something you don't know</p>
+            <div className="bg-white rounded-xl border border-cream-200 p-3.5">
+              <p className="text-sm text-bark-500 italic">"That's a great question. I'm not 100% sure of the answer, but I'll ask and we'll get an answer for you."</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FAQ VIEW */}
+      {activeView === 'faq' && (
+        <div className="space-y-2">
+          <p className="text-sm text-bark-500/60 mb-3">Every answer you'll need for the most common questions that come up during intro calls.</p>
+          {COMMON_QUESTIONS.map((item, i) => (
+            <div key={i} className="bg-cream-100 rounded-2xl border border-cream-200 overflow-hidden">
+              <button
+                onClick={() => setOpenQ(openQ === i ? null : i)}
+                className="w-full flex items-center justify-between px-5 py-4 text-left"
+              >
+                <span className="text-sm font-medium text-bark-500 pr-4">{item.q}</span>
+                {openQ === i
+                  ? <ChevronUp className="w-4 h-4 text-bark-500/40 flex-shrink-0" />
+                  : <ChevronDown className="w-4 h-4 text-bark-500/40 flex-shrink-0" />}
+              </button>
+              {openQ === i && (
+                <div className="px-5 pb-5 border-t border-cream-200 pt-4">
+                  <div className="bg-white rounded-xl border border-cream-200 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/40 mb-1.5">Your answer</p>
+                    <p className="text-sm text-bark-500 leading-relaxed italic">"{item.a}"</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Brand Tab ────────────────────────────────────────────────────────────────
 
 function BrandTab() {
@@ -535,7 +802,6 @@ function BrandTab() {
   const [openPillar, setOpenPillar] = useState<number | null>(null);
   const [openObjIndex, setOpenObjIndex] = useState<number | null>(null);
 
-  // Quiz state
   const [quizStarted, setQuizStarted] = useState(false);
   const [shuffledQs] = useState(() => [...BRAND_QUIZ_QUESTIONS].sort(() => Math.random() - 0.5));
   const [currentQ, setCurrentQ] = useState(0);
@@ -543,7 +809,6 @@ function BrandTab() {
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [quizDone, setQuizDone] = useState(false);
 
-  // AI Ask state
   const [askMessages, setAskMessages] = useState<Message[]>([]);
   const [askInput, setAskInput] = useState('');
   const [askLoading, setAskLoading] = useState(false);
@@ -560,20 +825,12 @@ function BrandTab() {
   }
 
   function nextQuestion() {
-    if (currentQ + 1 >= shuffledQs.length) {
-      setQuizDone(true);
-    } else {
-      setCurrentQ(q => q + 1);
-      setSelectedAnswer(null);
-    }
+    if (currentQ + 1 >= shuffledQs.length) setQuizDone(true);
+    else { setCurrentQ(q => q + 1); setSelectedAnswer(null); }
   }
 
   function restartQuiz() {
-    setCurrentQ(0);
-    setScore(0);
-    setSelectedAnswer(null);
-    setQuizDone(false);
-    setQuizStarted(false);
+    setCurrentQ(0); setScore(0); setSelectedAnswer(null); setQuizDone(false); setQuizStarted(false);
   }
 
   async function sendAsk(text?: string) {
@@ -584,17 +841,11 @@ function BrandTab() {
     setAskMessages(next);
     setAskLoading(true);
     try {
-      const reply = await generateSalesHubText(
-        next.map(m => ({ role: m.role, content: m.content })),
-        BRAND_AI_SYSTEM
-      );
+      const reply = await generateSalesHubText(next.map(m => ({ role: m.role, content: m.content })), BRAND_AI_SYSTEM);
       setAskMessages(prev => [...prev, { role: 'assistant', content: reply }]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Error reaching the AI. Please try again.';
-      setAskMessages(prev => [...prev, { role: 'assistant', content: message }]);
-    } finally {
-      setAskLoading(false);
-    }
+      setAskMessages(prev => [...prev, { role: 'assistant', content: error instanceof Error ? error.message : 'Error reaching the AI. Please try again.' }]);
+    } finally { setAskLoading(false); }
   }
 
   const BRAND_SECTIONS = [
@@ -616,7 +867,6 @@ function BrandTab() {
 
   return (
     <div className="space-y-5">
-      {/* Inner nav */}
       <div className="flex flex-wrap gap-1.5">
         {BRAND_SECTIONS.map(s => (
           <button
@@ -634,10 +884,8 @@ function BrandTab() {
         ))}
       </div>
 
-      {/* Foundation */}
       {activeSection === 'foundation' && (
         <div className="space-y-3">
-          {/* Position statement */}
           <div className="bg-bark-500 rounded-2xl p-5 text-white">
             <p className="text-xs font-semibold uppercase tracking-wider text-white/50 mb-2">Core positioning</p>
             <p className="text-lg font-semibold leading-snug" style={{ fontFamily: 'var(--font-poppins)' }}>
@@ -647,47 +895,32 @@ function BrandTab() {
               The practical bridge between kibble and fresh — helping dog parents add real, visible whole food nutrition without overhauling their dog's diet.
             </p>
           </div>
-
           <div className="grid grid-cols-2 gap-3">
-            {/* We are */}
             <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 mb-3">We are</p>
               <ul className="space-y-2">
                 {['Whole food toppers', 'Made to mix with kibble', 'The practical bridge between kibble and fresh', 'Real, visible ingredients', 'No prep. No fridge. No overhaul.'].map(item => (
                   <li key={item} className="flex items-start gap-2 text-sm text-emerald-800">
-                    <Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-emerald-600" />
-                    {item}
+                    <Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-emerald-600" />{item}
                   </li>
                 ))}
               </ul>
             </div>
-
-            {/* We are not */}
             <div className="bg-red-50 border border-red-100 rounded-2xl p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-red-700 mb-3">We are not</p>
               <ul className="space-y-2">
                 {['A full fresh food brand', 'A raw purist brand', 'A supplement powder', 'A treat company', 'A diet overhaul'].map(item => (
                   <li key={item} className="flex items-start gap-2 text-sm text-red-800">
-                    <span className="mt-0.5 flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center text-red-500 font-bold text-xs">✕</span>
-                    {item}
+                    <span className="mt-0.5 flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center text-red-500 font-bold text-xs">✕</span>{item}
                   </li>
                 ))}
               </ul>
             </div>
           </div>
-
-          {/* Messaging anchors */}
           <div className="bg-cream-100 rounded-2xl border border-cream-200 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50 mb-3">Messaging anchors — use these in every retailer conversation</p>
             <div className="space-y-2">
-              {[
-                'Whole food nutrition for kibble-fed dogs',
-                'Made to mix with kibble',
-                'Real ingredients you can see',
-                'No prep. No fridge. No overhaul.',
-                'The easiest way to make kibble better',
-                'Not ready for full fresh? This is the next best thing.',
-              ].map(anchor => (
+              {['Whole food nutrition for kibble-fed dogs', 'Made to mix with kibble', 'Real ingredients you can see', 'No prep. No fridge. No overhaul.', 'The easiest way to make kibble better', 'Not ready for full fresh? This is the next best thing.'].map(anchor => (
                 <div key={anchor} className="flex items-center gap-2.5 bg-white rounded-xl border border-cream-200 px-3.5 py-2.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-bark-500/40 flex-shrink-0" />
                   <span className="text-sm text-bark-500">{anchor}</span>
@@ -695,16 +928,10 @@ function BrandTab() {
               ))}
             </div>
           </div>
-
-          {/* Emotional goals */}
           <div className="bg-cream-100 rounded-2xl border border-cream-200 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50 mb-3">Emotional goals — every conversation should leave people feeling</p>
             <div className="grid grid-cols-3 gap-2">
-              {[
-                { label: 'Reassured', sub: '"I\'m not messing this up."' },
-                { label: 'Empowered', sub: '"I understand what matters now."' },
-                { label: 'Proud', sub: '"I care about my dog — and it shows."' },
-              ].map(({ label, sub }) => (
+              {[{ label: 'Reassured', sub: '"I\'m not messing this up."' }, { label: 'Empowered', sub: '"I understand what matters now."' }, { label: 'Proud', sub: '"I care about my dog — and it shows."' }].map(({ label, sub }) => (
                 <div key={label} className="bg-white rounded-xl border border-cream-200 p-3 text-center">
                   <p className="text-sm font-semibold text-bark-500">{label}</p>
                   <p className="text-xs text-bark-500/50 mt-1 italic leading-snug">{sub}</p>
@@ -718,18 +945,12 @@ function BrandTab() {
         </div>
       )}
 
-      {/* Voice Pillars */}
       {activeSection === 'pillars' && (
         <div className="space-y-3">
-          <p className="text-sm text-bark-500/60 leading-relaxed">
-            Five non-negotiable principles that govern how we talk about Bare Naked — in retail conversations, emails, and every customer touchpoint.
-          </p>
+          <p className="text-sm text-bark-500/60 leading-relaxed">Five non-negotiable principles that govern how we talk about Bare Naked — in retail conversations, emails, and every customer touchpoint.</p>
           {BRAND_PILLARS.map((pillar, i) => (
             <div key={i} className="bg-cream-100 rounded-2xl border border-cream-200 overflow-hidden">
-              <button
-                onClick={() => setOpenPillar(openPillar === i ? null : i)}
-                className="w-full flex items-center gap-4 px-5 py-4 text-left"
-              >
+              <button onClick={() => setOpenPillar(openPillar === i ? null : i)} className="w-full flex items-center gap-4 px-5 py-4 text-left">
                 <span className="text-xs font-semibold text-bark-500/30 font-mono w-6 flex-shrink-0">{pillar.number}</span>
                 <span className="font-semibold text-bark-500 flex-1" style={{ fontFamily: 'var(--font-poppins)' }}>{pillar.title}</span>
                 {openPillar === i ? <ChevronUp className="w-4 h-4 text-bark-500/40" /> : <ChevronDown className="w-4 h-4 text-bark-500/40" />}
@@ -748,19 +969,13 @@ function BrandTab() {
         </div>
       )}
 
-      {/* Words */}
       {activeSection === 'words' && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 mb-3">Use more of</p>
               <div className="flex flex-wrap gap-1.5">
-                {[
-                  'Whole food nutrition', 'Real ingredients', 'Visible ingredients',
-                  'Gently dried', 'Simple upgrade', 'Everyday nutrition',
-                  'Thoughtfully sourced', 'Made for kibble', 'Nothing weird',
-                  'Practical bridge', 'Small change, big difference', 'Transparency',
-                ].map(w => (
+                {['Whole food nutrition', 'Real ingredients', 'Visible ingredients', 'Gently dried', 'Simple upgrade', 'Everyday nutrition', 'Thoughtfully sourced', 'Made for kibble', 'Nothing weird', 'Practical bridge', 'Small change, big difference', 'Transparency'].map(w => (
                   <span key={w} className="text-xs bg-white border border-emerald-100 text-emerald-800 px-2.5 py-1 rounded-lg font-medium">{w}</span>
                 ))}
               </div>
@@ -768,35 +983,20 @@ function BrandTab() {
             <div className="bg-red-50 border border-red-100 rounded-2xl p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-red-700 mb-3">Avoid</p>
               <div className="flex flex-wrap gap-1.5">
-                {[
-                  'Superfood overload', 'Miracle / magic', 'Cure / heal',
-                  'Your dog is deficient', 'Most pet parents don\'t realize…',
-                  'Hard urgency', 'Trail mix topper', 'Buy now',
-                  'Don\'t miss out', 'Changes everything',
-                ].map(w => (
+                {['Superfood overload', 'Miracle / magic', 'Cure / heal', 'Your dog is deficient', 'Most pet parents don\'t realize…', 'Hard urgency', 'Trail mix topper', 'Buy now', 'Don\'t miss out', 'Changes everything'].map(w => (
                   <span key={w} className="text-xs bg-white border border-red-100 text-red-700 px-2.5 py-1 rounded-lg font-medium">{w}</span>
                 ))}
               </div>
             </div>
           </div>
-
           <div className="bg-cream-100 rounded-2xl border border-cream-200 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50 mb-3">Voice spectrum — where we sit</p>
             <div className="space-y-3">
-              {[
-                { left: 'Friendly', right: 'Formal', position: 20 },
-                { left: 'Playful', right: 'Serious', position: 60 },
-                { left: 'Emotional', right: 'Scientific', position: 50 },
-                { left: 'Mass market', right: 'Premium', position: 70 },
-                { left: 'Salesy', right: 'Educational', position: 75 },
-              ].map(({ left, right, position }) => (
+              {[{ left: 'Friendly', right: 'Formal', position: 20 }, { left: 'Playful', right: 'Serious', position: 60 }, { left: 'Emotional', right: 'Scientific', position: 50 }, { left: 'Mass market', right: 'Premium', position: 70 }, { left: 'Salesy', right: 'Educational', position: 75 }].map(({ left, right, position }) => (
                 <div key={left} className="flex items-center gap-3">
                   <span className="text-xs text-bark-500/60 w-24 text-right flex-shrink-0">{left}</span>
                   <div className="flex-1 relative h-1.5 bg-cream-200 rounded-full">
-                    <div
-                      className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-bark-500 border-2 border-white shadow-sm"
-                      style={{ left: `${position}%`, transform: 'translate(-50%, -50%)' }}
-                    />
+                    <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-bark-500 border-2 border-white shadow-sm" style={{ left: `${position}%`, transform: 'translate(-50%, -50%)' }} />
                   </div>
                   <span className="text-xs text-bark-500/60 w-24 flex-shrink-0">{right}</span>
                 </div>
@@ -806,16 +1006,12 @@ function BrandTab() {
         </div>
       )}
 
-      {/* Objections */}
       {activeSection === 'objections' && (
         <div className="space-y-3">
           <p className="text-sm text-bark-500/60">Common pushback from retail buyers — and how to respond confidently. Practice these until they feel natural.</p>
           {BRAND_OBJECTIONS.map((obj, i) => (
             <div key={i} className="bg-cream-100 rounded-2xl border border-cream-200 overflow-hidden">
-              <button
-                onClick={() => setOpenObjIndex(openObjIndex === i ? null : i)}
-                className="w-full flex items-center justify-between px-5 py-4 text-left"
-              >
+              <button onClick={() => setOpenObjIndex(openObjIndex === i ? null : i)} className="w-full flex items-center justify-between px-5 py-4 text-left">
                 <span className="text-sm font-medium text-bark-500 pr-4">{obj.q}</span>
                 {openObjIndex === i ? <ChevronUp className="w-4 h-4 text-bark-500/40 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-bark-500/40 flex-shrink-0" />}
               </button>
@@ -832,7 +1028,6 @@ function BrandTab() {
         </div>
       )}
 
-      {/* Quiz */}
       {activeSection === 'quiz' && (
         <div>
           {!quizStarted && !quizDone && (
@@ -842,27 +1037,18 @@ function BrandTab() {
               <button onClick={() => setQuizStarted(true)} className="btn-primary px-6 py-2.5">Start quiz</button>
             </div>
           )}
-
           {quizStarted && !quizDone && (
             <div className="bg-cream-100 rounded-2xl border border-cream-200 p-5 space-y-4">
-              {/* Progress */}
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs text-bark-500/50">
                   <span>Question {currentQ + 1} of {shuffledQs.length}</span>
                   <span>{score} correct</span>
                 </div>
                 <div className="w-full bg-cream-200 rounded-full h-1.5">
-                  <div
-                    className="bg-bark-500 h-1.5 rounded-full transition-all duration-300"
-                    style={{ width: `${((currentQ) / shuffledQs.length) * 100}%` }}
-                  />
+                  <div className="bg-bark-500 h-1.5 rounded-full transition-all duration-300" style={{ width: `${(currentQ / shuffledQs.length) * 100}%` }} />
                 </div>
               </div>
-
-              {/* Question */}
               <p className="text-base font-medium text-bark-500 leading-snug">{shuffledQs[currentQ].q}</p>
-
-              {/* Options */}
               <div className="space-y-2">
                 {shuffledQs[currentQ].opts.map((opt, i) => {
                   const isCorrect = i === shuffledQs[currentQ].correct;
@@ -874,29 +1060,19 @@ function BrandTab() {
                     else optStyle = 'bg-white border-cream-200 text-bark-500/40';
                   }
                   return (
-                    <button
-                      key={i}
-                      onClick={() => selectAnswer(i)}
-                      disabled={selectedAnswer !== null}
-                      className={cn('w-full text-left px-4 py-3 rounded-xl border text-sm transition-all duration-150', optStyle)}
-                    >
+                    <button key={i} onClick={() => selectAnswer(i)} disabled={selectedAnswer !== null}
+                      className={cn('w-full text-left px-4 py-3 rounded-xl border text-sm transition-all duration-150', optStyle)}>
                       {opt}
                     </button>
                   );
                 })}
               </div>
-
-              {/* Feedback */}
               {selectedAnswer !== null && (
                 <div className={cn('rounded-xl border p-3.5 text-sm leading-relaxed',
-                  selectedAnswer === shuffledQs[currentQ].correct
-                    ? 'bg-emerald-50 border-emerald-100 text-emerald-800'
-                    : 'bg-red-50 border-red-100 text-red-800'
-                )}>
+                  selectedAnswer === shuffledQs[currentQ].correct ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800')}>
                   {shuffledQs[currentQ].explain}
                 </div>
               )}
-
               {selectedAnswer !== null && (
                 <div className="flex justify-end">
                   <button onClick={nextQuestion} className="btn-primary px-5 py-2 text-sm">
@@ -906,16 +1082,11 @@ function BrandTab() {
               )}
             </div>
           )}
-
           {quizDone && (
             <div className="bg-cream-100 rounded-2xl border border-cream-200 p-6 text-center space-y-3">
               <p className="text-4xl font-semibold text-bark-500">{score}/{shuffledQs.length}</p>
               <p className="text-sm text-bark-500/60">
-                {Math.round((score / shuffledQs.length) * 100)}% — {
-                  score >= 7 ? "You're ready to get on the phone. Great work." :
-                    score >= 5 ? 'Good foundation — review the voice pillars and objections sections and try again.' :
-                      'Keep studying the brand guide and give it another shot. You\'ll get there.'
-                }
+                {Math.round((score / shuffledQs.length) * 100)}% — {score >= 7 ? "You're ready to get on the phone. Great work." : score >= 5 ? 'Good foundation — review the voice pillars and try again.' : 'Keep studying and give it another shot. You\'ll get there.'}
               </p>
               <button onClick={restartQuiz} className="btn-secondary px-5 py-2 text-sm mt-2">Retake quiz</button>
             </div>
@@ -923,16 +1094,12 @@ function BrandTab() {
         </div>
       )}
 
-      {/* Ask AI */}
       {activeSection === 'ask' && (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
             {SUGGESTED_BRAND_QS.map(q => (
-              <button
-                key={q}
-                onClick={() => sendAsk(q)}
-                className="text-xs px-3 py-1.5 rounded-lg bg-cream-100 border border-cream-200 text-bark-500/70 hover:text-bark-500 hover:border-bark-500/30 transition-colors"
-              >
+              <button key={q} onClick={() => sendAsk(q)}
+                className="text-xs px-3 py-1.5 rounded-lg bg-cream-100 border border-cream-200 text-bark-500/70 hover:text-bark-500 hover:border-bark-500/30 transition-colors">
                 {q}
               </button>
             ))}
@@ -941,11 +1108,9 @@ function BrandTab() {
             <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ maxHeight: 380 }}>
               {askMessages.length === 0 && (
                 <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-bark-500 flex items-center justify-center flex-shrink-0">
-                    <Bot className="w-4 h-4 text-white" />
-                  </div>
+                  <div className="w-7 h-7 rounded-full bg-bark-500 flex items-center justify-center flex-shrink-0"><Bot className="w-4 h-4 text-white" /></div>
                   <div className="bg-white rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-bark-500 border border-cream-200 max-w-lg">
-                    Hey — I'm your Bare Naked brand guide. Ask me anything about how to explain the product, what language to use (or avoid), how to frame the category for a skeptical buyer, or how to handle tough questions. I'm here to help you sound confident and on-brand.
+                    Hey — I'm your Bare Naked brand guide. Ask me anything about how to explain the product, what language to use or avoid, how to frame the category for a skeptical buyer, or how to handle tough questions.
                   </div>
                 </div>
               )}
@@ -955,35 +1120,24 @@ function BrandTab() {
                     {msg.role === 'user' ? <User className="w-4 h-4 text-bark-500" /> : <Bot className="w-4 h-4 text-white" />}
                   </div>
                   <div className={cn('px-4 py-2.5 rounded-2xl text-sm border max-w-lg whitespace-pre-wrap',
-                    msg.role === 'user'
-                      ? 'bg-bark-500 text-white border-bark-500 rounded-tr-sm'
-                      : 'bg-white text-bark-500 border-cream-200 rounded-tl-sm')}>
+                    msg.role === 'user' ? 'bg-bark-500 text-white border-bark-500 rounded-tr-sm' : 'bg-white text-bark-500 border-cream-200 rounded-tl-sm')}>
                     {msg.content}
                   </div>
                 </div>
               ))}
               {askLoading && (
                 <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-bark-500 flex items-center justify-center flex-shrink-0">
-                    <Bot className="w-4 h-4 text-white" />
-                  </div>
+                  <div className="w-7 h-7 rounded-full bg-bark-500 flex items-center justify-center flex-shrink-0"><Bot className="w-4 h-4 text-white" /></div>
                   <div className="bg-white rounded-2xl rounded-tl-sm px-4 py-3 border border-cream-200 flex gap-1">
-                    {[0, 1, 2].map(i => (
-                      <span key={i} className="w-1.5 h-1.5 rounded-full bg-bark-500/40 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
-                    ))}
+                    {[0, 1, 2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-bark-500/40 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
                   </div>
                 </div>
               )}
               <div ref={askBottomRef} />
             </div>
             <div className="border-t border-cream-200 p-3 flex gap-2">
-              <input
-                value={askInput}
-                onChange={e => setAskInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendAsk()}
-                placeholder="Ask about the brand, voice, positioning, or objection handling..."
-                className="input text-sm py-2 flex-1"
-              />
+              <input value={askInput} onChange={e => setAskInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendAsk()}
+                placeholder="Ask about the brand, voice, positioning, or objection handling..." className="input text-sm py-2 flex-1" />
               <button onClick={() => sendAsk()} disabled={askLoading || !askInput.trim()} className="btn-primary px-4 py-2">
                 <Send className="w-4 h-4" />
               </button>
@@ -1003,17 +1157,10 @@ function PlaybookTab() {
     <div className="space-y-3">
       {PHASES.map((phase, i) => (
         <div key={i} className={cn('rounded-2xl border', phase.bg)}>
-          <button
-            onClick={() => setOpen(open === i ? null : i)}
-            className="w-full flex items-center justify-between px-5 py-4 text-left"
-          >
+          <button onClick={() => setOpen(open === i ? null : i)} className="w-full flex items-center justify-between px-5 py-4 text-left">
             <div className="flex items-center gap-3">
-              <span className={cn('text-xs font-semibold px-3 py-1 rounded-full bg-white/60 border', phase.color, 'border-current/20')}>
-                {phase.label}
-              </span>
-              <span className="font-semibold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
-                {phase.title}
-              </span>
+              <span className={cn('text-xs font-semibold px-3 py-1 rounded-full bg-white/60 border', phase.color, 'border-current/20')}>{phase.label}</span>
+              <span className="font-semibold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>{phase.title}</span>
             </div>
             {open === i ? <ChevronUp className="w-4 h-4 text-bark-500/50" /> : <ChevronDown className="w-4 h-4 text-bark-500/50" />}
           </button>
@@ -1023,8 +1170,7 @@ function PlaybookTab() {
               <ul className="space-y-2">
                 {phase.items.map((item, j) => (
                   <li key={j} className="flex gap-2.5 text-sm text-bark-500">
-                    <span className="mt-2 w-1.5 h-1.5 min-w-[6px] rounded-full bg-bark-500/30" />
-                    {item}
+                    <span className="mt-2 w-1.5 h-1.5 min-w-[6px] rounded-full bg-bark-500/30" />{item}
                   </li>
                 ))}
               </ul>
@@ -1035,12 +1181,7 @@ function PlaybookTab() {
       <div className="bg-cream-100 rounded-2xl border border-cream-200 p-5">
         <p className="font-semibold text-bark-500 mb-3" style={{ fontFamily: 'var(--font-poppins)' }}>Success metrics</p>
         <div className="grid grid-cols-2 gap-3 text-sm">
-          {[
-            ['Prospecting', 'Sample kit requested & QR code scanned'],
-            ['30 days', 'Astro activated & first reorder placed'],
-            ['60 days', 'Staff feedback collected & secondary promo executed if needed'],
-            ['90 days', 'Promo calendar handed over; account is self-sufficient'],
-          ].map(([stage, metric]) => (
+          {[['Prospecting', 'Sample kit requested & QR code scanned'], ['30 days', 'Astro activated & first reorder placed'], ['60 days', 'Staff feedback collected & secondary promo executed if needed'], ['90 days', 'Promo calendar handed over; account is self-sufficient']].map(([stage, metric]) => (
             <div key={stage} className="bg-white rounded-xl p-3 border border-cream-200">
               <p className="text-xs font-semibold text-bark-500/60 uppercase tracking-wide mb-1">{stage}</p>
               <p className="text-bark-500">{metric}</p>
@@ -1073,42 +1214,21 @@ function ChecklistTab() {
   const pct = Math.round((checkedCount / total) * 100);
 
   function toggleCheck(sectionIdx: number, itemId: string) {
-    setSections(prev => prev.map((s, si) =>
-      si !== sectionIdx ? s : {
-        ...s,
-        items: s.items.map(item => item.id === itemId ? { ...item, checked: !item.checked } : item),
-      }
-    ));
+    setSections(prev => prev.map((s, si) => si !== sectionIdx ? s : { ...s, items: s.items.map(item => item.id === itemId ? { ...item, checked: !item.checked } : item) }));
   }
-
   function updateAgreement(sectionIdx: number, itemId: string, value: string) {
-    setSections(prev => prev.map((s, si) =>
-      si !== sectionIdx ? s : {
-        ...s,
-        items: s.items.map(item => item.id === itemId ? { ...item, agreement: value } : item),
-      }
-    ));
+    setSections(prev => prev.map((s, si) => si !== sectionIdx ? s : { ...s, items: s.items.map(item => item.id === itemId ? { ...item, agreement: value } : item) }));
   }
-
   function reset() {
     setSections(INITIAL_SECTIONS.map(s => ({ ...s, items: s.items.map(i => ({ ...i, checked: false, agreement: '' })) })));
-    setSelectedDeal(null);
-    setDeals([]);
-    setDealQuery('');
-    setSavedMsg('');
-    setExpandedItem(null);
+    setSelectedDeal(null); setDeals([]); setDealQuery(''); setSavedMsg(''); setExpandedItem(null);
   }
-
   async function searchDeals() {
     if (!dealQuery.trim()) return;
     setSearching(true);
-    try {
-      const results = await searchPipedriveDeals(dealQuery);
-      setDeals(results.map((r: any) => r.item));
-    } catch { setDeals([]); }
-    finally { setSearching(false); }
+    try { const results = await searchPipedriveDeals(dealQuery); setDeals(results.map((r: any) => r.item)); }
+    catch { setDeals([]); } finally { setSearching(false); }
   }
-
   async function saveToPipedrive() {
     if (!selectedDeal) return;
     setSaving(true);
@@ -1117,8 +1237,7 @@ function ChecklistTab() {
     sections.forEach(section => {
       lines.push(`\n## ${section.title}`);
       section.items.forEach(item => {
-        const status = item.checked ? '✓' : '✗';
-        lines.push(`${status} ${item.label}`);
+        lines.push(`${item.checked ? '✓' : '✗'} ${item.label}`);
         if (item.agreement) lines.push(`   → ${item.agreement}`);
       });
     });
@@ -1129,9 +1248,8 @@ function ChecklistTab() {
       await createActivity(selectedDeal.id, 'BNP — 6-week check-in call', addDays(42));
       await createActivity(selectedDeal.id, 'BNP — 90-day handoff call', addDays(90));
       setSavedMsg('Saved to Pipedrive ✓ — call summary added to deal notes and follow-up activities created for 6-week and 90-day calls.');
-    } catch {
-      setSavedMsg('Error saving to Pipedrive. Please try again.');
-    } finally { setSaving(false); }
+    } catch { setSavedMsg('Error saving to Pipedrive. Please try again.'); }
+    finally { setSaving(false); }
   }
 
   return (
@@ -1144,11 +1262,8 @@ function ChecklistTab() {
         <div className="w-full bg-cream-200 rounded-full h-2">
           <div className="bg-bark-500 h-2 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
         </div>
-        {checkedCount === total && (
-          <p className="text-sm text-emerald-600 font-medium mt-2">All items covered — great call!</p>
-        )}
+        {checkedCount === total && <p className="text-sm text-emerald-600 font-medium mt-2">All items covered — great call!</p>}
       </div>
-
       {sections.map((section, si) => (
         <div key={si}>
           <p className="text-xs font-semibold text-bark-500/50 uppercase tracking-wider mb-2">{section.title}</p>
@@ -1156,36 +1271,17 @@ function ChecklistTab() {
             {section.items.map(item => {
               const isExpanded = expandedItem === item.id;
               return (
-                <div
-                  key={item.id}
-                  className={cn(
-                    'rounded-xl border transition-all duration-150',
-                    item.checked ? 'bg-emerald-50 border-emerald-100' : 'bg-cream-100 border-cream-200'
-                  )}
-                >
+                <div key={item.id} className={cn('rounded-xl border transition-all duration-150', item.checked ? 'bg-emerald-50 border-emerald-100' : 'bg-cream-100 border-cream-200')}>
                   <div className="flex items-start gap-3 p-3.5">
-                    <button
-                      onClick={() => toggleCheck(si, item.id)}
-                      className={cn(
-                        'mt-0.5 w-5 h-5 min-w-[20px] rounded-md border flex items-center justify-center transition-colors flex-shrink-0',
-                        item.checked ? 'bg-bark-500 border-bark-500' : 'border-cream-300 bg-white'
-                      )}
-                    >
+                    <button onClick={() => toggleCheck(si, item.id)} className={cn('mt-0.5 w-5 h-5 min-w-[20px] rounded-md border flex items-center justify-center transition-colors flex-shrink-0', item.checked ? 'bg-bark-500 border-bark-500' : 'border-cream-300 bg-white')}>
                       {item.checked && <Check className="w-3 h-3 text-white" />}
                     </button>
                     <div className="flex-1 min-w-0">
-                      <p className={cn('text-sm font-medium text-bark-500', item.checked && 'line-through text-bark-500/50')}>
-                        {item.label}
-                      </p>
+                      <p className={cn('text-sm font-medium text-bark-500', item.checked && 'line-through text-bark-500/50')}>{item.label}</p>
                       <p className="text-xs text-bark-500/50 mt-0.5">{item.note}</p>
-                      {!isExpanded && item.agreement && (
-                        <p className="text-xs text-emerald-700 mt-1 font-medium">→ {item.agreement}</p>
-                      )}
+                      {!isExpanded && item.agreement && <p className="text-xs text-emerald-700 mt-1 font-medium">→ {item.agreement}</p>}
                     </div>
-                    <button
-                      onClick={() => setExpandedItem(isExpanded ? null : item.id)}
-                      className="flex-shrink-0 flex items-center gap-1 text-xs text-bark-500/40 hover:text-bark-500 transition-colors mt-0.5 px-1"
-                    >
+                    <button onClick={() => setExpandedItem(isExpanded ? null : item.id)} className="flex-shrink-0 flex items-center gap-1 text-xs text-bark-500/40 hover:text-bark-500 transition-colors mt-0.5 px-1">
                       <StickyNote className="w-3.5 h-3.5" />
                       {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                     </button>
@@ -1198,13 +1294,7 @@ function ChecklistTab() {
                       </div>
                       <div>
                         <p className="text-xs font-semibold text-bark-500/50 uppercase tracking-wide mb-1.5">What did you agree on?</p>
-                        <textarea
-                          value={item.agreement}
-                          onChange={e => updateAgreement(si, item.id, e.target.value)}
-                          placeholder={item.agreementPlaceholder}
-                          rows={2}
-                          className="input text-sm resize-none"
-                        />
+                        <textarea value={item.agreement} onChange={e => updateAgreement(si, item.id, e.target.value)} placeholder={item.agreementPlaceholder} rows={2} className="input text-sm resize-none" />
                       </div>
                     </div>
                   )}
@@ -1214,36 +1304,17 @@ function ChecklistTab() {
           </div>
         </div>
       ))}
-
       <div className="bg-cream-100 rounded-2xl border border-cream-200 p-4 space-y-3">
-        <p className="text-sm font-semibold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
-          Save to Pipedrive
-        </p>
-        <p className="text-xs text-bark-500/50">
-          Saves a full call summary (including agreement notes) to the deal record and auto-creates the 6-week and 90-day follow-up activities.
-        </p>
+        <p className="text-sm font-semibold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>Save to Pipedrive</p>
+        <p className="text-xs text-bark-500/50">Saves a full call summary (including agreement notes) to the deal record and auto-creates the 6-week and 90-day follow-up activities.</p>
         <div className="flex gap-2">
-          <input
-            value={dealQuery}
-            onChange={e => setDealQuery(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && searchDeals()}
-            placeholder="Search deal by retailer name..."
-            className="input text-sm py-2"
-          />
-          <button onClick={searchDeals} disabled={searching} className="btn-secondary text-sm px-4 py-2 whitespace-nowrap">
-            {searching ? 'Searching...' : 'Search'}
-          </button>
+          <input value={dealQuery} onChange={e => setDealQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchDeals()} placeholder="Search deal by retailer name..." className="input text-sm py-2" />
+          <button onClick={searchDeals} disabled={searching} className="btn-secondary text-sm px-4 py-2 whitespace-nowrap">{searching ? 'Searching...' : 'Search'}</button>
         </div>
         {deals.length > 0 && (
           <div className="space-y-1">
             {deals.map((deal: any) => (
-              <button
-                key={deal.id}
-                onClick={() => { setSelectedDeal(deal); setDeals([]); }}
-                className="w-full text-left px-3 py-2 rounded-lg bg-white border border-cream-200 hover:border-bark-500/30 text-sm text-bark-500 transition-colors"
-              >
-                {deal.title}
-              </button>
+              <button key={deal.id} onClick={() => { setSelectedDeal(deal); setDeals([]); }} className="w-full text-left px-3 py-2 rounded-lg bg-white border border-cream-200 hover:border-bark-500/30 text-sm text-bark-500 transition-colors">{deal.title}</button>
             ))}
           </div>
         )}
@@ -1254,23 +1325,12 @@ function ChecklistTab() {
           </div>
         )}
         <div className="flex gap-2">
-          <button
-            onClick={saveToPipedrive}
-            disabled={!selectedDeal || saving}
-            className="btn-primary text-sm px-4 py-2 flex items-center gap-2"
-          >
-            <ClipboardList className="w-4 h-4" />
-            {saving ? 'Saving...' : 'Save summary + create follow-ups'}
+          <button onClick={saveToPipedrive} disabled={!selectedDeal || saving} className="btn-primary text-sm px-4 py-2 flex items-center gap-2">
+            <ClipboardList className="w-4 h-4" />{saving ? 'Saving...' : 'Save summary + create follow-ups'}
           </button>
-          <button onClick={reset} className="btn-ghost text-sm px-3 py-2 flex items-center gap-2">
-            <RefreshCw className="w-3.5 h-3.5" /> Reset
-          </button>
+          <button onClick={reset} className="btn-ghost text-sm px-3 py-2 flex items-center gap-2"><RefreshCw className="w-3.5 h-3.5" /> Reset</button>
         </div>
-        {savedMsg && (
-          <p className={cn('text-sm font-medium', savedMsg.startsWith('Error') ? 'text-red-600' : 'text-emerald-600')}>
-            {savedMsg}
-          </p>
-        )}
+        {savedMsg && <p className={cn('text-sm font-medium', savedMsg.startsWith('Error') ? 'text-red-600' : 'text-emerald-600')}>{savedMsg}</p>}
       </div>
     </div>
   );
@@ -1305,8 +1365,7 @@ function AssistantTab() {
       const reply = await generateSalesHubText(next.map(m => ({ role: m.role, content: m.content })), PLAYBOOK_SYSTEM);
       setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Error reaching the AI. Please try again.';
-      setMessages(prev => [...prev, { role: 'assistant', content: message }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: error instanceof Error ? error.message : 'Error reaching the AI. Please try again.' }]);
     } finally { setLoading(false); }
   }
 
@@ -1314,19 +1373,14 @@ function AssistantTab() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-2">
         {QUICK_PROMPTS.map(p => (
-          <button key={p} onClick={() => send(p)}
-            className="text-xs px-3 py-1.5 rounded-lg bg-cream-100 border border-cream-200 text-bark-500/70 hover:text-bark-500 hover:border-bark-500/30 transition-colors">
-            {p}
-          </button>
+          <button key={p} onClick={() => send(p)} className="text-xs px-3 py-1.5 rounded-lg bg-cream-100 border border-cream-200 text-bark-500/70 hover:text-bark-500 hover:border-bark-500/30 transition-colors">{p}</button>
         ))}
       </div>
       <div className="bg-cream-100 rounded-2xl border border-cream-200 flex flex-col" style={{ minHeight: 380 }}>
         <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ maxHeight: 380 }}>
           {messages.length === 0 && (
             <div className="flex items-start gap-3">
-              <div className="w-7 h-7 rounded-full bg-bark-500 flex items-center justify-center flex-shrink-0">
-                <Bot className="w-4 h-4 text-white" />
-              </div>
+              <div className="w-7 h-7 rounded-full bg-bark-500 flex items-center justify-center flex-shrink-0"><Bot className="w-4 h-4 text-white" /></div>
               <div className="bg-white rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-bark-500 border border-cream-200 max-w-lg">
                 Hey — I'm your Bare Naked Pet Co. sales assistant. Ask me anything about the playbook, objection handling, call scripts, or Astro. I'm here to help you close.
               </div>
@@ -1345,26 +1399,18 @@ function AssistantTab() {
           ))}
           {loading && (
             <div className="flex items-start gap-3">
-              <div className="w-7 h-7 rounded-full bg-bark-500 flex items-center justify-center flex-shrink-0">
-                <Bot className="w-4 h-4 text-white" />
-              </div>
+              <div className="w-7 h-7 rounded-full bg-bark-500 flex items-center justify-center flex-shrink-0"><Bot className="w-4 h-4 text-white" /></div>
               <div className="bg-white rounded-2xl rounded-tl-sm px-4 py-3 border border-cream-200 flex gap-1">
-                {[0, 1, 2].map(i => (
-                  <span key={i} className="w-1.5 h-1.5 rounded-full bg-bark-500/40 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
-                ))}
+                {[0, 1, 2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-bark-500/40 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
               </div>
             </div>
           )}
           <div ref={bottomRef} />
         </div>
         <div className="border-t border-cream-200 p-3 flex gap-2">
-          <input value={input} onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
-            placeholder="Ask about the playbook, scripts, objections..."
-            className="input text-sm py-2 flex-1" />
-          <button onClick={() => send()} disabled={loading || !input.trim()} className="btn-primary px-4 py-2">
-            <Send className="w-4 h-4" />
-          </button>
+          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
+            placeholder="Ask about the playbook, scripts, objections..." className="input text-sm py-2 flex-1" />
+          <button onClick={() => send()} disabled={loading || !input.trim()} className="btn-primary px-4 py-2"><Send className="w-4 h-4" /></button>
         </div>
       </div>
     </div>
@@ -1384,17 +1430,11 @@ function TemplatesTab() {
   async function generate() {
     setLoading(true); setOutput('');
     try {
-      const text = await generateSalesHubText(
-        [{ role: 'user', content: selectedTemplate.prompt(storeName || 'the store', repName || 'the team') }],
-        PLAYBOOK_SYSTEM
-      );
+      const text = await generateSalesHubText([{ role: 'user', content: selectedTemplate.prompt(storeName || 'the store', repName || 'the team') }], PLAYBOOK_SYSTEM);
       setOutput(text);
-    } catch (error) {
-      setOutput(error instanceof Error ? error.message : 'Error generating email. Please try again.');
-    }
+    } catch (error) { setOutput(error instanceof Error ? error.message : 'Error generating email. Please try again.'); }
     finally { setLoading(false); }
   }
-
   function copy() { navigator.clipboard.writeText(output); setCopied(true); setTimeout(() => setCopied(false), 2000); }
 
   return (
@@ -1402,8 +1442,7 @@ function TemplatesTab() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         {TEMPLATES.map(t => (
           <button key={t.id} onClick={() => { setSelectedTemplate(t); setOutput(''); }}
-            className={cn('p-3 rounded-xl border text-left transition-all',
-              selectedTemplate.id === t.id ? 'bg-bark-500 border-bark-500 text-white' : 'bg-cream-100 border-cream-200 text-bark-500 hover:border-bark-500/30')}>
+            className={cn('p-3 rounded-xl border text-left transition-all', selectedTemplate.id === t.id ? 'bg-bark-500 border-bark-500 text-white' : 'bg-cream-100 border-cream-200 text-bark-500 hover:border-bark-500/30')}>
             <p className="text-sm font-semibold">{t.name}</p>
             <p className={cn('text-xs mt-0.5', selectedTemplate.id === t.id ? 'text-white/70' : 'text-bark-500/50')}>{t.desc}</p>
           </button>
@@ -1452,31 +1491,19 @@ function OnePagerTab() {
     try {
       const text = await generateSalesHubText([{ role: 'user', content: prompt }], PLAYBOOK_SYSTEM);
       setOutput(text);
-    } catch (error) {
-      setOutput(error instanceof Error ? error.message : 'Error generating one-pager. Please try again.');
-    }
+    } catch (error) { setOutput(error instanceof Error ? error.message : 'Error generating one-pager. Please try again.'); }
     finally { setLoading(false); }
   }
-
   function copy() { navigator.clipboard.writeText(output); setCopied(true); setTimeout(() => setCopied(false), 2000); }
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-bark-500/60">Fill in the retailer details to generate a customized one-pager to email or print before the onboarding call.</p>
       <div className="grid grid-cols-2 gap-3">
-        {[
-          { key: 'store', label: 'Store name', placeholder: 'Paws & Play Pet Supply' },
-          { key: 'contact', label: 'Contact / owner name', placeholder: 'Sarah' },
-          { key: 'rep', label: 'Your name', placeholder: 'Your name' },
-          { key: 'promo', label: 'Agreed promo discount', placeholder: '15% off retail' },
-        ].map(({ key, label, placeholder }) => (
-          <div key={key}><label className="label">{label}</label>
-            <input value={fields[key as keyof typeof fields]} onChange={e => set(key as keyof typeof fields, e.target.value)} placeholder={placeholder} className="input text-sm" />
-          </div>
+        {[{ key: 'store', label: 'Store name', placeholder: 'Paws & Play Pet Supply' }, { key: 'contact', label: 'Contact / owner name', placeholder: 'Sarah' }, { key: 'rep', label: 'Your name', placeholder: 'Your name' }, { key: 'promo', label: 'Agreed promo discount', placeholder: '15% off retail' }].map(({ key, label, placeholder }) => (
+          <div key={key}><label className="label">{label}</label><input value={fields[key as keyof typeof fields]} onChange={e => set(key as keyof typeof fields, e.target.value)} placeholder={placeholder} className="input text-sm" /></div>
         ))}
-        <div className="col-span-2"><label className="label">Shelf placement notes</label>
-          <input value={fields.shelf} onChange={e => set('shelf', e.target.value)} placeholder="Endcap near checkout, brand covers cost" className="input text-sm" />
-        </div>
+        <div className="col-span-2"><label className="label">Shelf placement notes</label><input value={fields.shelf} onChange={e => set('shelf', e.target.value)} placeholder="Endcap near checkout, brand covers cost" className="input text-sm" /></div>
       </div>
       <button onClick={generate} disabled={loading} className="btn-primary flex items-center gap-2">
         <FileText className="w-4 h-4" />{loading ? 'Generating...' : 'Generate one-pager'}
@@ -1507,6 +1534,7 @@ export default function SalesHubPage() {
 
   const tabs: { id: Tab; icon: React.ElementType; label: string }[] = [
     { id: 'brand', icon: Layers, label: 'Brand guide' },
+    { id: 'callscript', icon: Phone, label: 'Call script' },
     { id: 'playbook', icon: BookOpen, label: 'Playbook' },
     { id: 'checklist', icon: CheckSquare, label: 'Onboarding checklist' },
     { id: 'assistant', icon: MessageSquare, label: 'AI assistant' },
@@ -1518,7 +1546,7 @@ export default function SalesHubPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="page-title">Sales Hub</h1>
-        <p className="text-bark-500/60 text-sm mt-1">Brand guide, playbook, onboarding checklist, AI assistant, and retailer tools — all in one place.</p>
+        <p className="text-bark-500/60 text-sm mt-1">Brand guide, call script, playbook, onboarding checklist, AI assistant, and retailer tools — all in one place.</p>
       </div>
       <div className="flex flex-wrap gap-1.5 bg-cream-100 p-1.5 rounded-2xl border border-cream-200">
         {tabs.map(t => (
@@ -1527,6 +1555,7 @@ export default function SalesHubPage() {
       </div>
       <div>
         {activeTab === 'brand' && <BrandTab />}
+        {activeTab === 'callscript' && <CallScriptTab />}
         {activeTab === 'playbook' && <PlaybookTab />}
         {activeTab === 'checklist' && <ChecklistTab />}
         {activeTab === 'assistant' && <AssistantTab />}
