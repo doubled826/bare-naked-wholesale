@@ -120,6 +120,7 @@ const INTRO_GUIDE_SECTIONS: GuideSection[] = [
       '6 oz wholesale is $16.67 and retails at $25. 12 oz wholesale is $30 and retails at $45.',
       'Margin is about 34% on both sizes.',
       'The 12 oz bag lands at just over $1 per serving per day.',
+      'Fruits and veggies are sourced from the US, Canada, and Mexico depending on seasonality and freshness.',
       'Proteins are sourced from Oregon / Pacific Northwest. Freeze-drying and packaging happen near Salt Lake City. Orders ship from Indianapolis.',
       'Secondary products include freeze-dried single-ingredient treats: bison liver, whole minnows, and lamb heart.',
     ],

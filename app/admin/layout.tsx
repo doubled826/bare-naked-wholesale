@@ -18,7 +18,6 @@ import {
   Menu,
   X,
   ChevronRight,
-  ClipboardList,
   Zap
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -26,7 +25,6 @@ import { cn } from '@/lib/utils';
 const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
   { name: 'Sales Hub', href: '/admin/sales-hub', icon: Zap },
-  { name: 'Onboarding Health', href: '/admin/onboarding-health', icon: ClipboardList },
   { name: 'Feed', href: '/admin/feed', icon: MessageSquare },
   { name: 'Orders', href: '/admin/orders', icon: ShoppingCart },
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
