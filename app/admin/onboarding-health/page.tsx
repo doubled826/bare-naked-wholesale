@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { format, formatDistanceToNowStrict } from 'date-fns';
 import {
   AlertCircle,
@@ -124,8 +125,8 @@ function statusBadge(status?: OnboardingRecord['follow_up_status']) {
 }
 
 export default function OnboardingHealthPage() {
+  const supabase = createClientComponentClient();
   const [records, setRecords] = useState<OnboardingRecord[]>([]);
-  const [availableRetailers, setAvailableRetailers] = useState<RetailerOption[]>([]);
   const [portalRetailers, setPortalRetailers] = useState<RetailerOption[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -150,22 +151,36 @@ export default function OnboardingHealthPage() {
   const [newNote, setNewNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
 
+  async function fetchPortalRetailers() {
+    const { data, error } = await supabase
+      .from('retailers')
+      .select('id, company_name, business_address, account_number')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    setPortalRetailers((data || []) as RetailerOption[]);
+  }
+
   async function fetchData(initial = false) {
     try {
       if (initial) setIsLoading(true);
       else setRefreshing(true);
 
-      const response = await fetch('/api/admin/onboarding-health');
-      const payload = await response.json().catch(() => ({}));
+      const [onboardingResponse] = await Promise.all([
+        fetch('/api/admin/onboarding-health'),
+        fetchPortalRetailers(),
+      ]);
+      const payload = await onboardingResponse.json().catch(() => ({}));
 
-      if (!response.ok) {
+      if (!onboardingResponse.ok) {
         throw new Error(payload?.error || 'Unable to load onboarding health.');
       }
 
       const nextRecords = (payload.onboarding || []) as OnboardingRecord[];
       setRecords(nextRecords);
-      setAvailableRetailers(payload.availableRetailers || []);
-      setPortalRetailers(payload.portalRetailers || []);
 
       setSelectedId((current) => {
         if (current && nextRecords.some((record) => record.id === current)) {
@@ -195,6 +210,11 @@ export default function OnboardingHealthPage() {
     return Array.from(new Set(records.map((record) => record.owner_name).filter(Boolean) as string[])).sort();
   }, [records]);
 
+  const availableRetailers = useMemo(() => {
+    const linkedRetailerIds = new Set(records.map((record) => record.retailer_id));
+    return portalRetailers.filter((retailer) => !linkedRetailerIds.has(retailer.id));
+  }, [portalRetailers, records]);
+
   const retailerOptions = useMemo(() => {
     const query = retailerQuery.trim().toLowerCase();
     const source = portalRetailers.length > 0 ? portalRetailers : availableRetailers;
@@ -212,8 +232,8 @@ export default function OnboardingHealthPage() {
   }, [portalRetailers, availableRetailers, retailerQuery]);
 
   const selectedRetailer = useMemo(
-    () => portalRetailers.find((retailer) => retailer.id === selectedRetailerId) || availableRetailers.find((retailer) => retailer.id === selectedRetailerId) || null,
-    [portalRetailers, availableRetailers, selectedRetailerId]
+    () => portalRetailers.find((retailer) => retailer.id === selectedRetailerId) || null,
+    [portalRetailers, selectedRetailerId]
   );
 
   const filteredRecords = useMemo(() => {
@@ -443,7 +463,7 @@ export default function OnboardingHealthPage() {
                   {retailerOptions.length === 0 ? (
                     <div className="px-4 py-4 text-sm text-gray-500">
                       {portalRetailers.length === 0 && availableRetailers.length === 0
-                        ? 'No portal retailers were returned by the API.'
+                        ? 'No portal retailers were found in Supabase.'
                         : 'No retailers match that search.'}
                     </div>
                   ) : (
