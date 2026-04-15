@@ -144,7 +144,7 @@ export default function OnboardingHealthPage() {
   const [dealQuery, setDealQuery] = useState('');
   const [dealResults, setDealResults] = useState<DealSearchResult[]>([]);
   const [searchingDeals, setSearchingDeals] = useState(false);
-  const [linking, setLinking] = useState(false);
+  const [linkingDealId, setLinkingDealId] = useState<number | null>(null);
 
   const [savingMeta, setSavingMeta] = useState(false);
   const [savingChecklistId, setSavingChecklistId] = useState<string | null>(null);
@@ -289,7 +289,7 @@ export default function OnboardingHealthPage() {
       return;
     }
 
-    setLinking(true);
+    setLinkingDealId(dealId);
     try {
       const response = await fetch('/api/admin/onboarding-health/link', {
         method: 'POST',
@@ -309,7 +309,7 @@ export default function OnboardingHealthPage() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Unable to link retailer.');
     } finally {
-      setLinking(false);
+      setLinkingDealId(null);
     }
   }
 
@@ -511,8 +511,12 @@ export default function OnboardingHealthPage() {
                   <p className="text-sm font-medium text-gray-900">{deal.title}</p>
                   <p className="text-xs text-gray-500">Pipedrive deal #{deal.id}</p>
                 </div>
-                <button onClick={() => linkRetailer(deal.id)} className="btn-secondary text-sm px-4 py-2" disabled={linking}>
-                  {linking ? 'Linking…' : 'Link to retailer'}
+                <button
+                  onClick={() => linkRetailer(deal.id)}
+                  className="btn-secondary text-sm px-4 py-2"
+                  disabled={linkingDealId !== null}
+                >
+                  {linkingDealId === deal.id ? 'Linking…' : 'Link to retailer'}
                 </button>
               </div>
             ))}

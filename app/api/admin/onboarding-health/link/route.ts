@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
-    const { adminClient, user } = await requireAdminAccess();
+    const { adminClient } = await requireAdminAccess();
     const { retailerId, dealId } = await request.json();
 
     if (!retailerId || !dealId) {
@@ -43,7 +43,6 @@ export async function POST(request: Request) {
       follow_up_status: computeFollowUpStatus(defaults.next_follow_up_at, defaults.third_order_received_at),
       last_synced_at: defaults.first_order_received_at,
       updated_at: defaults.first_order_received_at,
-      created_by: user.id,
     };
 
     const { data: existing } = await adminClient
@@ -68,6 +67,9 @@ export async function POST(request: Request) {
     }
 
     console.error('Onboarding link error:', error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to link retailer to Pipedrive.' }, { status: 500 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Unable to link retailer to Pipedrive.' },
+      { status: 500 }
+    );
   }
 }
