@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ClipboardList,
   ChevronsUpDown,
+  Trash2,
   ExternalLink,
   Link2,
   RefreshCw,
@@ -145,6 +146,7 @@ export default function OnboardingHealthPage() {
   const [dealResults, setDealResults] = useState<DealSearchResult[]>([]);
   const [searchingDeals, setSearchingDeals] = useState(false);
   const [linkingDealId, setLinkingDealId] = useState<number | null>(null);
+  const [removingLink, setRemovingLink] = useState(false);
 
   const [savingMeta, setSavingMeta] = useState(false);
   const [savingChecklistId, setSavingChecklistId] = useState<string | null>(null);
@@ -378,6 +380,33 @@ export default function OnboardingHealthPage() {
       setNotice(error instanceof Error ? error.message : 'Unable to save note.');
     } finally {
       setSavingNote(false);
+    }
+  }
+
+  async function removeLink() {
+    if (!selectedRecord) return;
+
+    const confirmed = window.confirm(
+      `Remove the onboarding link for ${selectedRecord.retailer?.company_name || 'this retailer'}? This will remove its onboarding checklist, notes, and linked Pipedrive mapping.`
+    );
+
+    if (!confirmed) return;
+
+    setRemovingLink(true);
+    try {
+      const response = await fetch(`/api/admin/onboarding-health/${selectedRecord.id}`, {
+        method: 'DELETE',
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to remove onboarding link.');
+
+      setSelectedId(null);
+      setNotice('Onboarding link removed.');
+      await fetchData();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to remove onboarding link.');
+    } finally {
+      setRemovingLink(false);
     }
   }
 
@@ -638,9 +667,19 @@ export default function OnboardingHealthPage() {
                   <h2 className="text-xl font-semibold text-gray-900">{selectedRecord.retailer?.company_name}</h2>
                   <p className="text-sm text-gray-500 mt-1">{selectedRecord.linked_deal?.title || 'Linked deal unavailable'}</p>
                 </div>
-                <span className={cn('inline-flex items-center px-3 py-1 rounded-full border text-xs font-semibold', statusBadge(selectedRecord.follow_up_status))}>
-                  {selectedRecord.follow_up_status}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={cn('inline-flex items-center px-3 py-1 rounded-full border text-xs font-semibold', statusBadge(selectedRecord.follow_up_status))}>
+                    {selectedRecord.follow_up_status}
+                  </span>
+                  <button
+                    onClick={removeLink}
+                    disabled={removingLink}
+                    className="btn-ghost text-sm gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {removingLink ? 'Removing…' : 'Remove link'}
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

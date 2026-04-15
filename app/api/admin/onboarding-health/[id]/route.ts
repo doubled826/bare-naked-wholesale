@@ -59,3 +59,30 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to update onboarding record.' }, { status: 500 });
   }
 }
+
+export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
+  try {
+    const { adminClient } = await requireAdminAccess();
+
+    const { error } = await adminClient
+      .from('retailer_onboarding')
+      .delete()
+      .eq('id', params.id);
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    if (error instanceof AdminAuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
+    console.error('Onboarding delete error:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Unable to remove onboarding link.' },
+      { status: 500 }
+    );
+  }
+}
