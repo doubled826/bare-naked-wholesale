@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Search, Users, Edit2, Eye, X, CheckCircle, ShoppingCart, DollarSign, Plus, Mail } from 'lucide-react';
+import { Search, Users, Edit2, Eye, X, CheckCircle, ShoppingCart, DollarSign, Plus, Mail, Download } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
 interface Retailer { id: string; company_name: string; business_address: string; phone: string; account_number: string; created_at: string; status?: string; email?: string }
@@ -56,6 +56,63 @@ export default function AdminRetailersPage() {
   };
 
   const showNotification = (msg: string) => { setNotification(msg); setTimeout(() => setNotification(''), 3000); };
+
+  const escapeCsvValue = (value: string | number | null | undefined) => {
+    const stringValue = value == null ? '' : String(value);
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  };
+
+  const handleExportRetailers = () => {
+    if (filteredRetailers.length === 0) {
+      showNotification('No retailers to export');
+      return;
+    }
+
+    const headers = [
+      'Retailer',
+      'Account Number',
+      'Address',
+      'Contact',
+      'Email',
+      'Status',
+      'Orders',
+      'Total Spent',
+      'Last Order',
+      'Created At',
+    ];
+
+    const rows = filteredRetailers.map((retailer) => [
+      retailer.company_name,
+      retailer.account_number,
+      retailer.business_address,
+      retailer.phone,
+      retailer.email || '',
+      retailer.status || '',
+      retailer.total_orders,
+      retailer.total_spent.toFixed(2),
+      retailer.last_order_date ? new Date(retailer.last_order_date).toLocaleDateString() : 'Never',
+      retailer.created_at ? new Date(retailer.created_at).toLocaleDateString() : '',
+    ]);
+
+    const csv = [
+      headers.map(escapeCsvValue).join(','),
+      ...rows.map((row) => row.map(escapeCsvValue).join(',')),
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const dateStamp = new Date().toISOString().split('T')[0];
+
+    link.href = url;
+    link.download = `retailers-${dateStamp}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showNotification(`Exported ${filteredRetailers.length} retailer${filteredRetailers.length === 1 ? '' : 's'}`);
+  };
 
   const handleEditRetailer = (retailer: RetailerWithStats) => {
     setEditForm({ company_name: retailer.company_name || '', business_address: retailer.business_address || '', phone: retailer.phone || '' });
@@ -143,10 +200,20 @@ export default function AdminRetailersPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input type="text" placeholder="Search retailers..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
           </div>
-          <button onClick={() => setShowCreateModal(true)} className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600">
-            <Plus className="w-4 h-4" />
-            New Retailer
-          </button>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button
+              onClick={handleExportRetailers}
+              disabled={filteredRetailers.length === 0}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download className="w-4 h-4" />
+              Export CSV
+            </button>
+            <button onClick={() => setShowCreateModal(true)} className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600">
+              <Plus className="w-4 h-4" />
+              New Retailer
+            </button>
+          </div>
         </div>
       </div>
 
