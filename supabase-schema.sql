@@ -272,6 +272,100 @@ CREATE POLICY "Admins can manage resources"
     )
   );
 
+-- Onboarding health tables
+CREATE TABLE IF NOT EXISTS retailer_onboarding (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  retailer_id UUID UNIQUE REFERENCES retailers(id) ON DELETE CASCADE,
+  pipedrive_deal_id BIGINT UNIQUE,
+  pipedrive_stage_name TEXT,
+  first_order_received_at TIMESTAMPTZ,
+  second_order_received_at TIMESTAMPTZ,
+  third_order_received_at TIMESTAMPTZ,
+  next_follow_up_at TIMESTAMPTZ,
+  follow_up_status TEXT DEFAULT 'upcoming',
+  owner_name TEXT,
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  last_synced_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS retailer_onboarding_checklist_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  onboarding_id UUID NOT NULL REFERENCES retailer_onboarding(id) ON DELETE CASCADE,
+  item_id TEXT NOT NULL,
+  completed BOOLEAN DEFAULT false,
+  agreed_value TEXT,
+  completed_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (onboarding_id, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS retailer_onboarding_notes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  onboarding_id UUID NOT NULL REFERENCES retailer_onboarding(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  source TEXT DEFAULT 'portal',
+  pipedrive_note_id BIGINT,
+  created_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_retailer_onboarding_retailer_id ON retailer_onboarding(retailer_id);
+CREATE INDEX IF NOT EXISTS idx_retailer_onboarding_follow_up ON retailer_onboarding(next_follow_up_at);
+CREATE INDEX IF NOT EXISTS idx_retailer_onboarding_checklist_onboarding_id ON retailer_onboarding_checklist_items(onboarding_id);
+CREATE INDEX IF NOT EXISTS idx_retailer_onboarding_notes_onboarding_id ON retailer_onboarding_notes(onboarding_id);
+
+ALTER TABLE retailer_onboarding ENABLE ROW LEVEL SECURITY;
+ALTER TABLE retailer_onboarding_checklist_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE retailer_onboarding_notes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Admins can manage retailer onboarding"
+  ON retailer_onboarding FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins can manage onboarding checklist items"
+  ON retailer_onboarding_checklist_items FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins can manage onboarding notes"
+  ON retailer_onboarding_notes FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
 -- Function to generate order numbers
 CREATE OR REPLACE FUNCTION generate_order_number()
 RETURNS TEXT AS $$

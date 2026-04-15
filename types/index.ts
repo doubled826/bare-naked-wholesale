@@ -159,3 +159,53 @@ export interface Message {
   body: string;
   created_at: string;
 }
+
+export interface OnboardingChecklistItemState {
+  item_id: string;
+  completed: boolean;
+  agreed_value?: string | null;
+  completed_at?: string | null;
+  updated_at?: string;
+}
+
+export interface OnboardingNote {
+  id: string;
+  onboarding_id: string;
+  body: string;
+  source: 'portal' | 'pipedrive_sync';
+  pipedrive_note_id?: number | null;
+  created_by?: string | null;
+  created_at: string;
+}
+
+export interface LinkedPipedriveDealSummary {
+  id: number;
+  title: string;
+  stageId: number | null;
+  stageName: string;
+  ownerName: string | null;
+  orgName: string | null;
+  addTime: string | null;
+  updateTime: string | null;
+  status: string | null;
+}
+
+export interface RetailerOnboarding {
+  id: string;
+  retailer_id: string;
+  pipedrive_deal_id: number | null;
+  pipedrive_stage_name?: string | null;
+  first_order_received_at?: string | null;
+  second_order_received_at?: string | null;
+  third_order_received_at?: string | null;
+  next_follow_up_at?: string | null;
+  follow_up_status?: 'upcoming' | 'due' | 'overdue' | 'complete' | 'needs_link';
+  owner_name?: string | null;
+  last_synced_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  retailer?: Retailer | null;
+  checklist_items?: OnboardingChecklistItemState[];
+  notes?: OnboardingNote[];
+  linked_deal?: LinkedPipedriveDealSummary | null;
+}
