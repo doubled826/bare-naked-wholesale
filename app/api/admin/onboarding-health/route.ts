@@ -95,9 +95,10 @@ export async function GET() {
     );
 
     const linkedRetailerIds = new Set(onboarding.map((row) => row.retailer_id));
-    const availableRetailers = (allRetailers || []).filter((retailer) => !linkedRetailerIds.has(retailer.id));
+    const portalRetailers = (allRetailers || []) as Retailer[];
+    const availableRetailers = portalRetailers.filter((retailer) => !linkedRetailerIds.has(retailer.id));
 
-    return NextResponse.json({ onboarding, availableRetailers });
+    return NextResponse.json({ onboarding, availableRetailers, portalRetailers });
   } catch (error) {
     if (error instanceof AdminAuthorizationError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

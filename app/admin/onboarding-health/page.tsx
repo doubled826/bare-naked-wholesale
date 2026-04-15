@@ -7,6 +7,7 @@ import {
   Check,
   CheckCircle2,
   ClipboardList,
+  ChevronsUpDown,
   ExternalLink,
   Link2,
   RefreshCw,
@@ -125,6 +126,7 @@ function statusBadge(status?: OnboardingRecord['follow_up_status']) {
 export default function OnboardingHealthPage() {
   const [records, setRecords] = useState<OnboardingRecord[]>([]);
   const [availableRetailers, setAvailableRetailers] = useState<RetailerOption[]>([]);
+  const [portalRetailers, setPortalRetailers] = useState<RetailerOption[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -136,6 +138,8 @@ export default function OnboardingHealthPage() {
   const [ownerFilter, setOwnerFilter] = useState('all');
 
   const [selectedRetailerId, setSelectedRetailerId] = useState('');
+  const [retailerQuery, setRetailerQuery] = useState('');
+  const [retailerPickerOpen, setRetailerPickerOpen] = useState(false);
   const [dealQuery, setDealQuery] = useState('');
   const [dealResults, setDealResults] = useState<DealSearchResult[]>([]);
   const [searchingDeals, setSearchingDeals] = useState(false);
@@ -161,6 +165,7 @@ export default function OnboardingHealthPage() {
       const nextRecords = (payload.onboarding || []) as OnboardingRecord[];
       setRecords(nextRecords);
       setAvailableRetailers(payload.availableRetailers || []);
+      setPortalRetailers(payload.portalRetailers || []);
 
       setSelectedId((current) => {
         if (current && nextRecords.some((record) => record.id === current)) {
@@ -189,6 +194,27 @@ export default function OnboardingHealthPage() {
   const owners = useMemo(() => {
     return Array.from(new Set(records.map((record) => record.owner_name).filter(Boolean) as string[])).sort();
   }, [records]);
+
+  const retailerOptions = useMemo(() => {
+    const query = retailerQuery.trim().toLowerCase();
+    const source = portalRetailers.length > 0 ? portalRetailers : availableRetailers;
+
+    return source
+      .filter((retailer) => {
+        if (!query) return true;
+        return (
+          retailer.company_name?.toLowerCase().includes(query) ||
+          retailer.account_number?.toLowerCase().includes(query) ||
+          retailer.business_address?.toLowerCase().includes(query)
+        );
+      })
+      .slice(0, 25);
+  }, [portalRetailers, availableRetailers, retailerQuery]);
+
+  const selectedRetailer = useMemo(
+    () => portalRetailers.find((retailer) => retailer.id === selectedRetailerId) || availableRetailers.find((retailer) => retailer.id === selectedRetailerId) || null,
+    [portalRetailers, availableRetailers, selectedRetailerId]
+  );
 
   const filteredRecords = useMemo(() => {
     const next = [...records].filter((record) => {
@@ -256,6 +282,8 @@ export default function OnboardingHealthPage() {
       setDealQuery('');
       setDealResults([]);
       setSelectedRetailerId('');
+      setRetailerQuery('');
+      setRetailerPickerOpen(false);
       setNotice('Retailer linked to Pipedrive and added to onboarding.');
       await fetchData();
     } catch (error) {
@@ -389,18 +417,56 @@ export default function OnboardingHealthPage() {
           Use this once per retailer. Only link deals already in First, Second, or Third Order Received.
         </p>
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)] gap-3">
-          <select
-            value={selectedRetailerId}
-            onChange={(event) => setSelectedRetailerId(event.target.value)}
-            className="input text-sm py-2"
-          >
-            <option value="">Choose a portal retailer…</option>
-            {availableRetailers.map((retailer) => (
-              <option key={retailer.id} value={retailer.id}>
-                {retailer.company_name}
-              </option>
-            ))}
-          </select>
+          <div className="relative">
+            <button
+              onClick={() => setRetailerPickerOpen((open) => !open)}
+              className="input text-sm py-2 flex items-center justify-between text-left"
+              type="button"
+            >
+              <span className={selectedRetailer ? 'text-bark-500' : 'text-bone-400'}>
+                {selectedRetailer ? `${selectedRetailer.company_name} (${selectedRetailer.account_number})` : 'Choose a portal retailer…'}
+              </span>
+              <ChevronsUpDown className="w-4 h-4 text-gray-400" />
+            </button>
+            {retailerPickerOpen && (
+              <div className="absolute z-20 mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden">
+                <div className="p-3 border-b border-gray-100">
+                  <input
+                    value={retailerQuery}
+                    onChange={(event) => setRetailerQuery(event.target.value)}
+                    placeholder="Search portal retailers…"
+                    className="input text-sm py-2"
+                    autoFocus
+                  />
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  {retailerOptions.length === 0 ? (
+                    <div className="px-4 py-4 text-sm text-gray-500">
+                      {portalRetailers.length === 0 && availableRetailers.length === 0
+                        ? 'No portal retailers were returned by the API.'
+                        : 'No retailers match that search.'}
+                    </div>
+                  ) : (
+                    retailerOptions.map((retailer) => (
+                      <button
+                        key={retailer.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedRetailerId(retailer.id);
+                          setRetailerPickerOpen(false);
+                          setRetailerQuery('');
+                        }}
+                        className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                      >
+                        <p className="text-sm font-medium text-gray-900">{retailer.company_name}</p>
+                        <p className="text-xs text-gray-500">{retailer.account_number} • {retailer.business_address}</p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -431,6 +497,11 @@ export default function OnboardingHealthPage() {
               </div>
             ))}
           </div>
+        )}
+        {portalRetailers.length > 0 && availableRetailers.length === 0 && (
+          <p className="text-xs text-gray-500">
+            All current portal retailers are already linked in onboarding. You can still pick any retailer above to relink or correct a mapping.
+          </p>
         )}
       </div>
 
