@@ -1012,13 +1012,17 @@ function ChecklistTab() {
                           'mt-0.5 w-5 h-5 min-w-[20px] rounded-md border flex items-center justify-center transition-colors flex-shrink-0',
                           item.checked ? 'bg-bark-500 border-bark-500' : 'border-cream-300 bg-white'
                         )}
-                      >
-                        {item.checked && <Check className="w-3 h-3 text-white" />}
-                      </button>
+                        >
+                          {item.checked && <Check className="w-3 h-3 text-white" />}
+                        </button>
                     ) : (
-                      <div className="mt-0.5 w-5 h-5 min-w-[20px] rounded-md border border-cream-300 bg-white flex items-center justify-center text-[11px] font-semibold text-bark-500/60">
+                      <button
+                        onClick={() => setExpandedItem(isExpanded ? null : item.id)}
+                        className="mt-0.5 w-5 h-5 min-w-[20px] rounded-md border border-cream-300 bg-white flex items-center justify-center text-[11px] font-semibold text-bark-500/60 hover:border-bark-500/30 transition-colors flex-shrink-0"
+                        aria-label={`Open ${item.label}`}
+                      >
                         {item.kind === 'rating' ? (item.rating ?? '-') : item.kind === 'boolean' ? (item.boolValue === null ? '-' : item.boolValue ? 'Y' : 'N') : '•'}
-                      </div>
+                      </button>
                     )}
                     <div className="flex-1 min-w-0">
                       <p className={cn('text-sm font-medium text-bark-500', item.kind === 'checkbox' && item.checked && 'line-through text-bark-500/50')}>
