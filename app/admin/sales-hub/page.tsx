@@ -79,7 +79,13 @@ function createChecklistSections(): CheckSection[] {
     title: section.title,
     items: section.items.map((item) => ({
       ...item,
-      kind: item.id === 'ready-to-order' ? ('boolean' as const) : ('checkbox' as const),
+      kind:
+        item.id === 'ready-to-order' ||
+        item.id === 'astro-account' ||
+        item.id === 'astro-loyalty' ||
+        item.id === 'astro-offers'
+          ? ('boolean' as const)
+          : ('checkbox' as const),
       checked: false,
       agreement: '',
       rating: null,
@@ -1032,9 +1038,23 @@ function ChecklistTab() {
       await addNoteToDeal(selectedDeal.id, lines.join('\n'));
       if (activeChecklist === 'onboarding') {
         const readyToOrder = allItems.find((item) => item.id === 'ready-to-order');
+        const astroAccount = allItems.find((item) => item.id === 'astro-account');
+        const astroLoyalty = allItems.find((item) => item.id === 'astro-loyalty');
+        const astroOffers = allItems.find((item) => item.id === 'astro-offers');
 
         if (readyToOrder?.boolValue === true) {
           await updateDealStage(selectedDeal.id, 'First Order Received');
+          if (
+            astroAccount?.boolValue === true &&
+            astroLoyalty?.boolValue === true &&
+            astroOffers?.boolValue === true
+          ) {
+            await createActivity(
+              selectedDeal.id,
+              'BNP — Create private Astro "Buy 1 Get 2 Punches" promo for approval',
+              addDays(0)
+            );
+          }
           setSavedMsg('Saved to Pipedrive ✓ — onboarding notes added and the deal was moved to First Order Received.');
         } else if (readyToOrder?.boolValue === false && readyToOrder.activityDate) {
           await createActivity(selectedDeal.id, 'BNP — Follow up to restart order conversation', readyToOrder.activityDate);
