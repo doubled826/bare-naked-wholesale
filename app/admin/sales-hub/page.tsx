@@ -24,6 +24,8 @@ import { ONBOARDING_CHECKLIST_SECTIONS } from '@/lib/onboardingChecklist';
 import { cn } from '@/lib/utils';
 
 type Tab = 'intro' | 'followup' | 'checklist' | 'assistant' | 'templates' | 'onepager';
+type ChecklistType = 'onboarding' | 'day30' | 'day60';
+type CheckItemKind = 'checkbox' | 'rating' | 'note' | 'boolean';
 
 interface CheckItem {
   id: string;
@@ -31,8 +33,12 @@ interface CheckItem {
   note: string;
   talkingPoint: string;
   agreementPlaceholder: string;
+  kind: CheckItemKind;
   checked: boolean;
   agreement: string;
+  rating: number | null;
+  boolValue: boolean | null;
+  noteValue: string;
 }
 
 interface CheckSection {
@@ -72,11 +78,173 @@ function createChecklistSections(): CheckSection[] {
     title: section.title,
     items: section.items.map((item) => ({
       ...item,
+      kind: 'checkbox' as const,
       checked: false,
       agreement: '',
+      rating: null,
+      boolValue: null,
+      noteValue: '',
     })),
   }));
 }
+
+function createThirtyDaySections(): CheckSection[] {
+  return [
+    {
+      title: '30-day pulse check',
+      items: [
+        {
+          id: 'sell-through',
+          label: 'How is sell-through?',
+          note: 'Rate current velocity from 1 to 10.',
+          talkingPoint: 'How would you rate sell-through so far on a 1 to 10? What feels strongest, and where are you seeing drag?',
+          agreementPlaceholder: '',
+          kind: 'rating',
+          checked: false,
+          agreement: '',
+          rating: null,
+          boolValue: null,
+          noteValue: '',
+        },
+        {
+          id: 'staff-engagement',
+          label: 'How is staff engagement?',
+          note: 'Rate staff buy-in and recommendation behavior from 1 to 10.',
+          talkingPoint: 'If 10 means the staff is actively talking about it and recommending it, where would you score engagement today?',
+          agreementPlaceholder: '',
+          kind: 'rating',
+          checked: false,
+          agreement: '',
+          rating: null,
+          boolValue: null,
+          noteValue: '',
+        },
+        {
+          id: 'customer-feedback',
+          label: 'Any customer feedback?',
+          note: 'Capture what customers are saying so we can learn from it.',
+          talkingPoint: 'What are you hearing from customers so far? Anything positive, confusing, or worth watching?',
+          agreementPlaceholder: 'Add customer reactions, questions, or objections...',
+          kind: 'note',
+          checked: false,
+          agreement: '',
+          rating: null,
+          boolValue: null,
+          noteValue: '',
+        },
+        {
+          id: 'sustain-course-correct',
+          label: 'Plan to sustain or course correct',
+          note: 'Document the next plan clearly.',
+          talkingPoint: 'Based on what you are seeing, should we keep the current plan going or make a change to promo, placement, sampling, or training?',
+          agreementPlaceholder: 'Write the agreed next-step plan...',
+          kind: 'note',
+          checked: false,
+          agreement: '',
+          rating: null,
+          boolValue: null,
+          noteValue: '',
+        },
+      ],
+    },
+  ];
+}
+
+function createSixtyDaySections(): CheckSection[] {
+  return [
+    {
+      title: '60-day optimization',
+      items: [
+        {
+          id: 'wins-worked',
+          label: 'Make note of the wins and what worked',
+          note: 'Capture the proof points worth repeating.',
+          talkingPoint: 'What has worked best so far? Think sell-through, sampling, staff recommendations, shelf placement, or promo response.',
+          agreementPlaceholder: 'Document wins, learnings, and what seems to be driving results...',
+          kind: 'note',
+          checked: false,
+          agreement: '',
+          rating: null,
+          boolValue: null,
+          noteValue: '',
+        },
+        {
+          id: 'portal-recap',
+          label: 'Recapped the wholesale portal',
+          note: 'Reinforce where to reorder, request samples, and find materials.',
+          talkingPoint: 'Just to keep things easy, let’s quickly recap the wholesale portal so your team knows where to reorder, request samples, and grab support materials.',
+          agreementPlaceholder: 'Add any portal-related notes if needed...',
+          kind: 'checkbox',
+          checked: false,
+          agreement: '',
+          rating: null,
+          boolValue: null,
+          noteValue: '',
+        },
+        {
+          id: 'restocked',
+          label: 'Re-stocked?',
+          note: 'Confirm whether they have reordered yet.',
+          talkingPoint: 'Have you restocked yet, or are you still working through the first order?',
+          agreementPlaceholder: '',
+          kind: 'boolean',
+          checked: false,
+          agreement: '',
+          rating: null,
+          boolValue: null,
+          noteValue: '',
+        },
+        {
+          id: 'astro-double-punch',
+          label: 'Reminded them of the Astro Loyalty Promo: Buy 1 Get 2 Punches',
+          note: 'Keep the Astro momentum in front of them.',
+          talkingPoint: 'One reminder: the Astro loyalty promo can be a great accelerator here — buy 1, get 2 punches helps get customers to that sticky third purchase faster.',
+          agreementPlaceholder: 'Add any Astro promo notes...',
+          kind: 'checkbox',
+          checked: false,
+          agreement: '',
+          rating: null,
+          boolValue: null,
+          noteValue: '',
+        },
+        {
+          id: 'promo-calendar',
+          label: 'Annual promo calendar handoff completed',
+          note: 'Make sure they have a copy so they can plan signage and timing.',
+          talkingPoint: 'Let’s make sure you have the annual promo calendar so you can plan signage, stock, and timing around the bigger moments.',
+          agreementPlaceholder: 'Add calendar handoff notes...',
+          kind: 'checkbox',
+          checked: false,
+          agreement: '',
+          rating: null,
+          boolValue: null,
+          noteValue: '',
+        },
+      ],
+    },
+  ];
+}
+
+const CHECKLIST_META: Record<ChecklistType, { label: string; saveTitle: string; helper: string; saveHelper: string }> = {
+  onboarding: {
+    label: 'Onboarding Call',
+    saveTitle: 'Onboarding Call Notes',
+    helper: 'Track launch agreements, setup steps, and follow-up commitments from the onboarding call.',
+    saveHelper: 'Saves a full onboarding call summary including agreement notes and auto-creates the 6-week and 90-day follow-up activities.',
+  },
+  day30: {
+    label: '30 Day Call',
+    saveTitle: '30 Day Notes',
+    helper: 'Use this pulse check to score momentum, collect feedback, and document the plan going forward.',
+    saveHelper: 'Saves the 30-day pulse check notes to the selected Pipedrive deal as "30 Day Notes."',
+  },
+  day60: {
+    label: '60 Day Call',
+    saveTitle: '60 Day Notes',
+    helper: 'Use this review to capture wins, check operational follow-through, and reinforce the longer-term plan.',
+    saveHelper: 'Saves the 60-day review notes to the selected Pipedrive deal as "60 Day Notes."',
+  },
+};
 
 const INTRO_GUIDE_SECTIONS: GuideSection[] = [
   {
@@ -273,6 +441,19 @@ ONBOARDING CHECKLIST / LAUNCH SUPPORT
 - Confirm Astro account, loyalty enrollment, offers opt-in, and promo calendar.
 - Use the portal for reorders, samples, marketing assets, and staff training one-pagers.
 - Explain the 30/60/90 cadence and book the 6-week check-in during onboarding.
+
+30-DAY CALL CHECKLIST
+- Rate sell-through from 1 to 10.
+- Rate staff engagement from 1 to 10.
+- Capture customer feedback in notes.
+- Document the plan to sustain momentum or course correct.
+
+60-DAY CALL CHECKLIST
+- Document the wins and what worked.
+- Recap the wholesale portal.
+- Confirm whether they have restocked.
+- Remind them about the Astro loyalty promo: Buy 1 Get 2 Punches.
+- Confirm the annual promo calendar handoff.
 
 STYLE
 - Be concise, practical, and supportive.
@@ -576,7 +757,12 @@ function DealSearchPicker({
 }
 
 function ChecklistTab() {
-  const [sections, setSections] = useState<CheckSection[]>(() => createChecklistSections());
+  const [activeChecklist, setActiveChecklist] = useState<ChecklistType>('onboarding');
+  const [checklists, setChecklists] = useState<Record<ChecklistType, CheckSection[]>>({
+    onboarding: createChecklistSections(),
+    day30: createThirtyDaySections(),
+    day60: createSixtyDaySections(),
+  });
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [dealQuery, setDealQuery] = useState('');
   const [deals, setDeals] = useState<DealOption[]>([]);
@@ -585,14 +771,21 @@ function ChecklistTab() {
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
 
+  const sections = checklists[activeChecklist];
   const allItems = sections.flatMap((section) => section.items);
-  const checkedCount = allItems.filter((item) => item.checked).length;
+  const checkedCount = allItems.filter((item) => {
+    if (item.kind === 'checkbox') return item.checked;
+    if (item.kind === 'rating') return item.rating !== null;
+    if (item.kind === 'boolean') return item.boolValue !== null;
+    return item.noteValue.trim().length > 0;
+  }).length;
   const total = allItems.length;
-  const pct = Math.round((checkedCount / total) * 100);
+  const pct = total ? Math.round((checkedCount / total) * 100) : 0;
 
   function toggleCheck(sectionIdx: number, itemId: string) {
-    setSections((prev) =>
-      prev.map((section, idx) =>
+    setChecklists((prev) => ({
+      ...prev,
+      [activeChecklist]: prev[activeChecklist].map((section, idx) =>
         idx !== sectionIdx
           ? section
           : {
@@ -600,26 +793,78 @@ function ChecklistTab() {
               items: section.items.map((item) =>
                 item.id === itemId ? { ...item, checked: !item.checked } : item
               ),
-            }
-      )
-    );
+            },
+      ),
+    }));
   }
 
   function updateAgreement(sectionIdx: number, itemId: string, value: string) {
-    setSections((prev) =>
-      prev.map((section, idx) =>
+    setChecklists((prev) => ({
+      ...prev,
+      [activeChecklist]: prev[activeChecklist].map((section, idx) =>
         idx !== sectionIdx
           ? section
           : {
               ...section,
               items: section.items.map((item) => (item.id === itemId ? { ...item, agreement: value } : item)),
-            }
-      )
-    );
+            },
+      ),
+    }));
+  }
+
+  function updateRating(sectionIdx: number, itemId: string, value: number) {
+    setChecklists((prev) => ({
+      ...prev,
+      [activeChecklist]: prev[activeChecklist].map((section, idx) =>
+        idx !== sectionIdx
+          ? section
+          : {
+              ...section,
+              items: section.items.map((item) => (item.id === itemId ? { ...item, rating: value } : item)),
+            },
+      ),
+    }));
+  }
+
+  function updateBoolean(sectionIdx: number, itemId: string, value: boolean) {
+    setChecklists((prev) => ({
+      ...prev,
+      [activeChecklist]: prev[activeChecklist].map((section, idx) =>
+        idx !== sectionIdx
+          ? section
+          : {
+              ...section,
+              items: section.items.map((item) => (item.id === itemId ? { ...item, boolValue: value } : item)),
+            },
+      ),
+    }));
+  }
+
+  function updateNote(sectionIdx: number, itemId: string, value: string) {
+    setChecklists((prev) => ({
+      ...prev,
+      [activeChecklist]: prev[activeChecklist].map((section, idx) =>
+        idx !== sectionIdx
+          ? section
+          : {
+              ...section,
+              items: section.items.map((item) => (item.id === itemId ? { ...item, noteValue: value } : item)),
+            },
+      ),
+    }));
+  }
+
+  function resetSections(type: ChecklistType): CheckSection[] {
+    if (type === 'day30') return createThirtyDaySections();
+    if (type === 'day60') return createSixtyDaySections();
+    return createChecklistSections();
   }
 
   function reset() {
-    setSections(createChecklistSections());
+    setChecklists((prev) => ({
+      ...prev,
+      [activeChecklist]: resetSections(activeChecklist),
+    }));
     setSelectedDeal(null);
     setDeals([]);
     setDealQuery('');
@@ -642,6 +887,19 @@ function ChecklistTab() {
     }
   }
 
+  function formatItemLine(item: CheckItem) {
+    if (item.kind === 'checkbox') {
+      return `${item.checked ? '✓' : '✗'} ${item.label}`;
+    }
+    if (item.kind === 'rating') {
+      return `${item.label}: ${item.rating !== null ? `${item.rating}/10` : 'Not rated'}`;
+    }
+    if (item.kind === 'boolean') {
+      return `${item.label}: ${item.boolValue === null ? 'Not answered' : item.boolValue ? 'Yes' : 'No'}`;
+    }
+    return `${item.label}: ${item.noteValue.trim() || 'No notes'}`;
+  }
+
   async function saveToPipedrive() {
     if (!selectedDeal) {
       return;
@@ -649,28 +907,38 @@ function ChecklistTab() {
 
     setSaving(true);
     const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const lines: string[] = [`Onboarding call summary — ${date}\n`];
+    const meta = CHECKLIST_META[activeChecklist];
+    const lines: string[] = [`${meta.saveTitle} — ${date}\n`];
 
     sections.forEach((section) => {
       lines.push(`\n## ${section.title}`);
       section.items.forEach((item) => {
-        lines.push(`${item.checked ? '✓' : '✗'} ${item.label}`);
-        if (item.agreement) {
-          lines.push(`   → ${item.agreement}`);
+        lines.push(formatItemLine(item));
+        if (item.agreement.trim()) {
+          lines.push(`   → ${item.agreement.trim()}`);
         }
       });
     });
 
-    const unchecked = allItems.filter((item) => !item.checked);
+    const unchecked = allItems.filter((item) => {
+      if (item.kind === 'checkbox') return !item.checked;
+      if (item.kind === 'rating') return item.rating === null;
+      if (item.kind === 'boolean') return item.boolValue === null;
+      return item.noteValue.trim().length === 0;
+    });
     if (unchecked.length) {
-      lines.push(`\nFollow up needed on: ${unchecked.map((item) => item.label).join(', ')}`);
+      lines.push(`\nStill open: ${unchecked.map((item) => item.label).join(', ')}`);
     }
 
     try {
       await addNoteToDeal(selectedDeal.id, lines.join('\n'));
-      await createActivity(selectedDeal.id, 'BNP — 6-week check-in call', addDays(42));
-      await createActivity(selectedDeal.id, 'BNP — 90-day handoff call', addDays(90));
-      setSavedMsg('Saved to Pipedrive ✓ — call summary added to deal notes and follow-up activities created for 6-week and 90-day calls.');
+      if (activeChecklist === 'onboarding') {
+        await createActivity(selectedDeal.id, 'BNP — 6-week check-in call', addDays(42));
+        await createActivity(selectedDeal.id, 'BNP — 90-day handoff call', addDays(90));
+        setSavedMsg('Saved to Pipedrive ✓ — onboarding notes added and follow-up activities created for 6-week and 90-day calls.');
+      } else {
+        setSavedMsg(`Saved to Pipedrive ✓ — ${meta.saveTitle} added to the selected deal.`);
+      }
     } catch {
       setSavedMsg('Error saving to Pipedrive. Please try again.');
     } finally {
@@ -680,6 +948,30 @@ function ChecklistTab() {
 
   return (
     <div className="space-y-5">
+      <div className="flex flex-wrap gap-1.5">
+        {(Object.entries(CHECKLIST_META) as [ChecklistType, { label: string }][]).map(([type, meta]) => (
+          <button
+            key={type}
+            onClick={() => {
+              setActiveChecklist(type);
+              setExpandedItem(null);
+              setSavedMsg('');
+            }}
+            className={cn(
+              'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+              activeChecklist === type ? 'bg-bark-500 text-white' : 'bg-cream-100 border border-cream-200 text-bark-500/70 hover:text-bark-500'
+            )}
+          >
+            {meta.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-bark-500 rounded-2xl p-4 text-white">
+        <p className="text-xs font-semibold uppercase tracking-wider text-white/50 mb-1">{CHECKLIST_META[activeChecklist].label}</p>
+        <p className="text-sm leading-relaxed">{CHECKLIST_META[activeChecklist].helper}</p>
+      </div>
+
       <div className="bg-cream-100 rounded-2xl border border-cream-200 p-4">
         <div className="flex justify-between items-center mb-2">
           <span className="text-sm font-medium text-bark-500">
@@ -704,25 +996,39 @@ function ChecklistTab() {
                   key={item.id}
                   className={cn(
                     'rounded-xl border transition-all duration-150',
-                    item.checked ? 'bg-emerald-50 border-emerald-100' : 'bg-cream-100 border-cream-200'
+                    ((item.kind === 'checkbox' && item.checked) ||
+                      (item.kind === 'rating' && item.rating !== null) ||
+                      (item.kind === 'boolean' && item.boolValue !== null) ||
+                      (item.kind === 'note' && item.noteValue.trim().length > 0))
+                      ? 'bg-emerald-50 border-emerald-100'
+                      : 'bg-cream-100 border-cream-200'
                   )}
                 >
                   <div className="flex items-start gap-3 p-3.5">
-                    <button
-                      onClick={() => toggleCheck(sectionIdx, item.id)}
-                      className={cn(
-                        'mt-0.5 w-5 h-5 min-w-[20px] rounded-md border flex items-center justify-center transition-colors flex-shrink-0',
-                        item.checked ? 'bg-bark-500 border-bark-500' : 'border-cream-300 bg-white'
-                      )}
-                    >
-                      {item.checked && <Check className="w-3 h-3 text-white" />}
-                    </button>
+                    {item.kind === 'checkbox' ? (
+                      <button
+                        onClick={() => toggleCheck(sectionIdx, item.id)}
+                        className={cn(
+                          'mt-0.5 w-5 h-5 min-w-[20px] rounded-md border flex items-center justify-center transition-colors flex-shrink-0',
+                          item.checked ? 'bg-bark-500 border-bark-500' : 'border-cream-300 bg-white'
+                        )}
+                      >
+                        {item.checked && <Check className="w-3 h-3 text-white" />}
+                      </button>
+                    ) : (
+                      <div className="mt-0.5 w-5 h-5 min-w-[20px] rounded-md border border-cream-300 bg-white flex items-center justify-center text-[11px] font-semibold text-bark-500/60">
+                        {item.kind === 'rating' ? (item.rating ?? '-') : item.kind === 'boolean' ? (item.boolValue === null ? '-' : item.boolValue ? 'Y' : 'N') : '•'}
+                      </div>
+                    )}
                     <div className="flex-1 min-w-0">
-                      <p className={cn('text-sm font-medium text-bark-500', item.checked && 'line-through text-bark-500/50')}>
+                      <p className={cn('text-sm font-medium text-bark-500', item.kind === 'checkbox' && item.checked && 'line-through text-bark-500/50')}>
                         {item.label}
                       </p>
                       <p className="text-xs text-bark-500/50 mt-0.5">{item.note}</p>
-                      {!isExpanded && item.agreement && <p className="text-xs text-emerald-700 mt-1 font-medium">→ {item.agreement}</p>}
+                      {!isExpanded && item.kind === 'checkbox' && item.agreement && <p className="text-xs text-emerald-700 mt-1 font-medium">→ {item.agreement}</p>}
+                      {!isExpanded && item.kind === 'rating' && item.rating !== null && <p className="text-xs text-emerald-700 mt-1 font-medium">→ {item.rating}/10</p>}
+                      {!isExpanded && item.kind === 'note' && item.noteValue && <p className="text-xs text-emerald-700 mt-1 font-medium">→ {item.noteValue}</p>}
+                      {!isExpanded && item.kind === 'boolean' && item.boolValue !== null && <p className="text-xs text-emerald-700 mt-1 font-medium">→ {item.boolValue ? 'Yes' : 'No'}</p>}
                     </div>
                     <button
                       onClick={() => setExpandedItem(isExpanded ? null : item.id)}
@@ -738,16 +1044,75 @@ function ChecklistTab() {
                         <p className="text-xs font-semibold text-bark-500/50 uppercase tracking-wide mb-1.5">Suggested talking point</p>
                         <p className="text-sm text-bark-500 italic leading-relaxed">{item.talkingPoint}</p>
                       </div>
-                      <div>
-                        <p className="text-xs font-semibold text-bark-500/50 uppercase tracking-wide mb-1.5">What did you agree on?</p>
-                        <textarea
-                          value={item.agreement}
-                          onChange={(e) => updateAgreement(sectionIdx, item.id, e.target.value)}
-                          placeholder={item.agreementPlaceholder}
-                          rows={2}
-                          className="input text-sm resize-none"
-                        />
-                      </div>
+                      {item.kind === 'checkbox' && (
+                        <div>
+                          <p className="text-xs font-semibold text-bark-500/50 uppercase tracking-wide mb-1.5">What did you agree on?</p>
+                          <textarea
+                            value={item.agreement}
+                            onChange={(e) => updateAgreement(sectionIdx, item.id, e.target.value)}
+                            placeholder={item.agreementPlaceholder}
+                            rows={2}
+                            className="input text-sm resize-none"
+                          />
+                        </div>
+                      )}
+                      {item.kind === 'note' && (
+                        <div>
+                          <p className="text-xs font-semibold text-bark-500/50 uppercase tracking-wide mb-1.5">Notes</p>
+                          <textarea
+                            value={item.noteValue}
+                            onChange={(e) => updateNote(sectionIdx, item.id, e.target.value)}
+                            placeholder={item.agreementPlaceholder}
+                            rows={3}
+                            className="input text-sm resize-none"
+                          />
+                        </div>
+                      )}
+                      {item.kind === 'rating' && (
+                        <div>
+                          <p className="text-xs font-semibold text-bark-500/50 uppercase tracking-wide mb-2">Rating</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {Array.from({ length: 10 }, (_, idx) => idx + 1).map((score) => (
+                              <button
+                                key={score}
+                                onClick={() => updateRating(sectionIdx, item.id, score)}
+                                className={cn(
+                                  'w-9 h-9 rounded-lg border text-sm font-medium transition-colors',
+                                  item.rating === score
+                                    ? 'bg-bark-500 border-bark-500 text-white'
+                                    : 'bg-white border-cream-200 text-bark-500 hover:border-bark-500/30'
+                                )}
+                              >
+                                {score}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {item.kind === 'boolean' && (
+                        <div>
+                          <p className="text-xs font-semibold text-bark-500/50 uppercase tracking-wide mb-2">Answer</p>
+                          <div className="flex gap-2">
+                            {[
+                              { label: 'Yes', value: true },
+                              { label: 'No', value: false },
+                            ].map((option) => (
+                              <button
+                                key={option.label}
+                                onClick={() => updateBoolean(sectionIdx, item.id, option.value)}
+                                className={cn(
+                                  'px-4 py-2 rounded-lg border text-sm font-medium transition-colors',
+                                  item.boolValue === option.value
+                                    ? 'bg-bark-500 border-bark-500 text-white'
+                                    : 'bg-white border-cream-200 text-bark-500 hover:border-bark-500/30'
+                                )}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -761,9 +1126,7 @@ function ChecklistTab() {
         <p className="text-sm font-semibold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
           Save to Pipedrive
         </p>
-        <p className="text-xs text-bark-500/50">
-          Saves a full call summary including agreement notes to the deal record and auto-creates the 6-week and 90-day follow-up activities.
-        </p>
+        <p className="text-xs text-bark-500/50">{CHECKLIST_META[activeChecklist].saveHelper}</p>
         <div className="flex gap-2">
           <input
             value={dealQuery}
@@ -807,7 +1170,7 @@ function ChecklistTab() {
             className="btn-primary text-sm px-4 py-2 flex items-center gap-2"
           >
             <ClipboardList className="w-4 h-4" />
-            {saving ? 'Saving...' : 'Save summary + create follow-ups'}
+            {saving ? 'Saving...' : `Save ${CHECKLIST_META[activeChecklist].saveTitle}`}
           </button>
           <button onClick={reset} className="btn-ghost text-sm px-3 py-2 flex items-center gap-2">
             <RefreshCw className="w-3.5 h-3.5" /> Reset
