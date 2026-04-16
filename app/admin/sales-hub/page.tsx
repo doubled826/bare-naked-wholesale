@@ -39,6 +39,7 @@ interface CheckItem {
   rating: number | null;
   boolValue: boolean | null;
   noteValue: string;
+  activityDate: string;
 }
 
 interface CheckSection {
@@ -78,12 +79,13 @@ function createChecklistSections(): CheckSection[] {
     title: section.title,
     items: section.items.map((item) => ({
       ...item,
-      kind: 'checkbox' as const,
+      kind: item.id === 'ready-to-order' ? ('boolean' as const) : ('checkbox' as const),
       checked: false,
       agreement: '',
       rating: null,
       boolValue: null,
       noteValue: '',
+      activityDate: '',
     })),
   }));
 }
@@ -105,6 +107,7 @@ function createThirtyDaySections(): CheckSection[] {
           rating: null,
           boolValue: null,
           noteValue: '',
+          activityDate: '',
         },
         {
           id: 'staff-engagement',
@@ -118,6 +121,7 @@ function createThirtyDaySections(): CheckSection[] {
           rating: null,
           boolValue: null,
           noteValue: '',
+          activityDate: '',
         },
         {
           id: 'customer-feedback',
@@ -131,6 +135,7 @@ function createThirtyDaySections(): CheckSection[] {
           rating: null,
           boolValue: null,
           noteValue: '',
+          activityDate: '',
         },
         {
           id: 'sustain-course-correct',
@@ -144,6 +149,7 @@ function createThirtyDaySections(): CheckSection[] {
           rating: null,
           boolValue: null,
           noteValue: '',
+          activityDate: '',
         },
       ],
     },
@@ -167,6 +173,7 @@ function createSixtyDaySections(): CheckSection[] {
           rating: null,
           boolValue: null,
           noteValue: '',
+          activityDate: '',
         },
         {
           id: 'portal-recap',
@@ -180,6 +187,7 @@ function createSixtyDaySections(): CheckSection[] {
           rating: null,
           boolValue: null,
           noteValue: '',
+          activityDate: '',
         },
         {
           id: 'restocked',
@@ -193,6 +201,7 @@ function createSixtyDaySections(): CheckSection[] {
           rating: null,
           boolValue: null,
           noteValue: '',
+          activityDate: '',
         },
         {
           id: 'astro-double-punch',
@@ -206,6 +215,7 @@ function createSixtyDaySections(): CheckSection[] {
           rating: null,
           boolValue: null,
           noteValue: '',
+          activityDate: '',
         },
         {
           id: 'promo-calendar',
@@ -219,6 +229,7 @@ function createSixtyDaySections(): CheckSection[] {
           rating: null,
           boolValue: null,
           noteValue: '',
+          activityDate: '',
         },
       ],
     },
@@ -230,7 +241,7 @@ const CHECKLIST_META: Record<ChecklistType, { label: string; saveTitle: string; 
     label: 'Onboarding Call',
     saveTitle: 'Onboarding Call Notes',
     helper: 'Track launch agreements, setup steps, and follow-up commitments from the onboarding call.',
-    saveHelper: 'Saves a full onboarding call summary including agreement notes and auto-creates the 6-week and 90-day follow-up activities.',
+    saveHelper: 'Saves the onboarding notes. If Ready to order? is Yes, the deal moves to First Order Received. If No, a follow-up activity is scheduled for the selected date.',
   },
   day30: {
     label: '30 Day Call',
@@ -535,12 +546,30 @@ async function createActivity(dealId: number, subject: string, dueDate: string) 
   return data.activity;
 }
 
+async function updateDealStage(dealId: number, stageName: string) {
+  const res = await fetch('/api/admin/pipedrive/deals/stage', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dealId, stageName }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || 'Unable to update Pipedrive deal stage.');
+  }
+  return data.deal;
+}
+
 function addDays(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
   return d.toISOString().split('T')[0];
 }
 
+function subtractDays(dateString: string, days: number): string {
+  const d = new Date(dateString);
+  d.setDate(d.getDate() - days);
+  return d.toISOString().split('T')[0];
+}
 async function generateSalesHubText(messages: { role: string; content: string }[], system: string): Promise<string> {
   const res = await fetch('/api/admin/sales-hub', {
     method: 'POST',
@@ -764,6 +793,12 @@ function ChecklistTab() {
     day60: createSixtyDaySections(),
   });
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [orderFollowUpModal, setOrderFollowUpModal] = useState<{ open: boolean; sectionIdx: number | null; itemId: string | null }>({
+    open: false,
+    sectionIdx: null,
+    itemId: null,
+  });
+  const [pendingOrderDate, setPendingOrderDate] = useState(addDays(14));
   const [dealQuery, setDealQuery] = useState('');
   const [deals, setDeals] = useState<DealOption[]>([]);
   const [selectedDeal, setSelectedDeal] = useState<DealOption | null>(null);
@@ -827,6 +862,36 @@ function ChecklistTab() {
   }
 
   function updateBoolean(sectionIdx: number, itemId: string, value: boolean) {
+    if (activeChecklist === 'onboarding' && itemId === 'ready-to-order') {
+      if (value) {
+        setChecklists((prev) => ({
+          ...prev,
+          [activeChecklist]: prev[activeChecklist].map((section, idx) =>
+            idx !== sectionIdx
+              ? section
+              : {
+                  ...section,
+                  items: section.items.map((item) =>
+                    item.id === itemId
+                      ? {
+                          ...item,
+                          boolValue: true,
+                          activityDate: addDays(30),
+                          agreement: 'Ready to order now. Schedule the 30-day follow-up call and send the Calendly email reminder one week before.',
+                        }
+                      : item
+                  ),
+                },
+          ),
+        }));
+        return;
+      }
+
+      setPendingOrderDate(addDays(14));
+      setOrderFollowUpModal({ open: true, sectionIdx, itemId });
+      return;
+    }
+
     setChecklists((prev) => ({
       ...prev,
       [activeChecklist]: prev[activeChecklist].map((section, idx) =>
@@ -865,6 +930,8 @@ function ChecklistTab() {
       ...prev,
       [activeChecklist]: resetSections(activeChecklist),
     }));
+    setOrderFollowUpModal({ open: false, sectionIdx: null, itemId: null });
+    setPendingOrderDate(addDays(14));
     setSelectedDeal(null);
     setDeals([]);
     setDealQuery('');
@@ -895,9 +962,40 @@ function ChecklistTab() {
       return `${item.label}: ${item.rating !== null ? `${item.rating}/10` : 'Not rated'}`;
     }
     if (item.kind === 'boolean') {
+      if (item.id === 'ready-to-order' && item.boolValue === false && item.activityDate) {
+        return `${item.label}: No — follow up on ${item.activityDate}`;
+      }
       return `${item.label}: ${item.boolValue === null ? 'Not answered' : item.boolValue ? 'Yes' : 'No'}`;
     }
     return `${item.label}: ${item.noteValue.trim() || 'No notes'}`;
+  }
+
+  function saveOrderFollowUpDate() {
+    if (!orderFollowUpModal.open || orderFollowUpModal.sectionIdx === null || !orderFollowUpModal.itemId || !pendingOrderDate) {
+      return;
+    }
+
+    setChecklists((prev) => ({
+      ...prev,
+      onboarding: prev.onboarding.map((section, idx) =>
+        idx !== orderFollowUpModal.sectionIdx
+          ? section
+          : {
+              ...section,
+              items: section.items.map((item) =>
+                item.id === orderFollowUpModal.itemId
+                  ? {
+                      ...item,
+                      boolValue: false,
+                      activityDate: pendingOrderDate,
+                      agreement: `Not ready to order on this call. Follow up on ${pendingOrderDate} to restart the order conversation.`,
+                    }
+                  : item
+              ),
+            },
+      ),
+    }));
+    setOrderFollowUpModal({ open: false, sectionIdx: null, itemId: null });
   }
 
   async function saveToPipedrive() {
@@ -933,9 +1031,17 @@ function ChecklistTab() {
     try {
       await addNoteToDeal(selectedDeal.id, lines.join('\n'));
       if (activeChecklist === 'onboarding') {
-        await createActivity(selectedDeal.id, 'BNP — 6-week check-in call', addDays(42));
-        await createActivity(selectedDeal.id, 'BNP — 90-day handoff call', addDays(90));
-        setSavedMsg('Saved to Pipedrive ✓ — onboarding notes added and follow-up activities created for 6-week and 90-day calls.');
+        const readyToOrder = allItems.find((item) => item.id === 'ready-to-order');
+
+        if (readyToOrder?.boolValue === true) {
+          await updateDealStage(selectedDeal.id, 'First Order Received');
+          setSavedMsg('Saved to Pipedrive ✓ — onboarding notes added and the deal was moved to First Order Received.');
+        } else if (readyToOrder?.boolValue === false && readyToOrder.activityDate) {
+          await createActivity(selectedDeal.id, 'BNP — Follow up to restart order conversation', readyToOrder.activityDate);
+          setSavedMsg(`Saved to Pipedrive ✓ — onboarding notes added and a follow-up activity was scheduled for ${readyToOrder.activityDate}.`);
+        } else {
+          setSavedMsg('Saved to Pipedrive ✓ — onboarding notes added. Ready to order? is still open, so no follow-up activity was created yet.');
+        }
       } else {
         setSavedMsg(`Saved to Pipedrive ✓ — ${meta.saveTitle} added to the selected deal.`);
       }
@@ -1032,7 +1138,11 @@ function ChecklistTab() {
                       {!isExpanded && item.kind === 'checkbox' && item.agreement && <p className="text-xs text-emerald-700 mt-1 font-medium">→ {item.agreement}</p>}
                       {!isExpanded && item.kind === 'rating' && item.rating !== null && <p className="text-xs text-emerald-700 mt-1 font-medium">→ {item.rating}/10</p>}
                       {!isExpanded && item.kind === 'note' && item.noteValue && <p className="text-xs text-emerald-700 mt-1 font-medium">→ {item.noteValue}</p>}
-                      {!isExpanded && item.kind === 'boolean' && item.boolValue !== null && <p className="text-xs text-emerald-700 mt-1 font-medium">→ {item.boolValue ? 'Yes' : 'No'}</p>}
+                      {!isExpanded && item.kind === 'boolean' && item.boolValue !== null && (
+                        <p className="text-xs text-emerald-700 mt-1 font-medium">
+                          → {item.boolValue ? 'Yes' : item.activityDate ? `No — follow up on ${item.activityDate}` : 'No'}
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={() => setExpandedItem(isExpanded ? null : item.id)}
@@ -1115,6 +1225,15 @@ function ChecklistTab() {
                               </button>
                             ))}
                           </div>
+                          {item.id === 'ready-to-order' && (
+                            <p className="text-xs text-bark-500/50 mt-2">
+                              {item.boolValue === true
+                                ? 'Selecting Yes schedules a 30-day follow-up call and a Calendly reminder one week before when you save to Pipedrive.'
+                                : item.boolValue === false && item.activityDate
+                                  ? `Selecting No schedules a follow-up activity for ${item.activityDate} when you save to Pipedrive.`
+                                  : 'If they are not ready, choose No and pick the follow-up date in the calendar modal.'}
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1182,6 +1301,42 @@ function ChecklistTab() {
         </div>
         {savedMsg && <p className={cn('text-sm font-medium', savedMsg.startsWith('Error') ? 'text-red-600' : 'text-emerald-600')}>{savedMsg}</p>}
       </div>
+
+      {orderFollowUpModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-bark-500/25 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-cream-200 bg-white shadow-xl p-5 space-y-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50 mb-1">Follow-up date</p>
+              <h3 className="text-lg font-semibold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
+                When should we follow up to restart the order conversation?
+              </h3>
+            </div>
+            <p className="text-sm text-bark-500/70">
+              Pick the date they gave you and we’ll schedule a Pipedrive activity for that day when you save the onboarding call.
+            </p>
+            <div>
+              <label className="label">Follow-up date</label>
+              <input
+                type="date"
+                value={pendingOrderDate}
+                onChange={(e) => setPendingOrderDate(e.target.value)}
+                className="input text-sm"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setOrderFollowUpModal({ open: false, sectionIdx: null, itemId: null })}
+                className="btn-ghost text-sm px-4 py-2"
+              >
+                Cancel
+              </button>
+              <button onClick={saveOrderFollowUpDate} disabled={!pendingOrderDate} className="btn-primary text-sm px-4 py-2">
+                Save date
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

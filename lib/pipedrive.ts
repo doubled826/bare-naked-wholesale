@@ -150,7 +150,22 @@ export async function createPipedriveActivity(dealId: number, subject: string, d
   });
 }
 
+export async function updatePipedriveDealStage(dealId: number, stageName: string) {
+  const stageMap = await loadStageMap();
+  const stageEntry = Array.from(stageMap.entries()).find(([, name]) => name === stageName);
+
+  if (!stageEntry) {
+    throw new Error(`Unable to find Pipedrive stage "${stageName}".`);
+  }
+
+  const [stageId] = stageEntry;
+
+  return pipedriveRequest<{ id: number; stage_id?: number }>(`/deals/${dealId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ stage_id: stageId }),
+  });
+}
+
 export function isOnboardingStage(stageName: string | null | undefined) {
   return !!stageName && ONBOARDING_STAGE_NAMES.includes(stageName as (typeof ONBOARDING_STAGE_NAMES)[number]);
 }
-

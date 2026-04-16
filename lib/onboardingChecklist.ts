@@ -17,29 +17,10 @@ export const ONBOARDING_CHECKLIST_SECTIONS: OnboardingChecklistTemplateSection[]
     items: [
       {
         id: 'sampling-agree',
-        label: 'Agreed to in-store sampling program',
-        note: 'Sample-to-size bags — if they try it, they buy it',
-        talkingPoint: '"We do a big sampling push with every new partner — it\'s honestly the most effective thing we do. The idea is to get the product into customers\' hands right at the moment of decision. We\'ve seen it work really well near the topper section, on an endcap near the product, or even by the checkout. What spot do you think would get the most foot traffic in your store?"',
-        agreementPlaceholder: 'e.g. 25 units, by the checkout aisle near register 2',
-      },
-      {
-        id: 'sampling-quantity',
-        label: 'Sampling quantity and location confirmed',
-        note: 'Get specific — quantity, exact location, who manages restocking',
-        talkingPoint: '"How many do you think you\'d need to start? We want to make sure you have enough to make a real impact — better to have too many than run out early. And who on your team would be the point person for managing the sample display?"',
-        agreementPlaceholder: 'e.g. 30 units to start, Sarah at front desk manages restocking',
-      },
-    ],
-  },
-  {
-    title: 'Shelf placement',
-    items: [
-      {
-        id: 'shelf-placement',
-        label: 'Shelf placement strategy agreed',
-        note: 'Endcap or eye-level preferred — brand covers cost',
-        talkingPoint: '"This rolls right into shelf placement — we want to make sure people can actually find the product and it\'s getting max visibility, especially in that first 30 days. Is there an endcap or a prime eye-level spot we could get into? We\'re happy to cover the cost if there\'s a placement fee — we just want to make sure we\'re setting this up for success."',
-        agreementPlaceholder: 'e.g. Endcap at end of aisle 4, no fee, available next week',
+        label: 'Sampling program quantity and location confirmed',
+        note: 'Sample-to-size bags — agree on placement, starting quantity, and who manages restocking',
+        talkingPoint: '"We do a big sampling push with every new partner — it\'s honestly the most effective thing we do. The idea is to get the product into customers\' hands right at the moment of decision. We\'ve seen it work really well near the topper section, on an endcap near the product, or even by the checkout. What spot do you think would get the most foot traffic in your store? And how many samples do you think you\'d need to start so we can make a real impact without running out early?"',
+        agreementPlaceholder: 'e.g. 30 units to start, near checkout by register 2, Sarah manages restocking',
       },
     ],
   },
@@ -96,6 +77,18 @@ export const ONBOARDING_CHECKLIST_SECTIONS: OnboardingChecklistTemplateSection[]
     ],
   },
   {
+    title: 'Shelf placement',
+    items: [
+      {
+        id: 'shelf-placement',
+        label: 'Shelf placement strategy agreed',
+        note: 'Endcap or eye-level preferred — brand covers cost',
+        talkingPoint: '"This rolls right into shelf placement — we want to make sure people can actually find the product and it\'s getting max visibility, especially in that first 30 days. Is there an endcap or a prime eye-level spot we could get into? We\'re happy to cover the cost if there\'s a placement fee — we just want to make sure we\'re setting this up for success."',
+        agreementPlaceholder: 'e.g. Endcap at end of aisle 4, no fee, available next week',
+      },
+    ],
+  },
+  {
     title: 'Portal & expectations',
     items: [
       {
@@ -107,24 +100,24 @@ export const ONBOARDING_CHECKLIST_SECTIONS: OnboardingChecklistTemplateSection[]
       },
       {
         id: 'cadence',
-        label: 'Explained the 30/60/90 follow-up cadence',
+        label: 'Explained the 30/60 follow-up cadence',
         note: 'Set clear expectations — when they\'ll hear from us and why',
-        talkingPoint: '"Here\'s how we like to stay in touch after today. We\'ll check in around 6 weeks — just a quick pulse check on sampling, the promo, and anything we can adjust. Then around the 90-day mark we\'ll do a full recap and transition you to our normal account flow."',
+        talkingPoint: '"Here\'s how we like to stay in touch after today. We\'ll check in around 30 days — just a quick pulse check on sampling, the promo, and anything we can adjust. Then after 60 days we\'ll do a full recap and talk through what\'s working and where we want to keep momentum going."',
         agreementPlaceholder: 'e.g. They\'re good with the cadence, prefer email over calls for check-ins',
       },
       {
-        id: 'checkin-booked',
-        label: '6-week check-in call booked',
-        note: 'Get a date and time before hanging up — send Calendly link if needed',
-        talkingPoint: '"Before we wrap up — let\'s get that 6-week call on the calendar now so it doesn\'t fall through the cracks. I can send you a Calendly link or we can pick something right now. What\'s easier for you?"',
-        agreementPlaceholder: 'e.g. Booked for May 19 at 2pm EST / Calendly link sent',
+        id: 'materials',
+        label: 'Confirmed whether they already received a table tent',
+        note: 'If not, note that we\'ll send a new one with their order',
+        talkingPoint: '"Last thing — did you already receive a table tent from us? If not, no problem at all, we can send a new one out with your order so you have it in-store."',
+        agreementPlaceholder: 'e.g. Already received one / Needs a new table tent sent with upcoming order',
       },
       {
-        id: 'materials',
-        label: 'Table tent + QR code materials confirmed sent',
-        note: 'Verify shipping address and quantity',
-        talkingPoint: '"Last thing — we\'ll be sending over your table tent and QR code materials. The QR code links customers to a short brand video. Can you confirm the best shipping address? And how many do you think you\'ll need?"',
-        agreementPlaceholder: 'e.g. Shipping to 123 Main St, need 3 table tents for 3 checkout locations',
+        id: 'ready-to-order',
+        label: 'Ready to order?',
+        note: 'See if we can secure the order now or agree on a later date',
+        talkingPoint: '"One last thing before we wrap up — are you in a spot where you\'d like to place the order now, or would it make more sense to aim for a specific date a little later on?"',
+        agreementPlaceholder: 'e.g. Placed order on call / Wants to order next Tuesday after inventory check',
       },
     ],
   },
@@ -136,4 +129,3 @@ export const AGREEMENT_SNAPSHOT_ITEM_IDS = [
   'promo-agree',
   'astro-account',
 ] as const;
-
