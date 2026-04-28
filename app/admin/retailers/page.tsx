@@ -16,8 +16,9 @@ export default function AdminRetailersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editForm, setEditForm] = useState({ company_name: '', business_address: '', phone: '' });
+  const [editForm, setEditForm] = useState({ company_name: '', business_address: '', phone: '', email: '' });
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isLoadingEditRetailer, setIsLoadingEditRetailer] = useState(false);
   const [notification, setNotification] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -114,10 +115,37 @@ export default function AdminRetailersPage() {
     showNotification(`Exported ${filteredRetailers.length} retailer${filteredRetailers.length === 1 ? '' : 's'}`);
   };
 
-  const handleEditRetailer = (retailer: RetailerWithStats) => {
-    setEditForm({ company_name: retailer.company_name || '', business_address: retailer.business_address || '', phone: retailer.phone || '' });
+  const handleEditRetailer = async (retailer: RetailerWithStats) => {
+    setIsLoadingEditRetailer(true);
+    setEditForm({
+      company_name: retailer.company_name || '',
+      business_address: retailer.business_address || '',
+      phone: retailer.phone || '',
+      email: retailer.email || '',
+    });
     setShowEditModal(true);
     setPendingEditRetailer(retailer);
+
+    try {
+      const response = await fetch(`/api/admin/retailers/${retailer.id}`);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to load retailer details');
+      }
+
+      setEditForm({
+        company_name: result.retailer?.company_name || retailer.company_name || '',
+        business_address: result.retailer?.business_address || retailer.business_address || '',
+        phone: result.retailer?.phone || retailer.phone || '',
+        email: result.retailer?.email || '',
+      });
+    } catch (error) {
+      console.error('Error:', error);
+      showNotification(error instanceof Error ? error.message : 'Failed to load retailer details');
+    } finally {
+      setIsLoadingEditRetailer(false);
+    }
   };
 
   const [pendingEditRetailer, setPendingEditRetailer] = useState<RetailerWithStats | null>(null);
@@ -126,13 +154,25 @@ export default function AdminRetailersPage() {
     if (!pendingEditRetailer) return;
     setIsUpdating(true);
     try {
-      const { error } = await supabase.from('retailers').update({ company_name: editForm.company_name, business_address: editForm.business_address, phone: editForm.phone }).eq('id', pendingEditRetailer.id);
-      if (error) throw error;
+      const response = await fetch(`/api/admin/retailers/${pendingEditRetailer.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editForm),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to update retailer');
+      }
+
       showNotification('Retailer updated!');
       setShowEditModal(false);
       setPendingEditRetailer(null);
       fetchRetailers();
-    } catch (error) { console.error('Error:', error); showNotification('Failed to update'); }
+    } catch (error) {
+      console.error('Error:', error);
+      showNotification(error instanceof Error ? error.message : 'Failed to update');
+    }
     finally { setIsUpdating(false); }
   };
 
@@ -278,10 +318,21 @@ export default function AdminRetailersPage() {
               </button>
             </div>
             <div className="space-y-4">
+              {isLoadingEditRetailer && (
+                <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-bark-500" />
+                  Loading retailer details...
+                </div>
+              )}
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label><input type="text" value={editForm.company_name} onChange={(e) => setEditForm({ ...editForm, company_name: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Business Address</label><textarea value={editForm.business_address} onChange={(e) => setEditForm({ ...editForm, business_address: e.target.value })} rows={3} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
+                <p className="mt-1 text-xs text-gray-500">This updates the retailer's login email and the email on file.</p>
+              </div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="text" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" /></div>
-              <div className="flex gap-3 pt-4"><button onClick={() => { setShowEditModal(false); setPendingEditRetailer(null); }} className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">Cancel</button><button onClick={handleUpdateRetailer} disabled={isUpdating} className="flex-1 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 disabled:opacity-50 flex items-center justify-center">{isUpdating ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Save Changes'}</button></div>
+              <div className="flex gap-3 pt-4"><button onClick={() => { setShowEditModal(false); setPendingEditRetailer(null); }} className="flex-1 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">Cancel</button><button onClick={handleUpdateRetailer} disabled={isUpdating || isLoadingEditRetailer} className="flex-1 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 disabled:opacity-50 flex items-center justify-center">{isUpdating ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Save Changes'}</button></div>
             </div>
           </div>
         </div>
