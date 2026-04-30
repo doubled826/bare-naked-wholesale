@@ -79,6 +79,7 @@ type UnitsPerStorePerSkuMetrics = {
 
 const MS_IN_DAY = 1000 * 60 * 60 * 24;
 const UPSPW_TRAILING_WEEKS = 52;
+const MIN_RUNNING_WEEKS = 1;
 
 const formatCompactCurrency = (value: number) =>
   `$${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value)}`;
@@ -122,6 +123,7 @@ export default function AdminInsightsPage() {
   const [topRetailersByOrders, setTopRetailersByOrders] = useState<RetailerStats[]>([]);
   const [unitsPerStoreMetrics, setUnitsPerStoreMetrics] = useState<UnitsPerStoreMetrics>({ overall: 0, topDecile: 0, topStores: 0 });
   const [unitsPerStorePerSkuMetrics, setUnitsPerStorePerSkuMetrics] = useState<UnitsPerStorePerSkuMetrics>({ overall: 0, topDecile: 0, topStores: 0 });
+  const [velocityWindowLabel, setVelocityWindowLabel] = useState('Running average since first order');
 
   useEffect(() => {
     fetchInsights();
@@ -159,27 +161,38 @@ export default function AdminInsightsPage() {
       setUnitsSold(unitsSoldValue);
       setAvgOrderValue(totalOrders > 0 ? totalRevenueValue / totalOrders : 0);
 
-      const unitsWindowStart = new Date();
-      unitsWindowStart.setDate(unitsWindowStart.getDate() - (UPSPW_TRAILING_WEEKS * 7 - 1));
+      const firstValidOrderDate = validOrders.length > 0
+        ? validOrders.reduce((earliest, order) => {
+          const orderDate = new Date(order.created_at);
+          return orderDate < earliest ? orderDate : earliest;
+        }, new Date(validOrders[0].created_at))
+        : null;
 
-      const locationCountsByRetailer = new Map<string, number>();
-      ((retailerLocations as RetailerLocationRecord[] | null) || []).forEach((location) => {
-        if (!location.retailer_id) return;
-        locationCountsByRetailer.set(
-          location.retailer_id,
-          (locationCountsByRetailer.get(location.retailer_id) || 0) + 1,
-        );
-      });
+      const today = new Date();
+      const daysSinceInception = firstValidOrderDate
+        ? Math.max(1, Math.ceil((today.getTime() - firstValidOrderDate.getTime()) / MS_IN_DAY) + 1)
+        : 0;
+      const runningWeeksSinceInception = firstValidOrderDate
+        ? Math.max(MIN_RUNNING_WEEKS, daysSinceInception / 7)
+        : MIN_RUNNING_WEEKS;
+      const useTrailingYearWindow = runningWeeksSinceInception >= UPSPW_TRAILING_WEEKS;
+      const divisorWeeks = useTrailingYearWindow ? UPSPW_TRAILING_WEEKS : runningWeeksSinceInception;
+      const unitsWindowStart = useTrailingYearWindow
+        ? new Date(today.getTime() - (UPSPW_TRAILING_WEEKS * 7 - 1) * MS_IN_DAY)
+        : firstValidOrderDate;
+      const effectiveUnitsWindowStart = unitsWindowStart || new Date(0);
 
-      const effectiveStoreCountByRetailer = new Map<string, number>();
-      ((retailers as RetailerRecord[] | null) || []).forEach((retailer) => {
-        effectiveStoreCountByRetailer.set(retailer.id, Math.max(locationCountsByRetailer.get(retailer.id) || 0, 1));
-      });
+      setVelocityWindowLabel(
+        useTrailingYearWindow
+          ? 'Trailing 52-week average'
+          : `Running average since first order (${divisorWeeks.toFixed(1)} weeks)`,
+      );
 
       const unitsByRetailerInWindow = new Map<string, number>();
       const skuSetsByRetailer = new Map<string, Set<string>>();
       const unitsByStoreInWindow = new Map<string, number>();
       const skuSetsByStore = new Map<string, Set<string>>();
+      const orderedStoreKeysByRetailer = new Map<string, Set<string>>();
       ((orderItems as Array<{
         quantity: number | null;
         product_id?: string | null;
@@ -187,7 +200,7 @@ export default function AdminInsightsPage() {
       }> | null) || []).forEach((item) => {
         if (item.order?.status === 'canceled' || !item.order?.retailer_id || !item.order?.created_at) return;
         const orderDate = new Date(item.order.created_at);
-        if (orderDate < unitsWindowStart) return;
+        if (orderDate < effectiveUnitsWindowStart) return;
         const storeKey = item.order.location_id || `retailer:${item.order.retailer_id}`;
         if (item.product_id) {
           const retailerSkuSet = skuSetsByRetailer.get(item.order.retailer_id) || new Set<string>();
@@ -206,20 +219,23 @@ export default function AdminInsightsPage() {
           storeKey,
           (unitsByStoreInWindow.get(storeKey) || 0) + (item.quantity || 0),
         );
+        const orderedStoreKeys = orderedStoreKeysByRetailer.get(item.order.retailer_id) || new Set<string>();
+        orderedStoreKeys.add(storeKey);
+        orderedStoreKeysByRetailer.set(item.order.retailer_id, orderedStoreKeys);
       });
 
       const retailerUnitsPerStore = Array.from(unitsByRetailerInWindow.entries())
         .map(([retailerId, totalUnits]) => {
-          const storeCount = effectiveStoreCountByRetailer.get(retailerId) || 1;
+          const storeCount = Math.max(orderedStoreKeysByRetailer.get(retailerId)?.size || 0, 1);
           return {
             retailerId,
             totalUnits,
             storeCount,
             skuCount: skuSetsByRetailer.get(retailerId)?.size || 0,
-            unitsPerStorePerWeek: totalUnits / storeCount / UPSPW_TRAILING_WEEKS,
+            unitsPerStorePerWeek: totalUnits / storeCount / divisorWeeks,
             unitsPerStorePerWeekPerSku:
               (skuSetsByRetailer.get(retailerId)?.size || 0) > 0
-                ? totalUnits / storeCount / UPSPW_TRAILING_WEEKS / (skuSetsByRetailer.get(retailerId)?.size || 1)
+                ? totalUnits / storeCount / divisorWeeks / (skuSetsByRetailer.get(retailerId)?.size || 1)
                 : 0,
           };
         })
@@ -228,7 +244,7 @@ export default function AdminInsightsPage() {
       const totalStoresInWindow = retailerUnitsPerStore.reduce((sum, retailer) => sum + retailer.storeCount, 0);
       const totalUnitsInWindow = retailerUnitsPerStore.reduce((sum, retailer) => sum + retailer.totalUnits, 0);
       const overallUnitsPerStorePerWeek =
-        totalStoresInWindow > 0 ? totalUnitsInWindow / totalStoresInWindow / UPSPW_TRAILING_WEEKS : 0;
+        totalStoresInWindow > 0 ? totalUnitsInWindow / totalStoresInWindow / divisorWeeks : 0;
 
       const topDecileCount = retailerUnitsPerStore.length > 0
         ? Math.max(1, Math.ceil(retailerUnitsPerStore.length * 0.1))
@@ -245,10 +261,10 @@ export default function AdminInsightsPage() {
           storeKey,
           totalUnits,
           skuCount: skuSetsByStore.get(storeKey)?.size || 0,
-          unitsPerStorePerWeek: totalUnits / UPSPW_TRAILING_WEEKS,
+          unitsPerStorePerWeek: totalUnits / divisorWeeks,
           unitsPerStorePerWeekPerSku:
             (skuSetsByStore.get(storeKey)?.size || 0) > 0
-              ? totalUnits / UPSPW_TRAILING_WEEKS / (skuSetsByStore.get(storeKey)?.size || 1)
+              ? totalUnits / divisorWeeks / (skuSetsByStore.get(storeKey)?.size || 1)
               : 0,
         }))
         .filter((store) => store.totalUnits > 0);
@@ -272,7 +288,7 @@ export default function AdminInsightsPage() {
         0,
       );
       const overallUnitsPerStorePerWeekPerSku =
-        totalStoreSkuSlotsInWindow > 0 ? totalUnitsInWindow / totalStoreSkuSlotsInWindow / UPSPW_TRAILING_WEEKS : 0;
+        totalStoreSkuSlotsInWindow > 0 ? totalUnitsInWindow / totalStoreSkuSlotsInWindow / divisorWeeks : 0;
 
       const topDecileBySkuRetailers = [...retailerUnitsPerStore]
         .filter((retailer) => retailer.skuCount > 0)
@@ -299,7 +315,6 @@ export default function AdminInsightsPage() {
       const trailingMonths = buildTrailingMonths(12);
       const revenueByMonth = new Map<string, number>();
       const paceRevenueByMonth = new Map<string, number>();
-      const today = new Date();
       const currentDayOfMonth = today.getDate();
 
       validOrders.forEach(order => {
@@ -505,7 +520,7 @@ export default function AdminInsightsPage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-sm text-gray-500">Units per Store per Week</p>
-                  <p className="text-xs text-gray-400 mt-1">Trailing 52-week average</p>
+                  <p className="text-xs text-gray-400 mt-1">{velocityWindowLabel}</p>
                 </div>
               </div>
               <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -525,7 +540,7 @@ export default function AdminInsightsPage() {
               <div className="mt-5 pt-5 border-t border-gray-100">
                 <div>
                   <p className="text-sm text-gray-500">Units per Store per Week per SKU</p>
-                  <p className="text-xs text-gray-400 mt-1">Based on distinct SKUs ordered in the trailing 52 weeks</p>
+                  <p className="text-xs text-gray-400 mt-1">Based on distinct SKUs ordered in the active averaging window</p>
                 </div>
                 <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <div>
