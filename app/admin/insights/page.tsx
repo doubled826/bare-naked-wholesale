@@ -68,11 +68,13 @@ type MonthlyRevenuePoint = {
 type UnitsPerStoreMetrics = {
   overall: number;
   topDecile: number;
+  topStores: number;
 };
 
 type UnitsPerStorePerSkuMetrics = {
   overall: number;
   topDecile: number;
+  topStores: number;
 };
 
 const MS_IN_DAY = 1000 * 60 * 60 * 24;
@@ -118,8 +120,8 @@ export default function AdminInsightsPage() {
   const [activeStates, setActiveStates] = useState(0);
   const [topRetailersByRevenue, setTopRetailersByRevenue] = useState<RetailerStats[]>([]);
   const [topRetailersByOrders, setTopRetailersByOrders] = useState<RetailerStats[]>([]);
-  const [unitsPerStoreMetrics, setUnitsPerStoreMetrics] = useState<UnitsPerStoreMetrics>({ overall: 0, topDecile: 0 });
-  const [unitsPerStorePerSkuMetrics, setUnitsPerStorePerSkuMetrics] = useState<UnitsPerStorePerSkuMetrics>({ overall: 0, topDecile: 0 });
+  const [unitsPerStoreMetrics, setUnitsPerStoreMetrics] = useState<UnitsPerStoreMetrics>({ overall: 0, topDecile: 0, topStores: 0 });
+  const [unitsPerStorePerSkuMetrics, setUnitsPerStorePerSkuMetrics] = useState<UnitsPerStorePerSkuMetrics>({ overall: 0, topDecile: 0, topStores: 0 });
 
   useEffect(() => {
     fetchInsights();
@@ -134,7 +136,7 @@ export default function AdminInsightsPage() {
 
       const { data: orderItems } = await supabase
         .from('order_items')
-        .select('quantity, product_id, order:orders(status, retailer_id, created_at)');
+        .select('quantity, product_id, order:orders(status, retailer_id, location_id, created_at)');
 
       const { data: retailers } = await supabase
         .from('retailers')
@@ -176,22 +178,33 @@ export default function AdminInsightsPage() {
 
       const unitsByRetailerInWindow = new Map<string, number>();
       const skuSetsByRetailer = new Map<string, Set<string>>();
+      const unitsByStoreInWindow = new Map<string, number>();
+      const skuSetsByStore = new Map<string, Set<string>>();
       ((orderItems as Array<{
         quantity: number | null;
         product_id?: string | null;
-        order?: { status?: string | null; retailer_id?: string | null; created_at?: string | null } | null;
+        order?: { status?: string | null; retailer_id?: string | null; location_id?: string | null; created_at?: string | null } | null;
       }> | null) || []).forEach((item) => {
         if (item.order?.status === 'canceled' || !item.order?.retailer_id || !item.order?.created_at) return;
         const orderDate = new Date(item.order.created_at);
         if (orderDate < unitsWindowStart) return;
+        const storeKey = item.order.location_id || `retailer:${item.order.retailer_id}`;
         if (item.product_id) {
           const retailerSkuSet = skuSetsByRetailer.get(item.order.retailer_id) || new Set<string>();
           retailerSkuSet.add(item.product_id);
           skuSetsByRetailer.set(item.order.retailer_id, retailerSkuSet);
+
+          const storeSkuSet = skuSetsByStore.get(storeKey) || new Set<string>();
+          storeSkuSet.add(item.product_id);
+          skuSetsByStore.set(storeKey, storeSkuSet);
         }
         unitsByRetailerInWindow.set(
           item.order.retailer_id,
           (unitsByRetailerInWindow.get(item.order.retailer_id) || 0) + (item.quantity || 0),
+        );
+        unitsByStoreInWindow.set(
+          storeKey,
+          (unitsByStoreInWindow.get(storeKey) || 0) + (item.quantity || 0),
         );
       });
 
@@ -227,9 +240,31 @@ export default function AdminInsightsPage() {
         ? topDecileRetailers.reduce((sum, retailer) => sum + retailer.unitsPerStorePerWeek, 0) / topDecileRetailers.length
         : 0;
 
+      const storeUnitsPerWeek = Array.from(unitsByStoreInWindow.entries())
+        .map(([storeKey, totalUnits]) => ({
+          storeKey,
+          totalUnits,
+          skuCount: skuSetsByStore.get(storeKey)?.size || 0,
+          unitsPerStorePerWeek: totalUnits / UPSPW_TRAILING_WEEKS,
+          unitsPerStorePerWeekPerSku:
+            (skuSetsByStore.get(storeKey)?.size || 0) > 0
+              ? totalUnits / UPSPW_TRAILING_WEEKS / (skuSetsByStore.get(storeKey)?.size || 1)
+              : 0,
+        }))
+        .filter((store) => store.totalUnits > 0);
+
+      const topStoreCount = Math.min(10, storeUnitsPerWeek.length);
+      const topStoresByUnitsPerWeek = [...storeUnitsPerWeek]
+        .sort((a, b) => b.unitsPerStorePerWeek - a.unitsPerStorePerWeek)
+        .slice(0, topStoreCount);
+      const topTenStoresUnitsPerStorePerWeek = topStoresByUnitsPerWeek.length > 0
+        ? topStoresByUnitsPerWeek.reduce((sum, store) => sum + store.unitsPerStorePerWeek, 0) / topStoresByUnitsPerWeek.length
+        : 0;
+
       setUnitsPerStoreMetrics({
         overall: overallUnitsPerStorePerWeek,
         topDecile: topDecileUnitsPerStorePerWeek,
+        topStores: topTenStoresUnitsPerStorePerWeek,
       });
 
       const totalStoreSkuSlotsInWindow = retailerUnitsPerStore.reduce(
@@ -247,9 +282,18 @@ export default function AdminInsightsPage() {
         ? topDecileBySkuRetailers.reduce((sum, retailer) => sum + retailer.unitsPerStorePerWeekPerSku, 0) / topDecileBySkuRetailers.length
         : 0;
 
+      const topStoresByUnitsPerWeekPerSku = [...storeUnitsPerWeek]
+        .filter((store) => store.skuCount > 0)
+        .sort((a, b) => b.unitsPerStorePerWeekPerSku - a.unitsPerStorePerWeekPerSku)
+        .slice(0, topStoreCount);
+      const topTenStoresUnitsPerStorePerWeekPerSku = topStoresByUnitsPerWeekPerSku.length > 0
+        ? topStoresByUnitsPerWeekPerSku.reduce((sum, store) => sum + store.unitsPerStorePerWeekPerSku, 0) / topStoresByUnitsPerWeekPerSku.length
+        : 0;
+
       setUnitsPerStorePerSkuMetrics({
         overall: overallUnitsPerStorePerWeekPerSku,
         topDecile: topDecileUnitsPerStorePerWeekPerSku,
+        topStores: topTenStoresUnitsPerStorePerWeekPerSku,
       });
 
       const trailingMonths = buildTrailingMonths(12);
@@ -464,7 +508,7 @@ export default function AdminInsightsPage() {
                   <p className="text-xs text-gray-400 mt-1">Trailing 52-week average</p>
                 </div>
               </div>
-              <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                   <p className="text-xs uppercase tracking-wide text-gray-400">All active stores</p>
                   <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStoreMetrics.overall.toFixed(2)}</p>
@@ -473,13 +517,17 @@ export default function AdminInsightsPage() {
                   <p className="text-xs uppercase tracking-wide text-gray-400">Top 10% retailers</p>
                   <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStoreMetrics.topDecile.toFixed(2)}</p>
                 </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Top 10 stores</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStoreMetrics.topStores.toFixed(2)}</p>
+                </div>
               </div>
               <div className="mt-5 pt-5 border-t border-gray-100">
                 <div>
                   <p className="text-sm text-gray-500">Units per Store per Week per SKU</p>
                   <p className="text-xs text-gray-400 mt-1">Based on distinct SKUs ordered in the trailing 52 weeks</p>
                 </div>
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-gray-400">All active stores</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStorePerSkuMetrics.overall.toFixed(2)}</p>
@@ -487,6 +535,10 @@ export default function AdminInsightsPage() {
                   <div>
                     <p className="text-xs uppercase tracking-wide text-gray-400">Top 10% retailers</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStorePerSkuMetrics.topDecile.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Top 10 stores</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStorePerSkuMetrics.topStores.toFixed(2)}</p>
                   </div>
                 </div>
               </div>
