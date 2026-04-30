@@ -39,6 +39,7 @@ type RetailerRecord = {
 
 type RetailerLocationRecord = {
   id: string;
+  retailer_id: string;
   created_at: string;
 };
 
@@ -64,7 +65,18 @@ type MonthlyRevenuePoint = {
   paceRevenue: number;
 };
 
+type UnitsPerStoreMetrics = {
+  overall: number;
+  topDecile: number;
+};
+
+type UnitsPerStorePerSkuMetrics = {
+  overall: number;
+  topDecile: number;
+};
+
 const MS_IN_DAY = 1000 * 60 * 60 * 24;
+const UPSPW_TRAILING_WEEKS = 52;
 
 const formatCompactCurrency = (value: number) =>
   `$${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value)}`;
@@ -106,6 +118,8 @@ export default function AdminInsightsPage() {
   const [activeStates, setActiveStates] = useState(0);
   const [topRetailersByRevenue, setTopRetailersByRevenue] = useState<RetailerStats[]>([]);
   const [topRetailersByOrders, setTopRetailersByOrders] = useState<RetailerStats[]>([]);
+  const [unitsPerStoreMetrics, setUnitsPerStoreMetrics] = useState<UnitsPerStoreMetrics>({ overall: 0, topDecile: 0 });
+  const [unitsPerStorePerSkuMetrics, setUnitsPerStorePerSkuMetrics] = useState<UnitsPerStorePerSkuMetrics>({ overall: 0, topDecile: 0 });
 
   useEffect(() => {
     fetchInsights();
@@ -120,7 +134,7 @@ export default function AdminInsightsPage() {
 
       const { data: orderItems } = await supabase
         .from('order_items')
-        .select('quantity, order:orders(status)');
+        .select('quantity, product_id, order:orders(status, retailer_id, created_at)');
 
       const { data: retailers } = await supabase
         .from('retailers')
@@ -128,7 +142,7 @@ export default function AdminInsightsPage() {
 
       const { data: retailerLocations } = await supabase
         .from('retailer_locations')
-        .select('id, created_at');
+        .select('id, retailer_id, created_at');
 
       const validOrders = (orders as OrderRecord[] | null || []).filter(order => order.status !== 'canceled');
       const totalRevenueValue = validOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
@@ -142,6 +156,101 @@ export default function AdminInsightsPage() {
       setTotalRevenue(totalRevenueValue);
       setUnitsSold(unitsSoldValue);
       setAvgOrderValue(totalOrders > 0 ? totalRevenueValue / totalOrders : 0);
+
+      const unitsWindowStart = new Date();
+      unitsWindowStart.setDate(unitsWindowStart.getDate() - (UPSPW_TRAILING_WEEKS * 7 - 1));
+
+      const locationCountsByRetailer = new Map<string, number>();
+      ((retailerLocations as RetailerLocationRecord[] | null) || []).forEach((location) => {
+        if (!location.retailer_id) return;
+        locationCountsByRetailer.set(
+          location.retailer_id,
+          (locationCountsByRetailer.get(location.retailer_id) || 0) + 1,
+        );
+      });
+
+      const effectiveStoreCountByRetailer = new Map<string, number>();
+      ((retailers as RetailerRecord[] | null) || []).forEach((retailer) => {
+        effectiveStoreCountByRetailer.set(retailer.id, Math.max(locationCountsByRetailer.get(retailer.id) || 0, 1));
+      });
+
+      const unitsByRetailerInWindow = new Map<string, number>();
+      const skuSetsByRetailer = new Map<string, Set<string>>();
+      ((orderItems as Array<{
+        quantity: number | null;
+        product_id?: string | null;
+        order?: { status?: string | null; retailer_id?: string | null; created_at?: string | null } | null;
+      }> | null) || []).forEach((item) => {
+        if (item.order?.status === 'canceled' || !item.order?.retailer_id || !item.order?.created_at) return;
+        const orderDate = new Date(item.order.created_at);
+        if (orderDate < unitsWindowStart) return;
+        if (item.product_id) {
+          const retailerSkuSet = skuSetsByRetailer.get(item.order.retailer_id) || new Set<string>();
+          retailerSkuSet.add(item.product_id);
+          skuSetsByRetailer.set(item.order.retailer_id, retailerSkuSet);
+        }
+        unitsByRetailerInWindow.set(
+          item.order.retailer_id,
+          (unitsByRetailerInWindow.get(item.order.retailer_id) || 0) + (item.quantity || 0),
+        );
+      });
+
+      const retailerUnitsPerStore = Array.from(unitsByRetailerInWindow.entries())
+        .map(([retailerId, totalUnits]) => {
+          const storeCount = effectiveStoreCountByRetailer.get(retailerId) || 1;
+          return {
+            retailerId,
+            totalUnits,
+            storeCount,
+            skuCount: skuSetsByRetailer.get(retailerId)?.size || 0,
+            unitsPerStorePerWeek: totalUnits / storeCount / UPSPW_TRAILING_WEEKS,
+            unitsPerStorePerWeekPerSku:
+              (skuSetsByRetailer.get(retailerId)?.size || 0) > 0
+                ? totalUnits / storeCount / UPSPW_TRAILING_WEEKS / (skuSetsByRetailer.get(retailerId)?.size || 1)
+                : 0,
+          };
+        })
+        .filter((retailer) => retailer.totalUnits > 0);
+
+      const totalStoresInWindow = retailerUnitsPerStore.reduce((sum, retailer) => sum + retailer.storeCount, 0);
+      const totalUnitsInWindow = retailerUnitsPerStore.reduce((sum, retailer) => sum + retailer.totalUnits, 0);
+      const overallUnitsPerStorePerWeek =
+        totalStoresInWindow > 0 ? totalUnitsInWindow / totalStoresInWindow / UPSPW_TRAILING_WEEKS : 0;
+
+      const topDecileCount = retailerUnitsPerStore.length > 0
+        ? Math.max(1, Math.ceil(retailerUnitsPerStore.length * 0.1))
+        : 0;
+      const topDecileRetailers = [...retailerUnitsPerStore]
+        .sort((a, b) => b.unitsPerStorePerWeek - a.unitsPerStorePerWeek)
+        .slice(0, topDecileCount);
+      const topDecileUnitsPerStorePerWeek = topDecileRetailers.length > 0
+        ? topDecileRetailers.reduce((sum, retailer) => sum + retailer.unitsPerStorePerWeek, 0) / topDecileRetailers.length
+        : 0;
+
+      setUnitsPerStoreMetrics({
+        overall: overallUnitsPerStorePerWeek,
+        topDecile: topDecileUnitsPerStorePerWeek,
+      });
+
+      const totalStoreSkuSlotsInWindow = retailerUnitsPerStore.reduce(
+        (sum, retailer) => sum + retailer.storeCount * retailer.skuCount,
+        0,
+      );
+      const overallUnitsPerStorePerWeekPerSku =
+        totalStoreSkuSlotsInWindow > 0 ? totalUnitsInWindow / totalStoreSkuSlotsInWindow / UPSPW_TRAILING_WEEKS : 0;
+
+      const topDecileBySkuRetailers = [...retailerUnitsPerStore]
+        .filter((retailer) => retailer.skuCount > 0)
+        .sort((a, b) => b.unitsPerStorePerWeekPerSku - a.unitsPerStorePerWeekPerSku)
+        .slice(0, topDecileCount);
+      const topDecileUnitsPerStorePerWeekPerSku = topDecileBySkuRetailers.length > 0
+        ? topDecileBySkuRetailers.reduce((sum, retailer) => sum + retailer.unitsPerStorePerWeekPerSku, 0) / topDecileBySkuRetailers.length
+        : 0;
+
+      setUnitsPerStorePerSkuMetrics({
+        overall: overallUnitsPerStorePerWeekPerSku,
+        topDecile: topDecileUnitsPerStorePerWeekPerSku,
+      });
 
       const trailingMonths = buildTrailingMonths(12);
       const revenueByMonth = new Map<string, number>();
@@ -347,6 +456,40 @@ export default function AdminInsightsPage() {
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
               <p className="text-sm text-gray-500">Average Order Value</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(avgOrderValue)}</p>
+            </div>
+            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm text-gray-500">Units per Store per Week</p>
+                  <p className="text-xs text-gray-400 mt-1">Trailing 52-week average</p>
+                </div>
+              </div>
+              <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-gray-400">All active stores</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStoreMetrics.overall.toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Top 10% retailers</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStoreMetrics.topDecile.toFixed(2)}</p>
+                </div>
+              </div>
+              <div className="mt-5 pt-5 border-t border-gray-100">
+                <div>
+                  <p className="text-sm text-gray-500">Units per Store per Week per SKU</p>
+                  <p className="text-xs text-gray-400 mt-1">Based on distinct SKUs ordered in the trailing 52 weeks</p>
+                </div>
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">All active stores</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStorePerSkuMetrics.overall.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Top 10% retailers</p>
+                    <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStorePerSkuMetrics.topDecile.toFixed(2)}</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
