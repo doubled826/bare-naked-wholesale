@@ -4,8 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import {
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -109,7 +107,6 @@ export default function AdminInsightsPage() {
   const supabase = createClientComponentClient();
   const [isLoading, setIsLoading] = useState(true);
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenuePoint[]>([]);
-  const [growthRate, setGrowthRate] = useState(0);
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [unitsSold, setUnitsSold] = useState(0);
   const [avgOrderValue, setAvgOrderValue] = useState(0);
@@ -338,10 +335,6 @@ export default function AdminInsightsPage() {
         paceRevenue: paceRevenueByMonth.get(key) || 0,
       }));
       setMonthlyRevenue(monthly);
-      const last = monthly[monthly.length - 1]?.paceRevenue || 0;
-      const prev = monthly[monthly.length - 2]?.paceRevenue || 0;
-      const growth = prev === 0 ? (last > 0 ? 100 : 0) : ((last - prev) / prev) * 100;
-      setGrowthRate(growth);
 
       const retailerStats = new Map<string, RetailerStats>();
       validOrders.forEach(order => {
@@ -429,12 +422,31 @@ export default function AdminInsightsPage() {
     }
   };
 
-  const growthLabel = useMemo(() => {
-    const sign = growthRate > 0 ? '+' : '';
-    return `${sign}${growthRate.toFixed(1)}% vs same point last month`;
-  }, [growthRate]);
+  const monthToDateComparison = useMemo(() => {
+    const currentPace = monthlyRevenue[monthlyRevenue.length - 1]?.paceRevenue || 0;
+    const previousPace = monthlyRevenue[monthlyRevenue.length - 2]?.paceRevenue || 0;
+    const delta = currentPace - previousPace;
+    const percentDelta = previousPace === 0 ? (currentPace > 0 ? 100 : 0) : (delta / previousPace) * 100;
 
-  const growthToneClass = growthRate >= 0 ? 'text-emerald-600' : 'text-amber-600';
+    return {
+      currentPace,
+      previousPace,
+      delta,
+      percentDelta,
+    };
+  }, [monthlyRevenue]);
+
+  const growthLabel = useMemo(() => {
+    const sign = monthToDateComparison.percentDelta > 0 ? '+' : '';
+    return `${sign}${monthToDateComparison.percentDelta.toFixed(1)}% vs same point last month`;
+  }, [monthToDateComparison]);
+
+  const growthDeltaLabel = useMemo(() => {
+    const direction = monthToDateComparison.delta >= 0 ? 'Up' : 'Down';
+    return `${direction} ${formatCurrency(Math.abs(monthToDateComparison.delta))} MTD`;
+  }, [monthToDateComparison]);
+
+  const growthToneClass = monthToDateComparison.percentDelta >= 0 ? 'text-emerald-600' : 'text-amber-600';
 
   if (isLoading) {
     return (
@@ -457,21 +469,22 @@ export default function AdminInsightsPage() {
               <div className="text-right">
                 <p className="text-sm text-gray-500">Month-to-date pace</p>
                 <p className={`text-2xl font-semibold ${growthToneClass}`}>{growthLabel}</p>
+                <p className={`text-sm font-medium mt-1 ${growthToneClass}`}>{growthDeltaLabel}</p>
               </div>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-gray-500">
               <div className="flex items-center gap-2">
-                <span className="h-0.5 w-6 rounded-full bg-bark-700"></span>
+                <span className="h-3 w-3 rounded-sm bg-bark-700"></span>
                 <span>Full month revenue</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="h-0.5 w-6 rounded-full border-t-2 border-dashed border-amber-500"></span>
+                <span className="h-3 w-3 rounded-sm bg-amber-500"></span>
                 <span>Revenue by this day of month</span>
               </div>
             </div>
             <div className="h-72 mt-6">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={monthlyRevenue}>
+                <BarChart data={monthlyRevenue} barCategoryGap={18}>
                   <CartesianGrid stroke="#E5E7EB" strokeDasharray="3 3" />
                   <XAxis dataKey="month" tick={{ fill: '#6B7280', fontSize: 12 }} />
                   <YAxis tickFormatter={(value) => formatCompactCurrency(value)} tick={{ fill: '#6B7280', fontSize: 12 }} />
@@ -481,24 +494,23 @@ export default function AdminInsightsPage() {
                       name === 'paceRevenue' ? 'Revenue by this day' : 'Full month revenue',
                     ]}
                   />
-                  <Line
-                    type="monotone"
+                  <Bar
                     dataKey="revenue"
                     name="revenue"
                     stroke="#3F1D0B"
-                    strokeWidth={3}
-                    dot={{ r: 4, fill: '#3F1D0B' }}
+                    fill="#3F1D0B"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={28}
                   />
-                  <Line
-                    type="monotone"
+                  <Bar
                     dataKey="paceRevenue"
                     name="paceRevenue"
                     stroke="#D97706"
-                    strokeWidth={2}
-                    strokeDasharray="6 6"
-                    dot={{ r: 3, fill: '#D97706' }}
+                    fill="#D97706"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={28}
                   />
-                </LineChart>
+                </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
