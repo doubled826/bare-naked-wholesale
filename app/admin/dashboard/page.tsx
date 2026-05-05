@@ -52,7 +52,18 @@ export default function AdminDashboard() {
     try {
       const { data: orders } = await supabase
         .from('orders')
-        .select('id, total, status, created_at, retailer:retailers(id, company_name)');
+        .select(`
+          id,
+          total,
+          status,
+          created_at,
+          retailer:retailers(id, company_name),
+          order_items(
+            quantity,
+            total_price,
+            product:products(id, name, size)
+          )
+        `);
       const validOrders = (orders || []).filter(o => o.status !== 'canceled');
       const { count: retailerCount } = await supabase
         .from('retailers')
@@ -90,21 +101,25 @@ export default function AdminDashboard() {
       };
       setStats(statsData);
 
-      // Top products
-      const { data: orderItems } = await supabase
-        .from('order_items')
-        .select('quantity, total_price, product:products(id, name, size), order:orders(created_at, status)');
       const productSales = new Map<string, { name: string; size: string; total_sold: number; total_revenue: number }>();
       let unitsSold = 0;
-      orderItems?.forEach((item: any) => {
-        if (item.product && item.order && item.order.status !== 'canceled' && inRange(item.order.created_at)) {
+      rangeOrders.forEach((order: any) => {
+        order.order_items?.forEach((item: any) => {
+          if (!item.product) return;
+
           const key = item.product.id;
-          const existing = productSales.get(key) || { name: item.product.name, size: item.product.size, total_sold: 0, total_revenue: 0 };
-          existing.total_sold += item.quantity;
-          existing.total_revenue += item.total_price;
+          const existing = productSales.get(key) || {
+            name: item.product.name,
+            size: item.product.size,
+            total_sold: 0,
+            total_revenue: 0,
+          };
+
+          existing.total_sold += item.quantity || 0;
+          existing.total_revenue += item.total_price || 0;
           productSales.set(key, existing);
-          unitsSold += item.quantity;
-        }
+          unitsSold += item.quantity || 0;
+        });
       });
       setTopProducts(Array.from(productSales.entries()).map(([id, data]) => ({ id, ...data })).sort((a, b) => b.total_sold - a.total_sold).slice(0, 5));
       setStats(prev => prev ? { ...prev, unitsSold } : prev);
