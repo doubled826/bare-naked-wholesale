@@ -1696,13 +1696,11 @@ function OnePagerTab() {
 export default function SalesHubPage() {
   const [activeTab, setActiveTab] = useState<Tab>('intro');
 
-  const tabs: { id: Tab; icon: React.ElementType; label: string }[] = [
+  const tabs: Array<{ id: Tab; icon: React.ElementType; label: string; href?: string }> = [
     { id: 'intro', icon: Phone, label: 'Intro call guide' },
     { id: 'followup', icon: Phone, label: 'Follow-up call guide' },
     { id: 'checklist', icon: CheckSquare, label: 'Onboarding checklist' },
-    { id: 'assistant', icon: MessageSquare, label: 'AI assistant' },
-    { id: 'templates', icon: Mail, label: 'Email templates' },
-    { id: 'onepager', icon: FileText, label: 'One-pager' },
+    { id: 'assistant', icon: ClipboardList, label: 'Performance', href: 'https://sales.barenakedpet.com/' },
   ];
 
   return (
@@ -1710,13 +1708,29 @@ export default function SalesHubPage() {
       <div>
         <h1 className="page-title">Sales Hub</h1>
         <p className="text-bark-500/60 text-sm mt-1">
-          Intro and follow-up call guides, onboarding support, AI coaching, and retailer tools in one place.
+          Intro and follow-up call guides, onboarding support, and quick access to sales performance tools.
         </p>
       </div>
 
       <div className="flex flex-wrap gap-1.5 bg-cream-100 p-1.5 rounded-2xl border border-cream-200">
         {tabs.map((tab) => (
-          <TabButton key={tab.id} active={activeTab === tab.id} icon={tab.icon} label={tab.label} onClick={() => setActiveTab(tab.id)} />
+          tab.href ? (
+            <a
+              key={tab.label}
+              href={tab.href}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200',
+                'text-bark-500/80 hover:text-bark-500 hover:bg-white'
+              )}
+            >
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
+            </a>
+          ) : (
+            <TabButton key={tab.id} active={activeTab === tab.id} icon={tab.icon} label={tab.label} onClick={() => setActiveTab(tab.id)} />
+          )
         ))}
       </div>
 
