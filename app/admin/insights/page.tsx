@@ -63,6 +63,12 @@ type MonthlyRevenuePoint = {
   paceRevenue: number;
 };
 
+type ProductRecord = {
+  id: string;
+  name: string;
+  size: string;
+} | null;
+
 type UnitsPerStoreMetrics = {
   overall: number;
   topDecile: number;
@@ -75,12 +81,56 @@ type UnitsPerStorePerSkuMetrics = {
   topStores: number;
 };
 
+type SkuOption = {
+  id: string;
+  label: string;
+};
+
+type StoreSkuSnapshot = {
+  storeKey: string;
+  skuUnits: Record<string, number>;
+};
+
+type SkuComparison = {
+  pairKey: string;
+  skuAId: string;
+  skuBId: string;
+  skuALabel: string;
+  skuBLabel: string;
+  sharedStores: number;
+  skuAUnits: number;
+  skuBUnits: number;
+  skuAUnitsPerStorePerWeek: number;
+  skuBUnitsPerStorePerWeek: number;
+  skuAStoreWins: number;
+  skuBStoreWins: number;
+  tiedStores: number;
+  leadingSkuLabel: string;
+  leadingUnitsPerStorePerWeek: number;
+  trailingSkuLabel: string;
+  trailingUnitsPerStorePerWeek: number;
+};
+
+type SelectedSkuMetric = {
+  skuId: string;
+  label: string;
+  totalUnits: number;
+  unitsPerStorePerWeek: number;
+  unitSharePercent: number;
+  storeWins: number;
+};
+
 const MS_IN_DAY = 1000 * 60 * 60 * 24;
 const UPSPW_TRAILING_WEEKS = 52;
 const MIN_RUNNING_WEEKS = 1;
 
 const formatCompactCurrency = (value: number) =>
   `$${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value)}`;
+
+const formatSkuLabel = (product: ProductRecord | undefined, fallbackId?: string | null) => {
+  if (!product) return fallbackId ? `Unknown SKU (${fallbackId.slice(0, 8)})` : 'Unknown SKU';
+  return `${product.name} (${product.size})`;
+};
 
 const parseStateFromAddress = (address: string | null | undefined) => {
   if (!address) return null;
@@ -120,6 +170,12 @@ export default function AdminInsightsPage() {
   const [topRetailersByOrders, setTopRetailersByOrders] = useState<RetailerStats[]>([]);
   const [unitsPerStoreMetrics, setUnitsPerStoreMetrics] = useState<UnitsPerStoreMetrics>({ overall: 0, topDecile: 0, topStores: 0 });
   const [unitsPerStorePerSkuMetrics, setUnitsPerStorePerSkuMetrics] = useState<UnitsPerStorePerSkuMetrics>({ overall: 0, topDecile: 0, topStores: 0 });
+  const [skuOptions, setSkuOptions] = useState<SkuOption[]>([]);
+  const [skuComparisons, setSkuComparisons] = useState<SkuComparison[]>([]);
+  const [storeSkuSnapshots, setStoreSkuSnapshots] = useState<StoreSkuSnapshot[]>([]);
+  const [selectedSkuIds, setSelectedSkuIds] = useState<string[]>([]);
+  const [skuSearchQuery, setSkuSearchQuery] = useState('');
+  const [comparisonDivisorWeeks, setComparisonDivisorWeeks] = useState(MIN_RUNNING_WEEKS);
   const [velocityWindowLabel, setVelocityWindowLabel] = useState('Running average since first order');
 
   useEffect(() => {
@@ -135,7 +191,7 @@ export default function AdminInsightsPage() {
 
       const { data: orderItems } = await supabase
         .from('order_items')
-        .select('quantity, product_id, order:orders(status, retailer_id, location_id, created_at)');
+        .select('quantity, product_id, product:products(id, name, size), order:orders(status, retailer_id, location_id, created_at)');
 
       const { data: retailers } = await supabase
         .from('retailers')
@@ -184,15 +240,19 @@ export default function AdminInsightsPage() {
           ? 'Trailing 52-week average'
           : `Running average since first order (${divisorWeeks.toFixed(1)} weeks)`,
       );
+      setComparisonDivisorWeeks(divisorWeeks);
 
       const unitsByRetailerInWindow = new Map<string, number>();
       const skuSetsByRetailer = new Map<string, Set<string>>();
       const unitsByStoreInWindow = new Map<string, number>();
       const skuSetsByStore = new Map<string, Set<string>>();
+      const skuUnitsByStore = new Map<string, Map<string, number>>();
+      const skuLabels = new Map<string, string>();
       const orderedStoreKeysByRetailer = new Map<string, Set<string>>();
       ((orderItems as Array<{
         quantity: number | null;
         product_id?: string | null;
+        product?: ProductRecord;
         order?: { status?: string | null; retailer_id?: string | null; location_id?: string | null; created_at?: string | null } | null;
       }> | null) || []).forEach((item) => {
         if (item.order?.status === 'canceled' || !item.order?.retailer_id || !item.order?.created_at) return;
@@ -200,6 +260,7 @@ export default function AdminInsightsPage() {
         if (orderDate < effectiveUnitsWindowStart) return;
         const storeKey = item.order.location_id || `retailer:${item.order.retailer_id}`;
         if (item.product_id) {
+          skuLabels.set(item.product_id, formatSkuLabel(item.product, item.product_id));
           const retailerSkuSet = skuSetsByRetailer.get(item.order.retailer_id) || new Set<string>();
           retailerSkuSet.add(item.product_id);
           skuSetsByRetailer.set(item.order.retailer_id, retailerSkuSet);
@@ -207,6 +268,10 @@ export default function AdminInsightsPage() {
           const storeSkuSet = skuSetsByStore.get(storeKey) || new Set<string>();
           storeSkuSet.add(item.product_id);
           skuSetsByStore.set(storeKey, storeSkuSet);
+
+          const skuTotalsForStore = skuUnitsByStore.get(storeKey) || new Map<string, number>();
+          skuTotalsForStore.set(item.product_id, (skuTotalsForStore.get(item.product_id) || 0) + (item.quantity || 0));
+          skuUnitsByStore.set(storeKey, skuTotalsForStore);
         }
         unitsByRetailerInWindow.set(
           item.order.retailer_id,
@@ -266,6 +331,17 @@ export default function AdminInsightsPage() {
         }))
         .filter((store) => store.totalUnits > 0);
 
+      const nextSkuOptions = Array.from(skuLabels.entries())
+        .map(([id, label]) => ({ id, label }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+      setSkuOptions(nextSkuOptions);
+
+      const nextStoreSkuSnapshots = Array.from(skuUnitsByStore.entries()).map(([storeKey, skuMap]) => ({
+        storeKey,
+        skuUnits: Object.fromEntries(skuMap),
+      }));
+      setStoreSkuSnapshots(nextStoreSkuSnapshots);
+
       const topStoreCount = Math.min(10, storeUnitsPerWeek.length);
       const topStoresByUnitsPerWeek = [...storeUnitsPerWeek]
         .sort((a, b) => b.unitsPerStorePerWeek - a.unitsPerStorePerWeek)
@@ -307,6 +383,100 @@ export default function AdminInsightsPage() {
         overall: overallUnitsPerStorePerWeekPerSku,
         topDecile: topDecileUnitsPerStorePerWeekPerSku,
         topStores: topTenStoresUnitsPerStorePerWeekPerSku,
+      });
+
+      const skuPairComparisons = new Map<
+        string,
+        Omit<
+          SkuComparison,
+          'skuAUnitsPerStorePerWeek' |
+          'skuBUnitsPerStorePerWeek' |
+          'leadingSkuLabel' |
+          'leadingUnitsPerStorePerWeek' |
+          'trailingSkuLabel' |
+          'trailingUnitsPerStorePerWeek'
+        >
+      >();
+
+      skuUnitsByStore.forEach((storeSkuMap) => {
+        const storeEntries = Array.from(storeSkuMap.entries())
+          .filter(([, quantity]) => quantity > 0)
+          .sort(([skuAId], [skuBId]) => skuAId.localeCompare(skuBId));
+
+        for (let index = 0; index < storeEntries.length; index += 1) {
+          for (let comparisonIndex = index + 1; comparisonIndex < storeEntries.length; comparisonIndex += 1) {
+            const [skuAId, skuAQuantity] = storeEntries[index];
+            const [skuBId, skuBQuantity] = storeEntries[comparisonIndex];
+            const pairKey = `${skuAId}::${skuBId}`;
+            const existing = skuPairComparisons.get(pairKey) || {
+              pairKey,
+              skuAId,
+              skuBId,
+              skuALabel: skuLabels.get(skuAId) || skuAId,
+              skuBLabel: skuLabels.get(skuBId) || skuBId,
+              sharedStores: 0,
+              skuAUnits: 0,
+              skuBUnits: 0,
+              skuAStoreWins: 0,
+              skuBStoreWins: 0,
+              tiedStores: 0,
+            };
+
+            existing.sharedStores += 1;
+            existing.skuAUnits += skuAQuantity;
+            existing.skuBUnits += skuBQuantity;
+
+            if (skuAQuantity > skuBQuantity) {
+              existing.skuAStoreWins += 1;
+            } else if (skuBQuantity > skuAQuantity) {
+              existing.skuBStoreWins += 1;
+            } else {
+              existing.tiedStores += 1;
+            }
+
+            skuPairComparisons.set(pairKey, existing);
+          }
+        }
+      });
+
+      const rankedSkuComparisons = Array.from(skuPairComparisons.values())
+        .map((comparison) => {
+          const skuAUnitsPerStorePerWeek = comparison.sharedStores > 0
+            ? comparison.skuAUnits / comparison.sharedStores / divisorWeeks
+            : 0;
+          const skuBUnitsPerStorePerWeek = comparison.sharedStores > 0
+            ? comparison.skuBUnits / comparison.sharedStores / divisorWeeks
+            : 0;
+          const skuALeading = skuAUnitsPerStorePerWeek >= skuBUnitsPerStorePerWeek;
+
+          return {
+            ...comparison,
+            skuAUnitsPerStorePerWeek,
+            skuBUnitsPerStorePerWeek,
+            leadingSkuLabel: skuALeading ? comparison.skuALabel : comparison.skuBLabel,
+            leadingUnitsPerStorePerWeek: skuALeading ? skuAUnitsPerStorePerWeek : skuBUnitsPerStorePerWeek,
+            trailingSkuLabel: skuALeading ? comparison.skuBLabel : comparison.skuALabel,
+            trailingUnitsPerStorePerWeek: skuALeading ? skuBUnitsPerStorePerWeek : skuAUnitsPerStorePerWeek,
+          };
+        })
+        .sort((a, b) => {
+          if (b.sharedStores !== a.sharedStores) return b.sharedStores - a.sharedStores;
+          const combinedVelocityDelta =
+            (b.skuAUnitsPerStorePerWeek + b.skuBUnitsPerStorePerWeek) -
+            (a.skuAUnitsPerStorePerWeek + a.skuBUnitsPerStorePerWeek);
+          if (combinedVelocityDelta !== 0) return combinedVelocityDelta;
+          return (b.skuAStoreWins + b.skuBStoreWins) - (a.skuAStoreWins + a.skuBStoreWins);
+        })
+        .slice(0, 10);
+
+      setSkuComparisons(rankedSkuComparisons);
+      setSelectedSkuIds((previousSelection) => {
+        const validSelection = previousSelection.filter((skuId) => skuLabels.has(skuId));
+        if (validSelection.length >= 2) return validSelection;
+        if (rankedSkuComparisons[0]) {
+          return [rankedSkuComparisons[0].skuAId, rankedSkuComparisons[0].skuBId];
+        }
+        return nextSkuOptions.slice(0, 2).map((option) => option.id);
       });
 
       const trailingMonths = buildTrailingMonths(12);
@@ -446,7 +616,98 @@ export default function AdminInsightsPage() {
     return `${direction} ${formatCurrency(Math.abs(monthToDateComparison.delta))} MTD`;
   }, [monthToDateComparison]);
 
+  const filteredSkuOptions = useMemo(() => {
+    const query = skuSearchQuery.trim().toLowerCase();
+    if (!query) return skuOptions;
+    return skuOptions.filter((option) => option.label.toLowerCase().includes(query));
+  }, [skuOptions, skuSearchQuery]);
+
+  const selectedSkuComparison = useMemo(() => {
+    if (selectedSkuIds.length < 2) return null;
+
+    const selectedLabels = new Map(
+      skuOptions
+        .filter((option) => selectedSkuIds.includes(option.id))
+        .map((option) => [option.id, option.label]),
+    );
+
+    const eligibleStores = storeSkuSnapshots.filter((store) =>
+      selectedSkuIds.every((skuId) => (store.skuUnits[skuId] || 0) > 0),
+    );
+
+    if (eligibleStores.length === 0) {
+      return {
+        sharedStores: 0,
+        tieStores: 0,
+        metrics: selectedSkuIds.map((skuId) => ({
+          skuId,
+          label: selectedLabels.get(skuId) || skuId,
+          totalUnits: 0,
+          unitsPerStorePerWeek: 0,
+          unitSharePercent: 0,
+          storeWins: 0,
+        })),
+      };
+    }
+
+    const totals = new Map<string, number>();
+    const storeWins = new Map<string, number>();
+    let tieStores = 0;
+
+    eligibleStores.forEach((store) => {
+      const storeValues = selectedSkuIds.map((skuId) => ({
+        skuId,
+        quantity: store.skuUnits[skuId] || 0,
+      }));
+      storeValues.forEach(({ skuId, quantity }) => {
+        totals.set(skuId, (totals.get(skuId) || 0) + quantity);
+      });
+
+      const maxQuantity = Math.max(...storeValues.map((value) => value.quantity));
+      const leaders = storeValues.filter((value) => value.quantity === maxQuantity);
+      if (leaders.length === 1) {
+        const winner = leaders[0]?.skuId;
+        if (winner) {
+          storeWins.set(winner, (storeWins.get(winner) || 0) + 1);
+        }
+      } else {
+        tieStores += 1;
+      }
+    });
+
+    const combinedUnits = Array.from(totals.values()).reduce((sum, quantity) => sum + quantity, 0);
+    const metrics = selectedSkuIds
+      .map((skuId) => {
+        const totalUnits = totals.get(skuId) || 0;
+        return {
+          skuId,
+          label: selectedLabels.get(skuId) || skuId,
+          totalUnits,
+          unitsPerStorePerWeek: totalUnits / eligibleStores.length / comparisonDivisorWeeks,
+          unitSharePercent: combinedUnits > 0 ? (totalUnits / combinedUnits) * 100 : 0,
+          storeWins: storeWins.get(skuId) || 0,
+        };
+      })
+      .sort((a, b) => b.unitsPerStorePerWeek - a.unitsPerStorePerWeek);
+
+    return {
+      sharedStores: eligibleStores.length,
+      tieStores,
+      metrics,
+    };
+  }, [comparisonDivisorWeeks, selectedSkuIds, skuOptions, storeSkuSnapshots]);
+
   const growthToneClass = monthToDateComparison.percentDelta >= 0 ? 'text-emerald-600' : 'text-amber-600';
+  const topSkuComparison = skuComparisons[0] || null;
+  const selectedSkuLeader = selectedSkuComparison?.metrics[0] || null;
+
+  const toggleSkuSelection = (skuId: string) => {
+    setSelectedSkuIds((current) => (
+      current.includes(skuId)
+        ? current.filter((id) => id !== skuId)
+        : [...current, skuId]
+    ));
+  };
 
   if (isLoading) {
     return (
@@ -570,6 +831,215 @@ export default function AdminInsightsPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">SKU Performance Matchups</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Select any mix of SKUs and compare them only within stores that ordered every selected SKU during the active velocity window.
+            </p>
+          </div>
+          <p className="text-xs text-gray-400">{velocityWindowLabel}</p>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-xl">
+              <p className="text-sm font-medium text-gray-900">Choose the SKUs to compare</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Pick at least two. The widget will only use stores that carried all selected SKUs.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <input
+                type="text"
+                value={skuSearchQuery}
+                onChange={(event) => setSkuSearchQuery(event.target.value)}
+                placeholder="Search SKUs..."
+                className="w-full rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-bark-500 sm:w-64"
+              />
+              <button
+                type="button"
+                onClick={() => setSelectedSkuIds([])}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              >
+                Clear selection
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {filteredSkuOptions.length === 0 ? (
+              <p className="text-sm text-gray-500">No SKUs match that search.</p>
+            ) : (
+              filteredSkuOptions.map((option) => {
+                const isSelected = selectedSkuIds.includes(option.id);
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => toggleSkuSelection(option.id)}
+                    className={`rounded-full border px-3 py-2 text-sm transition-colors ${
+                      isSelected
+                        ? 'border-bark-500 bg-bark-500 text-white'
+                        : 'border-gray-200 bg-white text-gray-700 hover:border-bark-300 hover:text-bark-700'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+            <p className="text-sm text-gray-500">Selected SKUs</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">{selectedSkuIds.length}</p>
+            <p className="text-xs text-gray-400 mt-2">Choose at least two SKUs to unlock the comparison</p>
+          </div>
+          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+            <p className="text-sm text-gray-500">Shared stores in scope</p>
+            <p className="text-lg font-semibold text-gray-900 mt-1">
+              {selectedSkuComparison ? selectedSkuComparison.sharedStores : 'Select more SKUs'}
+            </p>
+            <p className="text-xs text-gray-400 mt-2">
+              {selectedSkuComparison
+                ? 'Only stores that ordered every selected SKU are counted'
+                : 'The comparison updates as soon as two or more SKUs are selected'}
+            </p>
+          </div>
+          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+            <p className="text-sm text-gray-500">Current leading SKU</p>
+            <p className="text-lg font-semibold text-gray-900 mt-1">
+              {selectedSkuLeader ? selectedSkuLeader.label : 'No leader yet'}
+            </p>
+            <p className="text-xs text-gray-400 mt-2">
+              {selectedSkuLeader
+                ? `${selectedSkuLeader.unitsPerStorePerWeek.toFixed(2)} units/store/week in the shared-store set`
+                : 'Waiting on a valid shared-store comparison'}
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-6 border-b border-gray-100">
+            <h4 className="text-md font-semibold text-gray-900">Dynamic Same-Store Comparison</h4>
+            <p className="text-sm text-gray-500 mt-1">
+              Great for questions like how Chicken and Beef compare among stores that carry both, or how three-plus SKUs stack up where all of them are stocked.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shared-Store Units</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Units / Store / Week</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Store Wins</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit Share</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {selectedSkuIds.length < 2 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                      Select at least two SKUs to compare their shared-store performance.
+                    </td>
+                  </tr>
+                ) : selectedSkuComparison && selectedSkuComparison.sharedStores === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                      No stores in the active window carried all selected SKUs. Try a different SKU mix.
+                    </td>
+                  </tr>
+                ) : (
+                  selectedSkuComparison?.metrics.map((metric) => (
+                    <tr key={metric.skuId} className="hover:bg-gray-50 align-top">
+                      <td className="px-6 py-4 font-medium text-gray-900">{metric.label}</td>
+                      <td className="px-6 py-4 text-gray-600">{metric.totalUnits}</td>
+                      <td className="px-6 py-4">
+                        <span className="font-medium text-gray-900">{metric.unitsPerStorePerWeek.toFixed(2)}</span>
+                      </td>
+                      <td className="px-6 py-4 text-gray-600">
+                        {metric.storeWins}
+                        <span className="ml-2 text-xs text-gray-400">wins</span>
+                      </td>
+                      <td className="px-6 py-4 text-gray-600">{metric.unitSharePercent.toFixed(1)}%</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          {selectedSkuComparison && selectedSkuIds.length >= 2 && (
+            <div className="border-t border-gray-100 bg-gray-50 px-6 py-4 text-sm text-gray-600">
+              {selectedSkuComparison.tieStores} shared stores ended in a tie for top selected-SKU volume.
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-6 border-b border-gray-100">
+            <h4 className="text-md font-semibold text-gray-900">Suggested Head-to-Head Pairs</h4>
+            <p className="text-sm text-gray-500 mt-1">
+              Quick-start pairs ranked by how many stores carried both.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU Pair</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shared Stores</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Leader</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {skuComparisons.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                      No overlapping SKU pairs in the active window yet.
+                    </td>
+                  </tr>
+                ) : (
+                  skuComparisons.map((comparison) => (
+                    <tr key={comparison.pairKey} className="hover:bg-gray-50 align-top">
+                      <td className="px-6 py-4">
+                        <div className="space-y-1">
+                          <p className="font-medium text-gray-900">{comparison.skuALabel}</p>
+                          <p className="text-sm text-gray-500">vs {comparison.skuBLabel}</p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-gray-600">{comparison.sharedStores}</td>
+                      <td className="px-6 py-4">
+                        <div className="space-y-1">
+                          <p className="font-medium text-gray-900">{comparison.leadingSkuLabel}</p>
+                          <p className="text-sm text-gray-500">
+                            +{(comparison.leadingUnitsPerStorePerWeek - comparison.trailingUnitsPerStorePerWeek).toFixed(2)} units/store/week
+                          </p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSkuIds([comparison.skuAId, comparison.skuBId])}
+                          className="rounded-lg border border-bark-200 px-3 py-2 text-sm font-medium text-bark-700 hover:bg-bark-50"
+                        >
+                          Compare pair
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
