@@ -241,6 +241,7 @@ export default function AdminRetailerDetailPage() {
   const [showAddCredit, setShowAddCredit] = useState(false);
   const [creditNotice, setCreditNotice] = useState('');
   const [isSavingCredit, setIsSavingCredit] = useState(false);
+  const [isRemovingCreditId, setIsRemovingCreditId] = useState<string | null>(null);
   const [creditProducts, setCreditProducts] = useState<ProductOption[]>([]);
   const [newCredit, setNewCredit] = useState({
     mode: 'sku' as 'sku' | 'custom',
@@ -661,6 +662,39 @@ export default function AdminRetailerDetailPage() {
     }
   };
 
+  const handleRemoveCredit = async (credit: RetailerCredit) => {
+    if (!retailerId) return;
+
+    const hasApplications = Boolean(credit.applications?.length);
+    const confirmed = window.confirm(
+      hasApplications
+        ? 'This credit has already been applied to an order. Removing it will void any remaining balance only. Continue?'
+        : 'Remove this credit? This cannot be undone.'
+    );
+
+    if (!confirmed) return;
+
+    setIsRemovingCreditId(credit.id);
+    try {
+      const response = await fetch(`/api/admin/retailers/${retailerId}/credits/${credit.id}`, {
+        method: 'DELETE',
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'Failed to remove credit.');
+      }
+
+      showCreditNotice(data.message || 'Credit removed.');
+      await fetchCredits();
+    } catch (removeError) {
+      console.error('Error removing credit:', removeError);
+      showCreditNotice(removeError instanceof Error ? removeError.message : 'Failed to remove credit.');
+    } finally {
+      setIsRemovingCreditId(null);
+    }
+  };
+
   const ordersForStats = useMemo(() => orders.filter((order) => order.status !== 'canceled'), [orders]);
 
   const orderStats = useMemo(() => {
@@ -1027,6 +1061,16 @@ export default function AdminRetailerDetailPage() {
                     <p className="text-sm text-gray-500">Remaining</p>
                     <p className="font-semibold text-gray-900">{formatCurrency(Number(credit.remaining_amount || 0))}</p>
                     <p className="text-xs text-gray-500">of {formatCurrency(Number(credit.total_amount || 0))}</p>
+                    {credit.status !== 'voided' && (
+                      <button
+                        onClick={() => handleRemoveCredit(credit)}
+                        disabled={isRemovingCreditId === credit.id}
+                        className="mt-3 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {isRemovingCreditId === credit.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                        Remove
+                      </button>
+                    )}
                   </div>
                 </div>
 
