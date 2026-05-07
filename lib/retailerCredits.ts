@@ -7,6 +7,8 @@ interface ApplyRetailerCreditsParams {
   retailerId: string;
   orderId: string;
   subtotal: number;
+  currentCreditApplied?: number;
+  maxApplyAmount?: number;
 }
 
 interface AppliedRetailerCredit {
@@ -26,8 +28,12 @@ export async function applyRetailerCredits({
   retailerId,
   orderId,
   subtotal,
+  currentCreditApplied = 0,
+  maxApplyAmount,
 }: ApplyRetailerCreditsParams): Promise<ApplyRetailerCreditsResult> {
-  if (!retailerId || !orderId || subtotal <= 0) {
+  const normalizedApplyLimit = Math.max(0, Number(maxApplyAmount ?? subtotal));
+
+  if (!retailerId || !orderId || subtotal <= 0 || normalizedApplyLimit <= 0) {
     return {
       creditApplied: 0,
       totalAfterCredit: subtotal,
@@ -48,7 +54,7 @@ export async function applyRetailerCredits({
     throw creditsError;
   }
 
-  let remainingToApply = subtotal;
+  let remainingToApply = normalizedApplyLimit;
   let totalApplied = 0;
   const applications: AppliedRetailerCredit[] = [];
   const availableBefore = (credits || []).reduce(
@@ -96,13 +102,13 @@ export async function applyRetailerCredits({
     remainingToApply -= appliedAmount;
   }
 
-  const totalAfterCredit = Math.max(0, subtotal - totalApplied);
+  const totalAfterCredit = Math.max(0, subtotal - currentCreditApplied - totalApplied);
 
   if (totalApplied > 0) {
     const { error: orderUpdateError } = await adminClient
       .from('orders')
       .update({
-        credit_applied: totalApplied,
+        credit_applied: currentCreditApplied + totalApplied,
         total: totalAfterCredit,
       })
       .eq('id', orderId);

@@ -59,6 +59,8 @@ export default function AdminOrdersPage() {
   const [invoiceUrl, setInvoiceUrl] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isSendingInvoice, setIsSendingInvoice] = useState(false);
+  const [isApplyingCredit, setIsApplyingCredit] = useState(false);
+  const [selectedOrderAvailableCredit, setSelectedOrderAvailableCredit] = useState(0);
   const [notification, setNotification] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [retailers, setRetailers] = useState<RetailerOption[]>([]);
@@ -225,6 +227,30 @@ export default function AdminOrdersPage() {
     setInvoiceUrl(order.invoice_url || '');
   };
 
+  useEffect(() => {
+    const fetchSelectedOrderCredits = async () => {
+      if (!selectedOrder?.retailer_id || showTrackingModal) {
+        setSelectedOrderAvailableCredit(0);
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/admin/retailers/${selectedOrder.retailer_id}/credits`);
+        const data = await response.json();
+        if (!response.ok || !data?.success) {
+          setSelectedOrderAvailableCredit(0);
+          return;
+        }
+        setSelectedOrderAvailableCredit(Number(data.availableBalance || 0));
+      } catch (error) {
+        console.error('Error loading selected order credit balance:', error);
+        setSelectedOrderAvailableCredit(0);
+      }
+    };
+
+    fetchSelectedOrderCredits();
+  }, [selectedOrder?.id, selectedOrder?.retailer_id, showTrackingModal]);
+
   const confirmShipOrder = async () => {
     if (!selectedOrder) return;
     setIsUpdating(true);
@@ -280,6 +306,35 @@ export default function AdminOrdersPage() {
       showNotification('Failed to send invoice');
     } finally {
       setIsSendingInvoice(false);
+    }
+  };
+
+  const handleApplyCreditToExistingOrder = async () => {
+    if (!selectedOrder) return;
+
+    setIsApplyingCredit(true);
+    try {
+      const response = await fetch(`/api/admin/orders/${selectedOrder.id}/apply-credit`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'Failed to apply credit');
+      }
+
+      showNotification(`Applied ${formatCurrency(Number(data.creditApplied || 0))} in credit to ${selectedOrder.order_number}`);
+      const refreshedOrders = await fetchOrders();
+      const refreshed = refreshedOrders.find((order: Order) => order.id === selectedOrder.id);
+      if (refreshed) {
+        setSelectedOrder(refreshed);
+      }
+      setSelectedOrderAvailableCredit(Number(data.remainingAvailableCredit || 0));
+    } catch (error) {
+      console.error('Apply credit error:', error);
+      showNotification(error instanceof Error ? error.message : 'Failed to apply credit');
+    } finally {
+      setIsApplyingCredit(false);
     }
   };
 
@@ -633,6 +688,31 @@ export default function AdminOrdersPage() {
               <div className="border-t border-gray-100 pt-4"><h4 className="font-medium text-gray-900 mb-3">Order Items</h4><div className="space-y-2">{[...(selectedOrder.order_items || [])].sort((a, b) => { const indexDiff = getAdminOrderItemSortIndex(a) - getAdminOrderItemSortIndex(b); if (indexDiff !== 0) return indexDiff; const nameDiff = normalizeText(a.product?.name).localeCompare(normalizeText(b.product?.name)); if (nameDiff !== 0) return nameDiff; return normalizeSize(a.product?.size).localeCompare(normalizeSize(b.product?.size)); }).map((item) => <div key={item.id} className="flex justify-between py-2 border-b border-gray-100 last:border-0"><div><p className="font-medium text-gray-900">{item.product?.name}</p><p className="text-sm text-gray-500">{item.product?.size} × {item.quantity}</p></div><p className="font-medium text-gray-900">{formatCurrency(item.total_price)}</p></div>)}</div></div>
               <div className="border-t border-gray-100 pt-4 space-y-3">
                 <h4 className="font-medium text-gray-900">QuickBooks Invoice</h4>
+                <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Available Credit</p>
+                      <p className="text-sm text-gray-600">
+                        {formatCurrency(selectedOrderAvailableCredit)} available to apply to this order
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleApplyCreditToExistingOrder}
+                      disabled={
+                        isApplyingCredit ||
+                        selectedOrderAvailableCredit <= 0 ||
+                        !['pending', 'processing'].includes(selectedOrder.status) ||
+                        Number(selectedOrder.total || 0) <= 0
+                      }
+                      className="px-4 py-2 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-50 disabled:opacity-50"
+                    >
+                      {isApplyingCredit ? 'Applying Credit...' : 'Apply Available Credit'}
+                    </button>
+                  </div>
+                  {!['pending', 'processing'].includes(selectedOrder.status) && (
+                    <p className="text-xs text-gray-500">Credits can only be applied to pending or processing orders.</p>
+                  )}
+                </div>
                 <input
                   type="url"
                   value={invoiceUrl}
