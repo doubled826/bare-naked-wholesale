@@ -103,10 +103,13 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const adminClient = createSupabaseAdminClient();
 
   try {
-    const { reason, notes, items } = await request.json();
+    const { reason, notes, items, customAmount } = await request.json();
 
-    if (!retailerId || !Array.isArray(items) || items.length === 0) {
-      return NextResponse.json({ error: 'At least one credited SKU is required.' }, { status: 400 });
+    const normalizedCustomAmount = Number(customAmount || 0);
+    const hasCustomAmount = normalizedCustomAmount > 0;
+
+    if (!retailerId) {
+      return NextResponse.json({ error: 'Retailer is required.' }, { status: 400 });
     }
 
     const normalizedItems = (items as CreditItemInput[])
@@ -116,39 +119,61 @@ export async function POST(request: Request, { params }: { params: { id: string 
       }))
       .filter((item) => item.productId && item.quantity > 0);
 
-    if (normalizedItems.length === 0) {
-      return NextResponse.json({ error: 'At least one valid credited SKU is required.' }, { status: 400 });
+    if (!hasCustomAmount && normalizedItems.length === 0) {
+      return NextResponse.json({ error: 'Enter a custom amount or select at least one valid credited SKU.' }, { status: 400 });
     }
 
-    const productIds = normalizedItems.map((item) => item.productId);
-    const { data: products, error: productsError } = await adminClient
-      .from('products')
-      .select('id, name, size, price')
-      .in('id', productIds);
+    let creditItems: Array<{
+      product_id: string | null;
+      product_name: string;
+      product_size: string | null;
+      quantity: number;
+      unit_price: number;
+      total_amount: number;
+    }> = [];
 
-    if (productsError || !products) {
-      return NextResponse.json({ error: 'Failed to load credited products.' }, { status: 500 });
-    }
+    if (hasCustomAmount) {
+      creditItems = [
+        {
+          product_id: null,
+          product_name: 'Custom Credit',
+          product_size: null,
+          quantity: 1,
+          unit_price: normalizedCustomAmount,
+          total_amount: normalizedCustomAmount,
+        },
+      ];
+    } else {
+      const productIds = normalizedItems.map((item) => item.productId);
+      const { data: products, error: productsError } = await adminClient
+        .from('products')
+        .select('id, name, size, price')
+        .in('id', productIds);
 
-    const productMap = new Map(products.map((product) => [product.id, product]));
-    const creditItems = normalizedItems.map((item) => {
-      const product = productMap.get(item.productId);
-      if (!product) {
-        throw new Error('One or more credited products are invalid.');
+      if (productsError || !products) {
+        return NextResponse.json({ error: 'Failed to load credited products.' }, { status: 500 });
       }
 
-      const unitPrice = Number(product.price);
-      const totalAmount = unitPrice * item.quantity;
+      const productMap = new Map(products.map((product) => [product.id, product]));
+      creditItems = normalizedItems.map((item) => {
+        const product = productMap.get(item.productId);
+        if (!product) {
+          throw new Error('One or more credited products are invalid.');
+        }
 
-      return {
-        product_id: product.id,
-        product_name: product.name,
-        product_size: product.size,
-        quantity: item.quantity,
-        unit_price: unitPrice,
-        total_amount: totalAmount,
-      };
-    });
+        const unitPrice = Number(product.price);
+        const totalAmount = unitPrice * item.quantity;
+
+        return {
+          product_id: product.id,
+          product_name: product.name,
+          product_size: product.size,
+          quantity: item.quantity,
+          unit_price: unitPrice,
+          total_amount: totalAmount,
+        };
+      });
+    }
 
     const totalAmount = creditItems.reduce((sum, item) => sum + item.total_amount, 0);
     if (totalAmount <= 0) {

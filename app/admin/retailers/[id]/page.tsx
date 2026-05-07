@@ -243,8 +243,10 @@ export default function AdminRetailerDetailPage() {
   const [isSavingCredit, setIsSavingCredit] = useState(false);
   const [creditProducts, setCreditProducts] = useState<ProductOption[]>([]);
   const [newCredit, setNewCredit] = useState({
+    mode: 'sku' as 'sku' | 'custom',
     reason: 'Return credit',
     notes: '',
+    customAmount: '',
     items: [{ productId: '', quantity: 1 }],
   });
   const [hasSyncedProfileLocation, setHasSyncedProfileLocation] = useState(false);
@@ -608,13 +610,18 @@ export default function AdminRetailerDetailPage() {
     (sum, item) => sum + getCreditProductPrice(item.productId) * (Number(item.quantity) || 0),
     0
   );
+  const manualCreditTotal = Number(newCredit.customAmount || 0);
 
   const handleCreateCredit = async () => {
     if (!retailerId) return;
 
     const validItems = newCredit.items.filter((item) => item.productId && Number(item.quantity) > 0);
-    if (validItems.length === 0) {
+    if (newCredit.mode === 'sku' && validItems.length === 0) {
       showCreditNotice('Select at least one SKU and quantity.');
+      return;
+    }
+    if (newCredit.mode === 'custom' && manualCreditTotal <= 0) {
+      showCreditNotice('Enter a custom credit amount greater than zero.');
       return;
     }
 
@@ -626,7 +633,8 @@ export default function AdminRetailerDetailPage() {
         body: JSON.stringify({
           reason: newCredit.reason,
           notes: newCredit.notes,
-          items: validItems,
+          items: newCredit.mode === 'sku' ? validItems : [],
+          customAmount: newCredit.mode === 'custom' ? manualCreditTotal : null,
         }),
       });
       const data = await response.json();
@@ -636,8 +644,10 @@ export default function AdminRetailerDetailPage() {
       }
 
       setNewCredit({
+        mode: 'sku',
         reason: 'Return credit',
         notes: '',
+        customAmount: '',
         items: [{ productId: '', quantity: 1 }],
       });
       setShowAddCredit(false);
@@ -864,66 +874,105 @@ export default function AdminRetailerDetailPage() {
               </div>
             </div>
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-gray-900">Credited SKUs</h4>
-                <button onClick={handleAddCreditItem} className="text-sm text-bark-500 hover:text-bark-600 font-medium">
-                  + Add SKU
-                </button>
-              </div>
-
-              {newCredit.items.map((item, index) => (
-                <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                  <div className="md:col-span-7">
-                    <select
-                      value={item.productId}
-                      onChange={(e) => handleUpdateCreditItem(index, 'productId', e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
-                    >
-                      <option value="">Select product</option>
-                      {creditProducts.map((product) => (
-                        <option key={product.id} value={product.id}>
-                          {product.name} ({product.size}) - ${Number(product.price).toFixed(2)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="md:col-span-3">
-                    <input
-                      type="number"
-                      min={1}
-                      value={item.quantity}
-                      onChange={(e) => handleUpdateCreditItem(index, 'quantity', e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
-                    />
-                  </div>
-                  <div className="md:col-span-2 flex justify-end">
-                    {newCredit.items.length > 1 && (
-                      <button
-                        onClick={() => handleRemoveCreditItem(index)}
-                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 border border-gray-200 text-red-600 rounded-lg hover:bg-red-50"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  checked={newCredit.mode === 'sku'}
+                  onChange={() => setNewCredit((prev) => ({ ...prev, mode: 'sku', customAmount: '' }))}
+                  className="h-4 w-4 border-gray-300 text-bark-500 focus:ring-bark-500"
+                />
+                Credit specific SKU(s)
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  checked={newCredit.mode === 'custom'}
+                  onChange={() => setNewCredit((prev) => ({ ...prev, mode: 'custom' }))}
+                  className="h-4 w-4 border-gray-300 text-bark-500 focus:ring-bark-500"
+                />
+                Enter custom amount
+              </label>
             </div>
+
+            {newCredit.mode === 'sku' ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-gray-900">Credited SKUs</h4>
+                  <button onClick={handleAddCreditItem} className="text-sm text-bark-500 hover:text-bark-600 font-medium">
+                    + Add SKU
+                  </button>
+                </div>
+
+                {newCredit.items.map((item, index) => (
+                  <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                    <div className="md:col-span-7">
+                      <select
+                        value={item.productId}
+                        onChange={(e) => handleUpdateCreditItem(index, 'productId', e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                      >
+                        <option value="">Select product</option>
+                        {creditProducts.map((product) => (
+                          <option key={product.id} value={product.id}>
+                            {product.name} ({product.size}) - ${Number(product.price).toFixed(2)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="md:col-span-3">
+                      <input
+                        type="number"
+                        min={1}
+                        value={item.quantity}
+                        onChange={(e) => handleUpdateCreditItem(index, 'quantity', e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                      />
+                    </div>
+                    <div className="md:col-span-2 flex justify-end">
+                      {newCredit.items.length > 1 && (
+                        <button
+                          onClick={() => handleRemoveCreditItem(index)}
+                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 border border-gray-200 text-red-600 rounded-lg hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Custom Credit Amount</label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={newCredit.customAmount}
+                  onChange={(e) => setNewCredit((prev) => ({ ...prev, customAmount: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  placeholder="48.00"
+                />
+                <p className="text-xs text-gray-500 mt-2">Use this for Astro rebates or any other fixed dollar credit.</p>
+              </div>
+            )}
 
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-gray-200 pt-4">
               <div>
                 <p className="text-sm text-gray-500">Credit Total</p>
-                <p className="text-lg font-semibold text-gray-900">{formatCurrency(newCreditTotal)}</p>
+                <p className="text-lg font-semibold text-gray-900">{formatCurrency(newCredit.mode === 'custom' ? manualCreditTotal : newCreditTotal)}</p>
               </div>
               <div className="flex flex-col sm:flex-row gap-2">
                 <button
                   onClick={() => {
                     setShowAddCredit(false);
                     setNewCredit({
+                      mode: 'sku',
                       reason: 'Return credit',
                       notes: '',
+                      customAmount: '',
                       items: [{ productId: '', quantity: 1 }],
                     });
                   }}
