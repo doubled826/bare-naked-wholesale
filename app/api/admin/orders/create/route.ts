@@ -181,6 +181,9 @@ export async function POST(request: Request) {
       const samplesNote = order.include_samples
         ? '\nSamples: INCLUDE SAMPLES (requested by retailer)\n'
         : '';
+      const retailerSamplesNote = order.include_samples
+        ? 'Samples Added: Yes\n'
+        : '';
 
       const shipToName = shipToLocation?.location_name || retailer?.company_name || 'Not provided';
       const shipToAddress = shipToLocation?.business_address || retailer?.business_address || 'Not provided';
@@ -238,6 +241,7 @@ Your order ${orderNumber} has been received and is being processed.
 Order Details:
 ${itemsList}
 
+${retailerSamplesNote}
 Subtotal: $${subtotal.toFixed(2)}
 ${creditResult.creditApplied > 0 ? `Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
 Total: $${creditResult.totalAfterCredit.toFixed(2)}` : `Total: $${total.toFixed(2)}`}
