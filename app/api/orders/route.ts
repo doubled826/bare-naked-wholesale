@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { formatOrderItemsText, formatTeamOrderItemsText, sendRetailerEmail, sendTeamEmail } from '@/lib/email';
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
+import { applyRetailerCredits } from '@/lib/retailerCredits';
 
 export async function POST(request: Request) {
   try {
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { items, deliveryDate, promotionCode, locationId } = await request.json();
+    const { items, deliveryDate, promotionCode, locationId, includeSamples } = await request.json();
 
     let shipToLocation: { id: string; location_name: string; business_address: string; phone: string | null } | null = null;
     if (locationId) {
@@ -47,6 +48,8 @@ export async function POST(request: Request) {
       .eq('status', 'pending')
       .single();
 
+    const shouldIncludeSamples = Boolean(includeSamples) || Boolean(sampleRequest?.id);
+
     // Create the order
     const { data: order, error: orderError } = await supabase
       .from('orders')
@@ -59,7 +62,8 @@ export async function POST(request: Request) {
         promotion_code: promotionCode || null,
         subtotal,
         total,
-        include_samples: !!sampleRequest?.id,
+        include_samples: shouldIncludeSamples,
+        credit_applied: 0,
       })
       .select()
       .single();
@@ -94,8 +98,16 @@ export async function POST(request: Request) {
       console.error('Order items error:', itemsError);
     }
 
+    const adminClient = createSupabaseAdminClient();
+
+    const creditResult = await applyRetailerCredits({
+      adminClient,
+      retailerId: user.id,
+      orderId: order.id,
+      subtotal,
+    });
+
     if (sampleRequest?.id) {
-      const adminClient = createSupabaseAdminClient();
       const { error: sampleUpdateError } = await adminClient
         .from('sample_requests')
         .update({
@@ -154,6 +166,11 @@ export async function POST(request: Request) {
         ? '\nSamples: INCLUDE SAMPLES (requested by retailer)\n'
         : '';
 
+      const creditSummary = creditResult.creditApplied > 0
+        ? `Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
+Total: $${creditResult.totalAfterCredit.toFixed(2)}`
+        : `Total: $${total.toFixed(2)}`;
+
       const emailText = `
 New Wholesale Order Received!
 
@@ -176,7 +193,7 @@ Order Details:
 ${teamItemsList}
 
 Subtotal: $${subtotal.toFixed(2)}
-Total: $${total.toFixed(2)}
+${creditSummary}
 
 ${deliveryDate ? `Requested Delivery Date: ${deliveryDate}` : ''}
 ${promotionCode ? `Promotion Code: ${promotionCode}` : ''}
@@ -204,7 +221,9 @@ Your order ${orderNumber} has been received and is being processed.
 Order Details:
 ${itemsList}
 
-Total: $${total.toFixed(2)}
+Subtotal: $${subtotal.toFixed(2)}
+${creditResult.creditApplied > 0 ? `Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
+Total: $${creditResult.totalAfterCredit.toFixed(2)}` : `Total: $${total.toFixed(2)}`}
 
 Ship-To Location:
 - Name: ${shipToName}
@@ -227,7 +246,9 @@ Thank you for choosing Bare Naked Pet Co.!
       success: true,
       orderNumber,
       orderId: order.id,
-      includeSamples: !!sampleRequest?.id,
+      includeSamples: shouldIncludeSamples,
+      creditApplied: creditResult.creditApplied,
+      total: creditResult.totalAfterCredit,
     });
 
   } catch (error) {

@@ -32,6 +32,7 @@ interface Order {
   total: number;
   subtotal: number;
   include_samples?: boolean | null;
+  credit_applied?: number | null;
   created_at: string;
   order_items: OrderItem[];
 }
@@ -43,6 +44,46 @@ interface RetailerLocation {
   phone: string | null;
   is_default: boolean;
   created_at: string;
+}
+
+interface ProductOption {
+  id: string;
+  name: string;
+  size: string;
+  price: number;
+}
+
+interface RetailerCreditItem {
+  id: string;
+  product_id?: string | null;
+  product_name: string;
+  product_size?: string | null;
+  quantity: number;
+  unit_price: number;
+  total_amount: number;
+}
+
+interface RetailerCreditApplication {
+  id: string;
+  applied_amount: number;
+  created_at: string;
+  order?: {
+    id: string;
+    order_number: string;
+    created_at: string;
+  } | null;
+}
+
+interface RetailerCredit {
+  id: string;
+  reason: string;
+  notes?: string | null;
+  status: 'available' | 'partially_applied' | 'fully_applied' | 'voided';
+  total_amount: number;
+  remaining_amount: number;
+  created_at: string;
+  items: RetailerCreditItem[];
+  applications: RetailerCreditApplication[];
 }
 
 interface QuarterPoint {
@@ -194,12 +235,29 @@ export default function AdminRetailerDetailPage() {
   const [isDeletingLocationId, setIsDeletingLocationId] = useState<string | null>(null);
   const [isSettingDefaultId, setIsSettingDefaultId] = useState<string | null>(null);
   const [locationNotice, setLocationNotice] = useState('');
+  const [credits, setCredits] = useState<RetailerCredit[]>([]);
+  const [availableCreditBalance, setAvailableCreditBalance] = useState(0);
+  const [creditsLoading, setCreditsLoading] = useState(false);
+  const [showAddCredit, setShowAddCredit] = useState(false);
+  const [creditNotice, setCreditNotice] = useState('');
+  const [isSavingCredit, setIsSavingCredit] = useState(false);
+  const [creditProducts, setCreditProducts] = useState<ProductOption[]>([]);
+  const [newCredit, setNewCredit] = useState({
+    reason: 'Return credit',
+    notes: '',
+    items: [{ productId: '', quantity: 1 }],
+  });
   const [hasSyncedProfileLocation, setHasSyncedProfileLocation] = useState(false);
   const hasSyncedProfileLocationRef = useRef(false);
 
   const showLocationNotice = (message: string) => {
     setLocationNotice(message);
     setTimeout(() => setLocationNotice(''), 3000);
+  };
+
+  const showCreditNotice = (message: string) => {
+    setCreditNotice(message);
+    setTimeout(() => setCreditNotice(''), 3000);
   };
 
   const fetchData = async () => {
@@ -213,7 +271,7 @@ export default function AdminRetailerDetailPage() {
           { data: locationsData, error: locationsError },
         ] = await Promise.all([
           supabase.from('retailers').select('id, company_name, business_address, phone, account_number, status, created_at').eq('id', retailerId).single(),
-          supabase.from('orders').select('id, order_number, status, total, subtotal, include_samples, created_at, order_items(id, quantity, total_price, product:products(name, size))').eq('retailer_id', retailerId).order('created_at', { ascending: false }),
+          supabase.from('orders').select('id, order_number, status, total, subtotal, credit_applied, include_samples, created_at, order_items(id, quantity, total_price, product:products(name, size))').eq('retailer_id', retailerId).order('created_at', { ascending: false }),
           supabase.from('retailer_locations').select('id, location_name, business_address, phone, is_default, created_at').eq('retailer_id', retailerId).order('is_default', { ascending: false }).order('created_at', { ascending: true }),
         ]);
 
@@ -297,6 +355,51 @@ export default function AdminRetailerDetailPage() {
   useEffect(() => {
     fetchData();
   }, [retailerId, supabase]);
+
+  const fetchCredits = async () => {
+    if (!retailerId) return;
+
+    setCreditsLoading(true);
+    try {
+      const response = await fetch(`/api/admin/retailers/${retailerId}/credits`);
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'Failed to load credits.');
+      }
+
+      setCredits((data.credits || []) as RetailerCredit[]);
+      setAvailableCreditBalance(Number(data.availableBalance || 0));
+    } catch (creditError) {
+      console.error('Error loading credits:', creditError);
+      setCredits([]);
+      setAvailableCreditBalance(0);
+    } finally {
+      setCreditsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCredits();
+  }, [retailerId]);
+
+  useEffect(() => {
+    const fetchCreditProducts = async () => {
+      const { data, error: productsError } = await supabase
+        .from('products')
+        .select('id, name, size, price')
+        .order('name', { ascending: true });
+
+      if (productsError) {
+        console.error('Error loading products for credits:', productsError);
+        return;
+      }
+
+      setCreditProducts((data || []) as ProductOption[]);
+    };
+
+    fetchCreditProducts();
+  }, [supabase]);
 
   const handleAddLocation = async () => {
     if (!retailerId) return;
@@ -475,6 +578,79 @@ export default function AdminRetailerDetailPage() {
     }
   };
 
+  const handleAddCreditItem = () => {
+    setNewCredit((prev) => ({
+      ...prev,
+      items: [...prev.items, { productId: '', quantity: 1 }],
+    }));
+  };
+
+  const handleRemoveCreditItem = (index: number) => {
+    setNewCredit((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
+  const handleUpdateCreditItem = (index: number, key: 'productId' | 'quantity', value: string | number) => {
+    setNewCredit((prev) => ({
+      ...prev,
+      items: prev.items.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: value } : item
+      ),
+    }));
+  };
+
+  const getCreditProductPrice = (productId: string) =>
+    Number(creditProducts.find((product) => product.id === productId)?.price || 0);
+
+  const newCreditTotal = newCredit.items.reduce(
+    (sum, item) => sum + getCreditProductPrice(item.productId) * (Number(item.quantity) || 0),
+    0
+  );
+
+  const handleCreateCredit = async () => {
+    if (!retailerId) return;
+
+    const validItems = newCredit.items.filter((item) => item.productId && Number(item.quantity) > 0);
+    if (validItems.length === 0) {
+      showCreditNotice('Select at least one SKU and quantity.');
+      return;
+    }
+
+    setIsSavingCredit(true);
+    try {
+      const response = await fetch(`/api/admin/retailers/${retailerId}/credits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: newCredit.reason,
+          notes: newCredit.notes,
+          items: validItems,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'Failed to issue credit.');
+      }
+
+      setNewCredit({
+        reason: 'Return credit',
+        notes: '',
+        items: [{ productId: '', quantity: 1 }],
+      });
+      setShowAddCredit(false);
+      showCreditNotice('Credit issued.');
+      await fetchCredits();
+    } catch (creditError) {
+      console.error('Error creating credit:', creditError);
+      showCreditNotice(creditError instanceof Error ? creditError.message : 'Failed to issue credit.');
+    } finally {
+      setIsSavingCredit(false);
+    }
+  };
+
   const ordersForStats = useMemo(() => orders.filter((order) => order.status !== 'canceled'), [orders]);
 
   const orderStats = useMemo(() => {
@@ -634,6 +810,216 @@ export default function AdminRetailerDetailPage() {
           </div>
           <OrdersLineChart points={quarterPoints} />
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Credits</h2>
+            <p className="text-sm text-gray-500">Issue return credits and track how they are applied to future orders.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <p className="text-xs uppercase tracking-wide text-gray-400">Available Balance</p>
+              <p className="text-lg font-semibold text-emerald-700">{formatCurrency(availableCreditBalance)}</p>
+            </div>
+            <button
+              onClick={() => setShowAddCredit(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50"
+            >
+              <Plus className="w-4 h-4" />
+              Issue Credit
+            </button>
+          </div>
+        </div>
+
+        {creditNotice && (
+          <div className="mb-4 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm px-3 py-2">
+            {creditNotice}
+          </div>
+        )}
+
+        {showAddCredit && (
+          <div className="mb-6 rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                <input
+                  type="text"
+                  value={newCredit.reason}
+                  onChange={(e) => setNewCredit((prev) => ({ ...prev, reason: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  placeholder="Return credit"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
+                <input
+                  type="text"
+                  value={newCredit.notes}
+                  onChange={(e) => setNewCredit((prev) => ({ ...prev, notes: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  placeholder="Explain the return or adjustment"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-gray-900">Credited SKUs</h4>
+                <button onClick={handleAddCreditItem} className="text-sm text-bark-500 hover:text-bark-600 font-medium">
+                  + Add SKU
+                </button>
+              </div>
+
+              {newCredit.items.map((item, index) => (
+                <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                  <div className="md:col-span-7">
+                    <select
+                      value={item.productId}
+                      onChange={(e) => handleUpdateCreditItem(index, 'productId', e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                    >
+                      <option value="">Select product</option>
+                      {creditProducts.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.name} ({product.size}) - ${Number(product.price).toFixed(2)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="md:col-span-3">
+                    <input
+                      type="number"
+                      min={1}
+                      value={item.quantity}
+                      onChange={(e) => handleUpdateCreditItem(index, 'quantity', e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                    />
+                  </div>
+                  <div className="md:col-span-2 flex justify-end">
+                    {newCredit.items.length > 1 && (
+                      <button
+                        onClick={() => handleRemoveCreditItem(index)}
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 border border-gray-200 text-red-600 rounded-lg hover:bg-red-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-gray-200 pt-4">
+              <div>
+                <p className="text-sm text-gray-500">Credit Total</p>
+                <p className="text-lg font-semibold text-gray-900">{formatCurrency(newCreditTotal)}</p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={() => {
+                    setShowAddCredit(false);
+                    setNewCredit({
+                      reason: 'Return credit',
+                      notes: '',
+                      items: [{ productId: '', quantity: 1 }],
+                    });
+                  }}
+                  className="inline-flex items-center justify-center px-4 py-2 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateCredit}
+                  disabled={isSavingCredit}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 disabled:opacity-50"
+                >
+                  {isSavingCredit ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Credit'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {creditsLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="w-5 h-5 animate-spin text-bark-500" />
+          </div>
+        ) : credits.length === 0 ? (
+          <p className="text-sm text-gray-500">No credits issued yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {credits.map((credit) => (
+              <div key={credit.id} className="rounded-lg border border-gray-100 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium text-gray-900">{credit.reason}</p>
+                      <span className={cn(
+                        'px-2.5 py-0.5 rounded-full text-xs font-medium capitalize',
+                        credit.status === 'available' && 'bg-emerald-100 text-emerald-700',
+                        credit.status === 'partially_applied' && 'bg-amber-100 text-amber-700',
+                        credit.status === 'fully_applied' && 'bg-gray-100 text-gray-700',
+                        credit.status === 'voided' && 'bg-rose-100 text-rose-700'
+                      )}>
+                        {credit.status.replace('_', ' ')}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Issued {new Date(credit.created_at).toLocaleDateString()}
+                    </p>
+                    {credit.notes && (
+                      <p className="text-sm text-gray-600 mt-2">{credit.notes}</p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-gray-500">Remaining</p>
+                    <p className="font-semibold text-gray-900">{formatCurrency(Number(credit.remaining_amount || 0))}</p>
+                    <p className="text-xs text-gray-500">of {formatCurrency(Number(credit.total_amount || 0))}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400 mb-2">Credited Items</p>
+                    <div className="space-y-2">
+                      {credit.items.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between text-sm">
+                          <span className="text-gray-700">
+                            {item.product_name} {item.product_size ? `(${item.product_size})` : ''} x {item.quantity}
+                          </span>
+                          <span className="font-medium text-gray-900">{formatCurrency(Number(item.total_amount || 0))}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400 mb-2">Applications</p>
+                    {credit.applications?.length ? (
+                      <div className="space-y-2">
+                        {credit.applications.map((application) => (
+                          <div key={application.id} className="flex items-center justify-between text-sm">
+                            <span className="text-gray-700">
+                              Applied to {application.order?.order_number || 'order'} on{' '}
+                              {new Date(application.created_at).toLocaleDateString()}
+                            </span>
+                            <span className="font-medium text-gray-900">
+                              -{formatCurrency(Number(application.applied_amount || 0))}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">Not applied yet.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
@@ -923,6 +1309,7 @@ export default function AdminRetailerDetailPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     {order.include_samples && <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Samples</span>}
+                    {Number(order.credit_applied || 0) > 0 && <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">Credit</span>}
                     <span className={cn("px-2.5 py-0.5 rounded-full text-xs font-medium capitalize", getStatusColor(order.status))}>{order.status}</span>
                     <span className="font-medium text-gray-900">{formatCurrency(order.total)}</span>
                   </div>

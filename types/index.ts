@@ -63,6 +63,7 @@ export interface Order {
   tracking_number?: string;
   tracking_carrier?: string;
   include_samples?: boolean;
+  credit_applied?: number;
   invoice_url?: string;
   invoice_sent_at?: string;
   invoice_sent_count?: number;

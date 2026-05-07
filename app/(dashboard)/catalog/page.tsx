@@ -23,12 +23,15 @@ export default function CatalogPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
+  const [includeSamples, setIncludeSamples] = useState(false);
+  const [hasPendingSampleRequest, setHasPendingSampleRequest] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState('');
   const [promoCode, setPromoCode] = useState('');
   const [locations, setLocations] = useState<RetailerLocation[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
+  const [orderSuccessMessage, setOrderSuccessMessage] = useState('Check your email for confirmation.');
   const [notification, setNotification] = useState('');
   const [submitError, setSubmitError] = useState('');
 
@@ -50,6 +53,29 @@ export default function CatalogPage() {
     };
 
     fetchLocations();
+  }, [supabase]);
+
+  useEffect(() => {
+    const fetchPendingSampleRequest = async () => {
+      const { data, error } = await supabase
+        .from('sample_requests')
+        .select('id')
+        .eq('status', 'pending')
+        .limit(1);
+
+      if (error) {
+        console.error('Failed to load sample request status:', error);
+        return;
+      }
+
+      const hasPending = Boolean(data?.length);
+      setHasPendingSampleRequest(hasPending);
+      if (hasPending) {
+        setIncludeSamples(true);
+      }
+    };
+
+    fetchPendingSampleRequest();
   }, [supabase]);
 
   const normalizedProfileAddress = retailer?.business_address?.trim().toLowerCase();
@@ -190,6 +216,7 @@ export default function CatalogPage() {
           deliveryDate: deliveryDate || null,
           promotionCode: promoCode || null,
           locationId: locationIdToSubmit || null,
+          includeSamples,
         }),
       });
 
@@ -218,8 +245,15 @@ export default function CatalogPage() {
           console.error('Failed to refresh orders:', fetchError);
         }
         setOrderSuccess(true);
+        setOrderSuccessMessage(
+          Number(data.creditApplied || 0) > 0
+            ? `Check your email for confirmation. ${formatCurrency(Number(data.creditApplied || 0))} in credit was applied to this order.`
+            : 'Check your email for confirmation.'
+        );
         clearCart();
         setShowCheckout(false);
+        setIncludeSamples(false);
+        setHasPendingSampleRequest(false);
         setTimeout(() => {
           setOrderSuccess(false);
           setShowCart(false);
@@ -252,7 +286,7 @@ export default function CatalogPage() {
               Order Submitted!
             </h2>
             <p className="text-bark-500/70">
-              Check your email for confirmation.
+              {orderSuccessMessage}
             </p>
           </div>
         </div>
@@ -430,6 +464,23 @@ export default function CatalogPage() {
                         className="input"
                       />
                     </div>
+                    <label className="flex items-start gap-3 rounded-xl border border-cream-200 bg-cream-200/60 p-4 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeSamples}
+                        disabled={hasPendingSampleRequest}
+                        onChange={(e) => setIncludeSamples(e.target.checked)}
+                        className="mt-1 h-4 w-4 rounded border-bark-500/30 text-bark-500 focus:ring-bark-500"
+                      />
+                      <div>
+                        <span className="block text-sm font-medium text-bark-500">Add Samples</span>
+                        <span className="block text-xs text-bark-500/70">
+                          {hasPendingSampleRequest
+                            ? 'Samples were already flagged for your next order and will be included automatically.'
+                            : 'Include product samples with this order.'}
+                        </span>
+                      </div>
+                    </label>
                     {dropdownLocations.length > 1 ? (
                       <div>
                         <label className="label">Ship-To Location</label>

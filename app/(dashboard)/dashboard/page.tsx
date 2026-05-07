@@ -10,7 +10,6 @@ import {
   Clock,
   CheckCircle,
   Truck,
-  Gift
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
@@ -32,9 +31,6 @@ export default function DashboardPage() {
   const supabase = createClientComponentClient();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
-  const [sampleNotice, setSampleNotice] = useState('');
-  const [showSampleNotice, setShowSampleNotice] = useState(false);
-  const [sampleRequest, setSampleRequest] = useState<{ id: string; created_at: string } | null>(null);
 
   // Get the business name - check both possible field names
   const businessName = retailer?.company_name || retailer?.business_name || '';
@@ -82,61 +78,6 @@ export default function DashboardPage() {
     loadAnnouncements();
   }, [supabase]);
 
-  const loadSampleRequest = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('sample_requests')
-        .select('id, created_at')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (error) {
-        console.error('Sample request load error:', error);
-        setSampleRequest(null);
-        return;
-      }
-
-      setSampleRequest(data?.[0] ?? null);
-    } catch (error) {
-      console.error('Sample request load error:', error);
-      setSampleRequest(null);
-    }
-  };
-
-  useEffect(() => {
-    loadSampleRequest();
-  }, [supabase]);
-
-  useEffect(() => {
-    if (!sampleRequest) return;
-    const requestTime = new Date(sampleRequest.created_at).getTime();
-    const consumed = orders.some((order) => {
-      if (!order.include_samples) return false;
-      const orderTime = new Date(order.created_at).getTime();
-      return orderTime >= requestTime;
-    });
-    if (consumed) {
-      setSampleRequest(null);
-    }
-  }, [orders, sampleRequest]);
-
-  const handleSampleRequest = async () => {
-    try {
-      const response = await fetch('/api/samples/request', { method: 'POST' });
-      const data = await response.json();
-      setSampleNotice(data.message || 'Request submitted. Samples will be added to your next order.');
-      setShowSampleNotice(true);
-      setTimeout(() => setShowSampleNotice(false), 3500);
-      await loadSampleRequest();
-    } catch (error) {
-      console.error('Sample request error:', error);
-      setSampleNotice('Unable to submit request. Please try again.');
-      setShowSampleNotice(true);
-      setTimeout(() => setShowSampleNotice(false), 3500);
-    }
-  };
-
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Header */}
@@ -148,20 +89,6 @@ export default function DashboardPage() {
           Here&apos;s what&apos;s happening with your account
         </p>
       </div>
-
-      {showSampleNotice && (
-        <div className="fixed inset-0 bg-bark-500/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-cream-100 rounded-2xl p-8 max-w-md w-full text-center animate-slide-up shadow-lg">
-            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-8 h-8 text-emerald-600" />
-            </div>
-            <h2 className="text-2xl font-bold text-bark-500 mb-2" style={{ fontFamily: 'var(--font-poppins)' }}>
-              Request submitted
-            </h2>
-            <p className="text-bark-500/70">{sampleNotice}</p>
-          </div>
-        </div>
-      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-8">
@@ -238,18 +165,13 @@ export default function DashboardPage() {
                 label="View Orders"
                 description="View order history"
               />
-            <QuickAction
-              onClick={handleSampleRequest}
-              icon={Gift}
-              label="Request Samples"
-              description="Samples added to next order"
-            />
+              <QuickAction
+                href="/catalog"
+                icon={ShoppingBag}
+                label="Add Samples at Checkout"
+                description="Select samples while placing an order"
+              />
             </div>
-            {sampleRequest && (
-              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                Samples included in next order
-              </div>
-            )}
           </div>
 
           {!announcementsLoading && announcements.length > 0 && (

@@ -289,6 +289,11 @@ export default function OrdersPage() {
                           Samples included with this order
                         </div>
                       )}
+                      {Number(order.credit_applied || 0) > 0 && (
+                        <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1">
+                          Credit applied: {formatCurrency(Number(order.credit_applied || 0))}
+                        </div>
+                      )}
                       {(shipToName || shipToAddress || shipToPhone) && (
                         <div className="mb-6 rounded-xl bg-cream-200/70 border border-cream-200 p-4">
                           <h4 className="text-sm font-semibold text-bark-500/70 mb-2">Ship-To Location</h4>
@@ -338,6 +343,12 @@ export default function OrdersPage() {
                           <span className="text-bark-500/70">Subtotal</span>
                           <span className="text-bark-500">{formatCurrency(Number(order.subtotal))}</span>
                         </div>
+                        {Number(order.credit_applied || 0) > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-bark-500/70">Credit Applied</span>
+                            <span className="font-medium text-blue-700">-{formatCurrency(Number(order.credit_applied || 0))}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between text-sm">
                           <span className="text-bark-500/70">Shipping</span>
                           <span className="text-bark-500">Free</span>

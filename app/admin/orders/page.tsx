@@ -7,7 +7,7 @@ import { Search, Truck, Package, Download, X, CheckCircle, Eye, Plus, Trash2 } f
 import { formatCurrency, cn } from '@/lib/utils';
 
 interface OrderItem { id: string; quantity: number; unit_price: number; total_price: number; product: { name: string; size: string } }
-interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; include_samples?: boolean | null; promotion_code: string | null; invoice_url?: string | null; invoice_sent_at?: string | null; invoice_sent_count?: number | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; location?: { id: string; location_name: string; business_address: string; phone: string | null } | null; order_items: OrderItem[] }
+interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; credit_applied?: number | null; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; include_samples?: boolean | null; promotion_code: string | null; invoice_url?: string | null; invoice_sent_at?: string | null; invoice_sent_count?: number | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; location?: { id: string; location_name: string; business_address: string; phone: string | null } | null; order_items: OrderItem[] }
 interface RetailerOption { id: string; company_name: string }
 interface ProductOption { id: string; name: string; size: string; price: number }
 interface LocationOption { id: string; location_name: string; business_address: string; phone: string | null; is_default: boolean }
@@ -349,7 +349,11 @@ export default function AdminOrdersPage() {
       });
       const data = await response.json();
       if (!data.success) throw new Error(data.error || 'Failed to create order');
-      showNotification('Order created!');
+      showNotification(
+        Number(data.creditApplied || 0) > 0
+          ? `Order created. ${formatCurrency(Number(data.creditApplied || 0))} credit applied.`
+          : 'Order created!'
+      );
       setShowCreateModal(false);
       setNewOrder({ retailerId: '', deliveryDate: '', promotionCode: '', locationId: '', includeSamples: false, items: [{ productId: '', quantity: 1 }] });
       setLocationOptions([]);
@@ -426,6 +430,9 @@ export default function AdminOrdersPage() {
                     <div className="flex items-center gap-2">
                       {order.include_samples && (
                         <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">Samples</span>
+                      )}
+                      {Number(order.credit_applied || 0) > 0 && (
+                        <span className="text-xs font-semibold px-2 py-1 rounded-full bg-blue-100 text-blue-700">Credit</span>
                       )}
                       <button onClick={() => handleShipOrder(order)} className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg" title="Ship Order"><Truck className="w-4 h-4" /></button>
                       <button onClick={() => handleOpenOrderDetails(order)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg" title="View Details"><Eye className="w-4 h-4" /></button>
@@ -642,13 +649,30 @@ export default function AdminOrdersPage() {
                   {isSendingInvoice ? 'Sending Invoice...' : 'Email Invoice Link'}
                 </button>
               </div>
-              <div className="border-t border-gray-100 pt-4">
+              <div className="border-t border-gray-100 pt-4 space-y-3">
                 {selectedOrder.include_samples && (
                   <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold px-3 py-1">
                     Samples included with this order
                   </div>
                 )}
-                <div className="flex justify-between text-lg font-bold"><span>Total</span><span>{formatCurrency(selectedOrder.total)}</span></div>
+                {Number(selectedOrder.credit_applied || 0) > 0 && (
+                  <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1">
+                    Credit applied: {formatCurrency(Number(selectedOrder.credit_applied || 0))}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Subtotal</span>
+                    <span>{formatCurrency(selectedOrder.subtotal)}</span>
+                  </div>
+                  {Number(selectedOrder.credit_applied || 0) > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Credit Applied</span>
+                      <span className="font-medium text-blue-700">-{formatCurrency(Number(selectedOrder.credit_applied || 0))}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-lg font-bold"><span>Total</span><span>{formatCurrency(selectedOrder.total)}</span></div>
+                </div>
               </div>
               {selectedOrder.tracking_number && (
                 <div className="border-t border-gray-100 pt-4">

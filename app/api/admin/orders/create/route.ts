@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import { formatOrderItemsText, formatTeamOrderItemsText, sendRetailerEmail, sendTeamEmail } from '@/lib/email';
+import { applyRetailerCredits } from '@/lib/retailerCredits';
 
 interface CreateOrderItemInput {
   productId: string;
@@ -103,6 +104,7 @@ export async function POST(request: Request) {
         subtotal,
         total,
         include_samples: shouldIncludeSamples,
+        credit_applied: 0,
       })
       .select()
       .single();
@@ -126,6 +128,13 @@ export async function POST(request: Request) {
     if (itemsError) {
       console.error('Order items error:', itemsError);
     }
+
+    const creditResult = await applyRetailerCredits({
+      adminClient,
+      retailerId,
+      orderId: order.id,
+      subtotal,
+    });
 
     if (sampleRequest?.id && shouldIncludeSamples) {
       const { error: sampleUpdateError } = await adminClient
@@ -177,6 +186,11 @@ export async function POST(request: Request) {
       const shipToAddress = shipToLocation?.business_address || retailer?.business_address || 'Not provided';
       const shipToPhone = shipToLocation?.phone || retailer?.phone || 'Not provided';
 
+      const creditSummary = creditResult.creditApplied > 0
+        ? `Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
+Total: $${creditResult.totalAfterCredit.toFixed(2)}`
+        : `Total: $${total.toFixed(2)}`;
+
       const emailText = `
 New Wholesale Order Received!
 
@@ -198,7 +212,7 @@ Order Details:
 ${teamItemsList}
 
 Subtotal: $${subtotal.toFixed(2)}
-Total: $${total.toFixed(2)}
+${creditSummary}
 
 ${deliveryDate ? `Requested Delivery Date: ${deliveryDate}` : ''}
 ${promotionCode ? `Promotion Code: ${promotionCode}` : ''}
@@ -224,7 +238,9 @@ Your order ${orderNumber} has been received and is being processed.
 Order Details:
 ${itemsList}
 
-Total: $${total.toFixed(2)}
+Subtotal: $${subtotal.toFixed(2)}
+${creditResult.creditApplied > 0 ? `Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
+Total: $${creditResult.totalAfterCredit.toFixed(2)}` : `Total: $${total.toFixed(2)}`}
 
 Ship-To Location:
 - Name: ${shipToName}
@@ -241,7 +257,13 @@ Thank you for choosing Bare Naked Pet Co.!
       console.error('Order email error:', emailError);
     }
 
-    return NextResponse.json({ success: true, orderId: order.id, orderNumber });
+    return NextResponse.json({
+      success: true,
+      orderId: order.id,
+      orderNumber,
+      creditApplied: creditResult.creditApplied,
+      total: creditResult.totalAfterCredit,
+    });
   } catch (error) {
     console.error('Admin create order error:', error);
     return NextResponse.json({ error: 'Failed to create order' }, { status: 500 });
