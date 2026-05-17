@@ -285,13 +285,15 @@ export default function AdminInsightsPage() {
             return {
               fromTotal,
               toTotal,
-              dollarChange: toTotal - fromTotal,
-              growthPercent: fromTotal > 0 ? ((toTotal - fromTotal) / fromTotal) * 100 : null,
             };
           });
-        const percentSamples = growthSamples
-          .map((sample) => sample.growthPercent)
-          .filter((growthPercent): growthPercent is number => growthPercent !== null && Number.isFinite(growthPercent));
+        const averageFromOrderSize = growthSamples.length > 0
+          ? growthSamples.reduce((sum, sample) => sum + sample.fromTotal, 0) / growthSamples.length
+          : 0;
+        const averageOrderSize = growthSamples.length > 0
+          ? growthSamples.reduce((sum, sample) => sum + sample.toTotal, 0) / growthSamples.length
+          : 0;
+        const averageDollarChange = averageOrderSize - averageFromOrderSize;
 
         const toOrderNumber = index + 2;
         return {
@@ -299,18 +301,12 @@ export default function AdminInsightsPage() {
           fromOrderNumber: index + 1,
           toOrderNumber,
           customerCount: growthSamples.length,
-          averageGrowthPercent: percentSamples.length > 0
-            ? percentSamples.reduce((sum, growthPercent) => sum + growthPercent, 0) / percentSamples.length
+          averageGrowthPercent: averageFromOrderSize > 0
+            ? (averageDollarChange / averageFromOrderSize) * 100
             : 0,
-          averageFromOrderSize: growthSamples.length > 0
-            ? growthSamples.reduce((sum, sample) => sum + sample.fromTotal, 0) / growthSamples.length
-            : 0,
-          averageDollarChange: growthSamples.length > 0
-            ? growthSamples.reduce((sum, sample) => sum + sample.dollarChange, 0) / growthSamples.length
-            : 0,
-          averageOrderSize: growthSamples.length > 0
-            ? growthSamples.reduce((sum, sample) => sum + sample.toTotal, 0) / growthSamples.length
-            : 0,
+          averageFromOrderSize,
+          averageDollarChange,
+          averageOrderSize,
         };
       });
 
@@ -974,7 +970,7 @@ export default function AdminInsightsPage() {
               {formatPercent(secondOrderGrowthPercent)}
             </p>
             <p className="text-xs text-gray-400 mt-2">
-              Avg net change of {secondOrderGrowthValue >= 0 ? '+' : '-'}{formatCurrency(Math.abs(secondOrderGrowthValue))}
+              Avg order size {secondOrderGrowthValue >= 0 ? 'increased' : 'decreased'} by {secondOrderGrowthValue >= 0 ? '+' : '-'}{formatCurrency(Math.abs(secondOrderGrowthValue))}
             </p>
           </div>
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
@@ -989,7 +985,7 @@ export default function AdminInsightsPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h4 className="text-md font-semibold text-gray-900">Average Order Growth Over Time</h4>
-                <p className="text-sm text-gray-500 mt-1">Percent change from each order to the next</p>
+                <p className="text-sm text-gray-500 mt-1">Cohort average order size change from each order to the next</p>
               </div>
             </div>
             <div className="h-72 mt-6">
@@ -1029,7 +1025,7 @@ export default function AdminInsightsPage() {
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden xl:col-span-2">
             <div className="p-6 border-b border-gray-100">
               <h4 className="text-md font-semibold text-gray-900">Order Step Detail</h4>
-              <p className="text-sm text-gray-500 mt-1">Average change and cohort size for each repeat-order step</p>
+              <p className="text-sm text-gray-500 mt-1">Dollar and percent change use the same before/after average order sizes</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -1058,7 +1054,7 @@ export default function AdminInsightsPage() {
                         <td className={`px-6 py-4 font-medium ${step.averageGrowthPercent >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
                           {formatPercent(step.averageGrowthPercent)}
                           <span className="block text-xs font-normal text-gray-400">
-                            Net {step.averageDollarChange >= 0 ? '+' : '-'}{formatCurrency(Math.abs(step.averageDollarChange))}
+                            {step.averageDollarChange >= 0 ? '+' : '-'}{formatCurrency(Math.abs(step.averageDollarChange))}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-gray-600">
