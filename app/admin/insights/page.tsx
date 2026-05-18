@@ -11,8 +11,6 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
-  Cell,
-  ReferenceLine,
 } from 'recharts';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -63,17 +61,6 @@ type MonthlyRevenuePoint = {
   month: string;
   revenue: number;
   paceRevenue: number;
-};
-
-type OrderSequenceGrowth = {
-  stepLabel: string;
-  fromOrderNumber: number;
-  toOrderNumber: number;
-  customerCount: number;
-  averageGrowthPercent: number;
-  averageFromOrderSize: number;
-  averageDollarChange: number;
-  averageOrderSize: number;
 };
 
 type ProductRecord = {
@@ -140,17 +127,6 @@ const MIN_RUNNING_WEEKS = 1;
 const formatCompactCurrency = (value: number) =>
   `$${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value)}`;
 
-const formatPercent = (value: number) => {
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${value.toFixed(1)}%`;
-};
-
-const formatDays = (days: number) => {
-  if (!Number.isFinite(days) || days <= 0) return '0 days';
-  if (days < 1) return '<1 day';
-  return `${days.toFixed(days >= 10 ? 0 : 1)} days`;
-};
-
 const formatSkuLabel = (product: ProductRecord | undefined, fallbackId?: string | null) => {
   if (!product) return fallbackId ? `Unknown SKU (${fallbackId.slice(0, 8)})` : 'Unknown SKU';
   return `${product.name} (${product.size})`;
@@ -187,12 +163,6 @@ export default function AdminInsightsPage() {
   const [activeRetailers, setActiveRetailers] = useState(0);
   const [newLocationsThisMonth, setNewLocationsThisMonth] = useState(0);
   const [reorderRate, setReorderRate] = useState(0);
-  const [firstOrderCustomerCount, setFirstOrderCustomerCount] = useState(0);
-  const [secondOrderCustomerCount, setSecondOrderCustomerCount] = useState(0);
-  const [avgDaysToSecondOrder, setAvgDaysToSecondOrder] = useState(0);
-  const [secondOrderGrowthPercent, setSecondOrderGrowthPercent] = useState(0);
-  const [secondOrderGrowthValue, setSecondOrderGrowthValue] = useState(0);
-  const [orderGrowthSteps, setOrderGrowthSteps] = useState<OrderSequenceGrowth[]>([]);
   const [atRiskRetailers, setAtRiskRetailers] = useState<AtRiskRetailer[]>([]);
   const [stateRevenue, setStateRevenue] = useState<{ state: string; revenue: number }[]>([]);
   const [activeStates, setActiveStates] = useState(0);
@@ -243,80 +213,6 @@ export default function AdminInsightsPage() {
       setTotalRevenue(totalRevenueValue);
       setUnitsSold(unitsSoldValue);
       setAvgOrderValue(totalOrders > 0 ? totalRevenueValue / totalOrders : 0);
-
-      const ordersByRetailer = new Map<string, OrderRecord[]>();
-      validOrders.forEach((order) => {
-        if (!order.retailer_id) return;
-        const retailerOrders = ordersByRetailer.get(order.retailer_id) || [];
-        retailerOrders.push(order);
-        ordersByRetailer.set(order.retailer_id, retailerOrders);
-      });
-
-      const retailerOrderSequences = Array.from(ordersByRetailer.values())
-        .map((retailerOrders) =>
-          retailerOrders.sort((a, b) => {
-            const dateDelta = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-            if (dateDelta !== 0) return dateDelta;
-            return a.id.localeCompare(b.id);
-          }),
-        )
-        .filter((retailerOrders) => retailerOrders.length > 0);
-
-      const customersWithSecondOrder = retailerOrderSequences.filter((retailerOrders) => retailerOrders.length >= 2);
-      const secondOrderIntervals = customersWithSecondOrder.map((retailerOrders) => {
-        const firstOrderDate = new Date(retailerOrders[0].created_at);
-        const secondOrderDate = new Date(retailerOrders[1].created_at);
-        return Math.max(0, (secondOrderDate.getTime() - firstOrderDate.getTime()) / MS_IN_DAY);
-      });
-      const averageDaysToSecondOrder = secondOrderIntervals.length > 0
-        ? secondOrderIntervals.reduce((sum, days) => sum + days, 0) / secondOrderIntervals.length
-        : 0;
-
-      const maxSequenceLength = retailerOrderSequences.reduce(
-        (maxLength, retailerOrders) => Math.max(maxLength, retailerOrders.length),
-        0,
-      );
-      const growthSteps = Array.from({ length: Math.max(0, maxSequenceLength - 1) }, (_, index) => {
-        const growthSamples = retailerOrderSequences
-          .filter((retailerOrders) => retailerOrders.length > index + 1)
-          .map((retailerOrders) => {
-            const fromTotal = Number(retailerOrders[index].total) || 0;
-            const toTotal = Number(retailerOrders[index + 1].total) || 0;
-            return {
-              fromTotal,
-              toTotal,
-            };
-          });
-        const averageFromOrderSize = growthSamples.length > 0
-          ? growthSamples.reduce((sum, sample) => sum + sample.fromTotal, 0) / growthSamples.length
-          : 0;
-        const averageOrderSize = growthSamples.length > 0
-          ? growthSamples.reduce((sum, sample) => sum + sample.toTotal, 0) / growthSamples.length
-          : 0;
-        const averageDollarChange = averageOrderSize - averageFromOrderSize;
-
-        const toOrderNumber = index + 2;
-        return {
-          stepLabel: `${index + 1} to ${toOrderNumber}`,
-          fromOrderNumber: index + 1,
-          toOrderNumber,
-          customerCount: growthSamples.length,
-          averageGrowthPercent: averageFromOrderSize > 0
-            ? (averageDollarChange / averageFromOrderSize) * 100
-            : 0,
-          averageFromOrderSize,
-          averageDollarChange,
-          averageOrderSize,
-        };
-      });
-
-      const secondOrderGrowth = growthSteps[0] || null;
-      setFirstOrderCustomerCount(retailerOrderSequences.length);
-      setSecondOrderCustomerCount(customersWithSecondOrder.length);
-      setAvgDaysToSecondOrder(averageDaysToSecondOrder);
-      setSecondOrderGrowthPercent(secondOrderGrowth?.averageGrowthPercent || 0);
-      setSecondOrderGrowthValue(secondOrderGrowth?.averageDollarChange || 0);
-      setOrderGrowthSteps(growthSteps.slice(0, 8));
 
       const firstValidOrderDate = validOrders.length > 0
         ? validOrders.reduce((earliest, order) => {
@@ -890,9 +786,8 @@ export default function AdminInsightsPage() {
               <p className="text-2xl font-bold text-gray-900 mt-1">{unitsSold}</p>
             </div>
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500">Average Order Size</p>
+              <p className="text-sm text-gray-500">Average Order Value</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(avgOrderValue)}</p>
-              <p className="text-xs text-gray-400 mt-2">Across all non-canceled orders</p>
             </div>
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
               <div className="flex items-start justify-between gap-4">
@@ -935,137 +830,6 @@ export default function AdminInsightsPage() {
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="space-y-4">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Customer Order Lifecycle</h3>
-            <p className="text-sm text-gray-500 mt-1">
-              First-order retention, second-order timing, and average order-size growth by repeat order.
-            </p>
-          </div>
-          <p className="text-xs text-gray-400">Retailers with non-canceled orders only</p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <p className="text-sm text-gray-500">First to Second Order</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{reorderRate.toFixed(1)}%</p>
-            <p className="text-xs text-gray-400 mt-2">
-              {secondOrderCustomerCount} of {firstOrderCustomerCount} first-order retailers reordered
-            </p>
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <p className="text-sm text-gray-500">Avg Time to Second Order</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{formatDays(avgDaysToSecondOrder)}</p>
-            <p className="text-xs text-gray-400 mt-2">Among retailers who placed a second order</p>
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <p className="text-sm text-gray-500">Second Order Growth</p>
-            <p className={`text-2xl font-bold mt-1 ${secondOrderGrowthPercent >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
-              {formatPercent(secondOrderGrowthPercent)}
-            </p>
-            <p className="text-xs text-gray-400 mt-2">
-              Avg order size {secondOrderGrowthValue >= 0 ? 'increased' : 'decreased'} by {secondOrderGrowthValue >= 0 ? '+' : '-'}{formatCurrency(Math.abs(secondOrderGrowthValue))}
-            </p>
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <p className="text-sm text-gray-500">Repeat Order Steps</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{orderGrowthSteps.length}</p>
-            <p className="text-xs text-gray-400 mt-2">Sequential order transitions with enough customer history</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 xl:col-span-3">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h4 className="text-md font-semibold text-gray-900">Average Order Growth Over Time</h4>
-                <p className="text-sm text-gray-500 mt-1">Cohort average order size change from each order to the next</p>
-              </div>
-            </div>
-            <div className="h-72 mt-6">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={orderGrowthSteps} barCategoryGap={18}>
-                  <CartesianGrid stroke="#E5E7EB" strokeDasharray="3 3" />
-                  <XAxis dataKey="stepLabel" tick={{ fill: '#6B7280', fontSize: 12 }} />
-                  <YAxis tickFormatter={(value) => `${Number(value).toFixed(0)}%`} tick={{ fill: '#6B7280', fontSize: 12 }} />
-                  <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={1.5} />
-                  <Tooltip
-                    formatter={(value: number, name: string) => [
-                      name === 'averageGrowthPercent'
-                        ? formatPercent(Number(value))
-                        : formatCurrency(Number(value)),
-                      name === 'averageGrowthPercent' ? 'Average growth' : 'Average order size',
-                    ]}
-                    labelFormatter={(label) => `Order ${label}`}
-                  />
-                  <Bar
-                    dataKey="averageGrowthPercent"
-                    name="averageGrowthPercent"
-                    radius={[6, 6, 0, 0]}
-                    maxBarSize={34}
-                  >
-                    {orderGrowthSteps.map((step) => (
-                      <Cell
-                        key={step.stepLabel}
-                        fill={step.averageGrowthPercent >= 0 ? '#047857' : '#DC2626'}
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden xl:col-span-2">
-            <div className="p-6 border-b border-gray-100">
-              <h4 className="text-md font-semibold text-gray-900">Order Step Detail</h4>
-              <p className="text-sm text-gray-500 mt-1">Dollar and percent change use the same before/after average order sizes</p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Step</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Retailers</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Growth</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Sizes</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {orderGrowthSteps.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
-                        No repeat-order history yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    orderGrowthSteps.map((step) => (
-                      <tr key={step.stepLabel} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 font-medium text-gray-900">
-                          {step.fromOrderNumber} to {step.toOrderNumber}
-                        </td>
-                        <td className="px-6 py-4 text-gray-600">{step.customerCount}</td>
-                        <td className={`px-6 py-4 font-medium ${step.averageGrowthPercent >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                          {formatPercent(step.averageGrowthPercent)}
-                          <span className="block text-xs font-normal text-gray-400">
-                            {step.averageDollarChange >= 0 ? '+' : '-'}{formatCurrency(Math.abs(step.averageDollarChange))}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-gray-600">
-                          <span className="block">{formatCurrency(step.averageFromOrderSize)}</span>
-                          <span className="block text-xs text-gray-400">to {formatCurrency(step.averageOrderSize)}</span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
             </div>
           </div>
         </div>
