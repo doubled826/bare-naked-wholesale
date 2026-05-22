@@ -20,7 +20,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
     const [{ data: retailer, error: retailerError }, { data: retailerUser, error: userError }] = await Promise.all([
       adminClient
         .from('retailers')
-        .select('id, company_name, business_address, phone')
+        .select('id, company_name, business_address, phone, account_number, status, created_at')
         .eq('id', retailerId)
         .single(),
       adminClient.auth.admin.getUserById(retailerId),

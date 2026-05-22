@@ -13,6 +13,7 @@ interface Retailer {
   company_name: string;
   business_address: string;
   phone: string;
+  email?: string;
   account_number: string;
   status?: string;
   created_at: string;
@@ -269,19 +270,23 @@ export default function AdminRetailerDetailPage() {
       setError('');
       try {
         const [
-          { data: retailerData, error: retailerError },
+          retailerResponse,
           { data: ordersData, error: ordersError },
           { data: locationsData, error: locationsError },
         ] = await Promise.all([
-          supabase.from('retailers').select('id, company_name, business_address, phone, account_number, status, created_at').eq('id', retailerId).single(),
+          fetch(`/api/admin/retailers/${retailerId}`),
           supabase.from('orders').select('id, order_number, status, total, subtotal, credit_applied, include_samples, created_at, order_items(id, quantity, total_price, product:products(name, size))').eq('retailer_id', retailerId).order('created_at', { ascending: false }),
           supabase.from('retailer_locations').select('id, location_name, business_address, phone, is_default, created_at').eq('retailer_id', retailerId).order('is_default', { ascending: false }).order('created_at', { ascending: true }),
         ]);
 
-        if (retailerError) throw retailerError;
+        const retailerPayload = await retailerResponse.json();
+        if (!retailerResponse.ok || !retailerPayload?.retailer) {
+          throw new Error(retailerPayload?.error || 'Failed to load retailer details.');
+        }
         if (ordersError) throw ordersError;
         if (locationsError) throw locationsError;
 
+        const retailerData = retailerPayload.retailer as Retailer;
         setRetailer(retailerData);
         setOrders(normalizeOrders((ordersData || []) as Order[]));
         const nextLocations = (locationsData || []) as RetailerLocation[];
@@ -825,6 +830,16 @@ export default function AdminRetailerDetailPage() {
             <div>
               <p className="text-gray-500">Phone</p>
               <p className="text-gray-900 font-medium mt-1">{retailer.phone}</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Email</p>
+              {retailer.email ? (
+                <a href={`mailto:${retailer.email}`} className="text-gray-900 font-medium mt-1 break-words hover:text-bark-600">
+                  {retailer.email}
+                </a>
+              ) : (
+                <p className="text-gray-900 font-medium mt-1">—</p>
+              )}
             </div>
             <div>
               <p className="text-gray-500">Avg Order Value</p>
