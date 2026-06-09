@@ -20,6 +20,7 @@ export async function POST(request: Request) {
       businessState,
       businessZip,
       name,
+      email,
       phone,
       taxId,
       accountNumber,
@@ -40,7 +41,7 @@ A retailer updated their account information.
 Business Name: ${businessName}
 Account Number: ${accountNumber || 'Not provided'}
 Contact Name: ${name}
-Email: ${user.email}
+Email: ${email || user.email}
 Phone: ${phone}
 Address: ${formattedBusinessAddress || 'Not provided'}
 Tax ID: ${taxId}

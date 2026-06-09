@@ -31,6 +31,7 @@ export default function AccountPage() {
   const [activeTab, setActiveTab] = useState('profile');
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [profileError, setProfileError] = useState('');
   const [userMetadata, setUserMetadata] = useState<any>(null);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
@@ -460,6 +461,7 @@ export default function AccountPage() {
 
   const handleSave = async () => {
     setIsSaving(true);
+    setProfileError('');
     
     try {
       const businessAddress = formatBusinessAddress({
@@ -469,38 +471,40 @@ export default function AccountPage() {
         zip: profile.businessZip,
       });
 
-      // Update user metadata
-      const { error: userError } = await supabase.auth.updateUser({
-        data: {
-          display_name: profile.name,
-          full_name: profile.name,
+      const response = await fetch('/api/account/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessName: profile.businessName,
+          businessStreet: profile.businessStreet,
+          businessCity: profile.businessCity,
+          businessState: profile.businessState,
+          businessZip: profile.businessZip,
+          name: profile.name,
+          email: profile.email,
           phone: profile.phone,
+          taxId: profile.taxId,
+        }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || 'Unable to save your profile.');
+      }
+
+      const updatedEmail = result.profile?.email || profile.email.trim().toLowerCase();
+      await supabase.auth.refreshSession();
+      setProfile((current) => ({ ...current, email: updatedEmail }));
+      setUserMetadata(result.profile?.metadata || null);
+      if (retailer) {
+        setRetailer({
+          ...retailer,
           company_name: profile.businessName,
           business_address: businessAddress,
-          business_street: profile.businessStreet?.trim(),
-          business_city: profile.businessCity?.trim(),
-          business_state: profile.businessState?.trim(),
-          business_zip: profile.businessZip?.trim(),
+          phone: profile.phone,
           tax_id: profile.taxId,
-        }
-      });
-
-      if (userError) throw userError;
-
-      // Update retailer table
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { error: retailerError } = await supabase
-          .from('retailers')
-          .update({
-            company_name: profile.businessName,
-            business_address: businessAddress,
-            phone: profile.phone,
-            tax_id: profile.taxId,
-          })
-          .eq('id', user.id);
-
-        if (retailerError) throw retailerError;
+          email: updatedEmail,
+        });
       }
 
       await fetch('/api/account/notify-update', {
@@ -513,6 +517,7 @@ export default function AccountPage() {
           businessState: profile.businessState,
           businessZip: profile.businessZip,
           name: profile.name,
+          email: updatedEmail,
           phone: profile.phone,
           taxId: profile.taxId,
           accountNumber: profile.accountNumber,
@@ -523,6 +528,7 @@ export default function AccountPage() {
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {
       console.error('Error saving profile:', error);
+      setProfileError(error instanceof Error ? error.message : 'Unable to save your profile.');
     } finally {
       setIsSaving(false);
     }
@@ -809,7 +815,7 @@ export default function AccountPage() {
                   </div>
                 </div>
 
-                {/* Email (readonly - managed by auth) */}
+                {/* Email */}
                 <div>
                   <label htmlFor="email" className="label">Email Address</label>
                   <div className="relative">
@@ -818,11 +824,12 @@ export default function AccountPage() {
                       id="email"
                       type="email"
                       value={profile.email}
-                      disabled
-                      className="input pl-10 opacity-60 cursor-not-allowed bg-cream-200"
+                      onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                      className="input pl-10"
+                      autoComplete="email"
                     />
                   </div>
-                  <p className="text-xs text-bark-500/50 mt-1">Contact support to change your email</p>
+                  <p className="text-xs text-bark-500/50 mt-1">This is also the email you use to sign in.</p>
                 </div>
 
                 {/* Phone */}
@@ -859,6 +866,11 @@ export default function AccountPage() {
 
               <div className="mt-8 pt-6 border-t border-cream-200 flex items-center justify-between">
                 <div>
+                  {profileError && (
+                    <span className="text-sm text-red-600">
+                      {profileError}
+                    </span>
+                  )}
                   {saved && (
                     <span className="text-sm text-emerald-600 flex items-center gap-2 animate-fade-in">
                       <Check className="w-4 h-4" />
