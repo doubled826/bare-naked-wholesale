@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import { formatOrderItemsText, formatTeamOrderItemsText, sendRetailerEmail, sendTeamEmail } from '@/lib/email';
 import { applyRetailerCredits } from '@/lib/retailerCredits';
+import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 
 interface CreateOrderItemInput {
   productId: string;
@@ -74,6 +75,15 @@ export async function POST(request: Request) {
       .eq('status', 'pending')
       .single();
 
+    const { data: marketingMaterialsRequest } = await adminClient
+      .from('marketing_material_requests')
+      .select('id, materials_type')
+      .eq('retailer_id', retailerId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
     let shipToLocation: { id: string; location_name: string; business_address: string; phone: string | null } | null = null;
     if (locationId) {
       const { data: location, error: locationError } = await adminClient
@@ -91,6 +101,10 @@ export async function POST(request: Request) {
     }
 
     const shouldIncludeSamples = Boolean(includeSamples) || Boolean(sampleRequest?.id);
+    const shouldIncludeMarketingMaterials = Boolean(marketingMaterialsRequest?.id);
+    const marketingMaterialsType = shouldIncludeMarketingMaterials
+      ? marketingMaterialsRequest?.materials_type || 'both'
+      : null;
 
     const { data: order, error: orderError } = await adminClient
       .from('orders')
@@ -104,6 +118,8 @@ export async function POST(request: Request) {
         subtotal,
         total,
         include_samples: shouldIncludeSamples,
+        include_marketing_materials: shouldIncludeMarketingMaterials,
+        marketing_materials_type: marketingMaterialsType,
         credit_applied: 0,
       })
       .select()
@@ -150,6 +166,20 @@ export async function POST(request: Request) {
       }
     }
 
+    if (marketingMaterialsRequest?.id && shouldIncludeMarketingMaterials) {
+      const { error: materialsUpdateError } = await adminClient
+        .from('marketing_material_requests')
+        .update({
+          status: 'fulfilled',
+          fulfilled_order_id: order.id,
+          fulfilled_at: new Date().toISOString(),
+        })
+        .eq('id', marketingMaterialsRequest.id);
+      if (materialsUpdateError) {
+        console.error('Marketing materials request update error:', materialsUpdateError);
+      }
+    }
+
     const { data: retailer } = await adminClient
       .from('retailers')
       .select('company_name, business_address, phone')
@@ -184,6 +214,15 @@ export async function POST(request: Request) {
       const retailerSamplesNote = order.include_samples
         ? 'Samples Added: Yes\n'
         : '';
+      const materialsLabel = order.include_marketing_materials
+        ? formatMarketingMaterialsLabel(order.marketing_materials_type)
+        : '';
+      const materialsNote = order.include_marketing_materials
+        ? `\nMarketing Materials: INCLUDE ${materialsLabel.toUpperCase()} (requested by retailer)\n`
+        : '';
+      const retailerMaterialsNote = order.include_marketing_materials
+        ? `Marketing Materials Added: ${materialsLabel}\n`
+        : '';
 
       const shipToName = shipToLocation?.location_name || retailer?.company_name || 'Not provided';
       const shipToAddress = shipToLocation?.business_address || retailer?.business_address || 'Not provided';
@@ -199,6 +238,7 @@ New Wholesale Order Received!
 
 Order Number: ${orderNumber}
 ${samplesNote}
+${materialsNote}
 
 Customer Information:
 - Business Name: ${retailer?.company_name || 'Not provided'}
@@ -242,6 +282,7 @@ Order Details:
 ${itemsList}
 
 ${retailerSamplesNote}
+${retailerMaterialsNote}
 Subtotal: $${subtotal.toFixed(2)}
 ${creditResult.creditApplied > 0 ? `Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
 Total: $${creditResult.totalAfterCredit.toFixed(2)}` : `Total: $${total.toFixed(2)}`}

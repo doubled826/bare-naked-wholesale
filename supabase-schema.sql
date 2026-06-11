@@ -72,6 +72,19 @@ CREATE TABLE IF NOT EXISTS sample_requests (
   fulfilled_at TIMESTAMPTZ
 );
 
+-- Marketing material requests table
+CREATE TABLE IF NOT EXISTS marketing_material_requests (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  retailer_id UUID REFERENCES retailers(id) ON DELETE CASCADE,
+  materials_type TEXT NOT NULL DEFAULT 'both'
+    CHECK (materials_type IN ('shelf_talker', 'table_tent', 'both')),
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'fulfilled', 'canceled')),
+  fulfilled_order_id UUID REFERENCES orders(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  fulfilled_at TIMESTAMPTZ
+);
+
 -- Retail success adoption profile
 CREATE TABLE IF NOT EXISTS retailer_success_profiles (
   retailer_id UUID PRIMARY KEY REFERENCES retailers(id) ON DELETE CASCADE,
@@ -127,6 +140,9 @@ CREATE TABLE orders (
   delivery_date DATE,
   promotion_code TEXT,
   include_samples BOOLEAN DEFAULT false,
+  include_marketing_materials BOOLEAN DEFAULT false,
+  marketing_materials_type TEXT
+    CHECK (marketing_materials_type IS NULL OR marketing_materials_type IN ('shelf_talker', 'table_tent', 'both')),
   invoice_url TEXT,
   invoice_sent_at TIMESTAMPTZ,
   invoice_sent_count INTEGER DEFAULT 0,
@@ -153,6 +169,7 @@ CREATE INDEX idx_orders_retailer_id ON orders(retailer_id);
 CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
 CREATE INDEX idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX idx_retailer_locations_retailer_id ON retailer_locations(retailer_id);
+CREATE INDEX idx_marketing_material_requests_retailer_status ON marketing_material_requests(retailer_id, status);
 
 -- Enable Row Level Security
 ALTER TABLE retailers ENABLE ROW LEVEL SECURITY;
@@ -161,6 +178,7 @@ ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sample_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE marketing_material_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE retailer_locations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE retailer_success_profiles ENABLE ROW LEVEL SECURITY;
@@ -226,6 +244,34 @@ CREATE POLICY "Users can create their own sample requests"
 
 CREATE POLICY "Admins can manage sample requests"
   ON sample_requests FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Retailers can view their marketing material requests"
+  ON marketing_material_requests FOR SELECT
+  USING (auth.uid() = retailer_id);
+
+CREATE POLICY "Retailers can create their marketing material requests"
+  ON marketing_material_requests FOR INSERT
+  WITH CHECK (auth.uid() = retailer_id);
+
+CREATE POLICY "Retailers can update their marketing material requests"
+  ON marketing_material_requests FOR UPDATE
+  USING (auth.uid() = retailer_id)
+  WITH CHECK (auth.uid() = retailer_id);
+
+CREATE POLICY "Admins can manage marketing material requests"
+  ON marketing_material_requests FOR ALL
   USING (
     EXISTS (
       SELECT 1 FROM admin_users

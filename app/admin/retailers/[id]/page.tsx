@@ -7,6 +7,7 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
+import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 import {
   calculateSuccessPlanProgress,
   defaultCurrentAstroPromo,
@@ -48,6 +49,8 @@ interface Order {
   total: number;
   subtotal: number;
   include_samples?: boolean | null;
+  include_marketing_materials?: boolean | null;
+  marketing_materials_type?: string | null;
   credit_applied?: number | null;
   created_at: string;
   order_items: OrderItem[];
@@ -301,7 +304,7 @@ export default function AdminRetailerDetailPage() {
           { data: promoData },
         ] = await Promise.all([
           fetch(`/api/admin/retailers/${retailerId}`),
-          supabase.from('orders').select('id, order_number, status, total, subtotal, credit_applied, include_samples, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category))').eq('retailer_id', retailerId).order('created_at', { ascending: false }),
+          supabase.from('orders').select('id, order_number, status, total, subtotal, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category))').eq('retailer_id', retailerId).order('created_at', { ascending: false }),
           supabase.from('retailer_locations').select('id, location_name, business_address, phone, is_default, created_at').eq('retailer_id', retailerId).order('is_default', { ascending: false }).order('created_at', { ascending: true }),
           supabase.from('retailer_success_profiles').select('*').eq('retailer_id', retailerId).maybeSingle(),
           supabase.from('retailer_success_promo_settings').select('*').eq('id', 'current').maybeSingle(),
@@ -1625,6 +1628,7 @@ export default function AdminRetailerDetailPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     {order.include_samples && <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Samples</span>}
+                    {order.include_marketing_materials && <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{formatMarketingMaterialsLabel(order.marketing_materials_type)}</span>}
                     {Number(order.credit_applied || 0) > 0 && <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">Credit</span>}
                     <span className={cn("px-2.5 py-0.5 rounded-full text-xs font-medium capitalize", getStatusColor(order.status))}>{order.status}</span>
                     <span className="font-medium text-gray-900">{formatCurrency(order.total)}</span>

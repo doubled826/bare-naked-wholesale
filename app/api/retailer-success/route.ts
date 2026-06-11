@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { DEFAULT_ASTRO_URL, normalizeCurrentAstroPromo } from '@/lib/retailerSuccess';
 import { sendTeamEmail } from '@/lib/email';
+import { formatMarketingMaterialsLabel, isMarketingMaterialsType } from '@/lib/marketingMaterials';
 
 const allowedProfileFields = [
   'samples_acknowledged',
@@ -12,12 +13,6 @@ const allowedProfileFields = [
   'shelf_placement_note',
   'current_promo_status',
 ] as const;
-
-const marketingMaterialsLabels: Record<string, string> = {
-  shelf_talker: 'Shelf talker',
-  table_tent: 'Table tent',
-  both: 'Shelf talker + table tent',
-};
 
 export async function GET() {
   try {
@@ -65,10 +60,74 @@ export async function PATCH(request: Request) {
     allowedProfileFields.forEach((field) => {
       if (field in body) updates[field] = body[field];
     });
-    const marketingMaterialsRequest =
-      typeof body.marketing_materials_request === 'string' && body.marketing_materials_request in marketingMaterialsLabels
-        ? body.marketing_materials_request
-        : null;
+    const marketingMaterialsRequest = isMarketingMaterialsType(body.marketing_materials_request)
+      ? body.marketing_materials_request
+      : null;
+
+    if (updates.marketing_materials_status === 'requested' && marketingMaterialsRequest) {
+      const { data: retailer } = await supabase
+        .from('retailers')
+        .select('company_name, account_number, business_address, phone')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      const companyName = retailer?.company_name || 'Unknown retailer';
+      const materialsLabel = formatMarketingMaterialsLabel(marketingMaterialsRequest);
+
+      const { data: existingRequest } = await supabase
+        .from('marketing_material_requests')
+        .select('id')
+        .eq('retailer_id', user.id)
+        .eq('status', 'pending')
+        .maybeSingle();
+
+      const requestPayload = {
+        retailer_id: user.id,
+        materials_type: marketingMaterialsRequest,
+        status: 'pending',
+      };
+
+      const { error: requestError } = existingRequest?.id
+        ? await supabase
+            .from('marketing_material_requests')
+            .update(requestPayload)
+            .eq('id', existingRequest.id)
+        : await supabase
+            .from('marketing_material_requests')
+            .insert(requestPayload);
+
+      if (requestError) {
+        return NextResponse.json(
+          { error: requestError.message || 'Failed to save marketing materials request.' },
+          { status: 400 },
+        );
+      }
+
+      try {
+        await sendTeamEmail({
+          subject: `Marketing materials requested: ${companyName}`,
+          text: `
+A retailer requested in-store marketing materials.
+
+These materials should be added to their next order.
+
+Retailer: ${companyName}
+Account Number: ${retailer?.account_number || 'Not provided'}
+Email: ${user.email || 'Not provided'}
+Phone: ${retailer?.phone || 'Not provided'}
+Address: ${retailer?.business_address || 'Not provided'}
+
+Requested Materials: ${materialsLabel}
+          `.trim(),
+        });
+      } catch (emailError) {
+        console.error('Marketing materials notification email error:', emailError);
+        return NextResponse.json(
+          { error: 'Marketing materials request could not be emailed to the team. Please try again.' },
+          { status: 500 },
+        );
+      }
+    }
 
     const { data, error } = await supabase
       .from('retailer_success_profiles')
@@ -83,33 +142,6 @@ export async function PATCH(request: Request) {
 
     if (error) {
       return NextResponse.json({ error: error.message || 'Failed to save retailer success profile.' }, { status: 400 });
-    }
-
-    if (updates.marketing_materials_status === 'requested' && marketingMaterialsRequest) {
-      const { data: retailer } = await supabase
-        .from('retailers')
-        .select('company_name, account_number, business_address, phone')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      const companyName = retailer?.company_name || 'Unknown retailer';
-      const materialsLabel = marketingMaterialsLabels[marketingMaterialsRequest];
-
-      await sendTeamEmail({
-        to: 'info@barenakedpet.com',
-        subject: `Marketing materials requested: ${companyName}`,
-        text: `
-A retailer requested in-store marketing materials.
-
-Retailer: ${companyName}
-Account Number: ${retailer?.account_number || 'Not provided'}
-Email: ${user.email || 'Not provided'}
-Phone: ${retailer?.phone || 'Not provided'}
-Address: ${retailer?.business_address || 'Not provided'}
-
-Requested Materials: ${materialsLabel}
-        `.trim(),
-      });
     }
 
     return NextResponse.json({

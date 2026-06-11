@@ -1,6 +1,7 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 
 export async function GET(request: Request) {
   try {
@@ -29,6 +30,8 @@ export async function GET(request: Request) {
         tracking_carrier,
         invoice_url,
         include_samples,
+        include_marketing_materials,
+        marketing_materials_type,
         promotion_code,
         created_at
       `)
@@ -61,6 +64,8 @@ export async function GET(request: Request) {
       'Tracking Carrier',
       'Invoice URL',
       'Includes Samples',
+      'Includes Marketing Materials',
+      'Marketing Materials Type',
       'Promotion Code',
       'Delivery Date',
       'Order Date'
@@ -76,6 +81,8 @@ export async function GET(request: Request) {
       order.tracking_carrier || '',
       order.invoice_url || '',
       order.include_samples ? 'Yes' : 'No',
+      order.include_marketing_materials ? 'Yes' : 'No',
+      order.include_marketing_materials ? formatMarketingMaterialsLabel(order.marketing_materials_type) : '',
       order.promotion_code || '',
       order.delivery_date || '',
       new Date(order.created_at).toLocaleDateString()

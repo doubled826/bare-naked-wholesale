@@ -5,9 +5,10 @@ import { useSearchParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Search, Truck, Package, Download, X, CheckCircle, Eye, Plus, Trash2 } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
+import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 
 interface OrderItem { id: string; quantity: number; unit_price: number; total_price: number; product: { name: string; size: string } }
-interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; credit_applied?: number | null; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; include_samples?: boolean | null; promotion_code: string | null; invoice_url?: string | null; invoice_sent_at?: string | null; invoice_sent_count?: number | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; location?: { id: string; location_name: string; business_address: string; phone: string | null } | null; order_items: OrderItem[] }
+interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; credit_applied?: number | null; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; include_samples?: boolean | null; include_marketing_materials?: boolean | null; marketing_materials_type?: string | null; promotion_code: string | null; invoice_url?: string | null; invoice_sent_at?: string | null; invoice_sent_count?: number | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; location?: { id: string; location_name: string; business_address: string; phone: string | null } | null; order_items: OrderItem[] }
 interface RetailerOption { id: string; company_name: string }
 interface ProductOption { id: string; name: string; size: string; price: number }
 interface LocationOption { id: string; location_name: string; business_address: string; phone: string | null; is_default: boolean }
@@ -486,6 +487,9 @@ export default function AdminOrdersPage() {
                       {order.include_samples && (
                         <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">Samples</span>
                       )}
+                      {order.include_marketing_materials && (
+                        <span className="text-xs font-semibold px-2 py-1 rounded-full bg-amber-100 text-amber-700">Materials</span>
+                      )}
                       {Number(order.credit_applied || 0) > 0 && (
                         <span className="text-xs font-semibold px-2 py-1 rounded-full bg-blue-100 text-blue-700">Credit</span>
                       )}
@@ -733,6 +737,11 @@ export default function AdminOrdersPage() {
                 {selectedOrder.include_samples && (
                   <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold px-3 py-1">
                     Samples included with this order
+                  </div>
+                )}
+                {selectedOrder.include_marketing_materials && (
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1">
+                    {formatMarketingMaterialsLabel(selectedOrder.marketing_materials_type)} included with this order
                   </div>
                 )}
                 {Number(selectedOrder.credit_applied || 0) > 0 && (

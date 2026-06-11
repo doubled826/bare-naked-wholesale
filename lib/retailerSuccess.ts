@@ -284,7 +284,7 @@ export function getRecommendedNextStep(
     return {
       key: 'materials',
       headline: 'Request in-store marketing',
-      body: 'Shelf talkers and table tents help customers understand Bare at the shelf.',
+      body: 'Shelf talkers and table tents help customers understand Bare at the shelf. Request them now and we will include them with your next order.',
       primaryLabel: 'Request Materials',
       primaryAction: 'request_materials',
     };
@@ -350,7 +350,7 @@ export function getRetailerSuccessChecklist(
     {
       id: 'materials',
       title: 'Marketing materials requested',
-      description: 'Shelf talkers and table tents help the shelf do more of the selling.',
+      description: 'Shelf talkers and table tents help the shelf do more of the selling and can be included with your next order.',
       complete: ['requested', 'sent'].includes(successProfile.marketingMaterialsStatus),
       statusLabel: successProfile.marketingMaterialsStatus === 'sent'
         ? 'Sent'

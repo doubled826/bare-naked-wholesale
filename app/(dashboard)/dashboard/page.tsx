@@ -165,6 +165,7 @@ export default function DashboardPage() {
     updates: Partial<RetailerSuccessProfileInput>,
     message?: string,
     extraPayload?: Record<string, unknown>,
+    options?: { allowLocalFallback?: boolean },
   ) => {
     const previousProfile = successProfileRow;
     const optimisticProfile: RetailerSuccessProfileInput = {
@@ -202,7 +203,7 @@ export default function DashboardPage() {
       console.error('Retailer success save error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unable to update your success plan. Please try again.';
       const localProfileKey = getLocalSuccessProfileKey(retailer?.id);
-      if (localProfileKey) {
+      if (localProfileKey && options?.allowLocalFallback !== false) {
         window.localStorage.setItem(localProfileKey, JSON.stringify(optimisticProfile));
         showSuccessNotice({
           type: 'success',
@@ -272,8 +273,9 @@ export default function DashboardPage() {
   const handleMarketingMaterialsRequest = (materials: MarketingMaterialsSelection) => {
     updateSuccessProfile(
       { marketing_materials_status: 'requested' as MarketingMaterialsStatus },
-      "Marketing materials requested - we'll follow up with next steps.",
+      'Marketing materials requested. We will include them with your next order.',
       { marketing_materials_request: materials },
+      { allowLocalFallback: false },
     );
     setIsRequestingMaterials(false);
   };
@@ -850,7 +852,7 @@ function MarketingMaterialsModal({
       <div className="bg-cream-100 rounded-2xl shadow-xl max-w-lg w-full p-6">
         <h2 className="section-title">Request marketing materials</h2>
         <p className="text-sm text-bark-500/70 mt-2">
-          Choose what would help your team sell Bare in-store.
+          Choose what would help your team sell Bare in-store. We will include these materials with your next order.
         </p>
         <div className="grid gap-3 mt-5">
           {options.map(({ label, value, icon: Icon }) => {

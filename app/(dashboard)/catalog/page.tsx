@@ -16,6 +16,7 @@ import { formatCurrency } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import type { Product, RetailerLocation } from '@/types';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 
 export default function CatalogPage() {
   const supabase = createClientComponentClient();
@@ -25,6 +26,7 @@ export default function CatalogPage() {
   const [showCheckout, setShowCheckout] = useState(false);
   const [includeSamples, setIncludeSamples] = useState(false);
   const [hasPendingSampleRequest, setHasPendingSampleRequest] = useState(false);
+  const [pendingMarketingMaterialsType, setPendingMarketingMaterialsType] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState('');
   const [promoCode, setPromoCode] = useState('');
   const [locations, setLocations] = useState<RetailerLocation[]>([]);
@@ -56,26 +58,39 @@ export default function CatalogPage() {
   }, [supabase]);
 
   useEffect(() => {
-    const fetchPendingSampleRequest = async () => {
-      const { data, error } = await supabase
-        .from('sample_requests')
-        .select('id')
-        .eq('status', 'pending')
-        .limit(1);
+    const fetchPendingRequests = async () => {
+      const [{ data: sampleData, error: sampleError }, { data: materialsData, error: materialsError }] = await Promise.all([
+        supabase
+          .from('sample_requests')
+          .select('id')
+          .eq('status', 'pending')
+          .limit(1),
+        supabase
+          .from('marketing_material_requests')
+          .select('materials_type')
+          .eq('status', 'pending')
+          .order('created_at', { ascending: true })
+          .limit(1),
+      ]);
 
-      if (error) {
-        console.error('Failed to load sample request status:', error);
-        return;
+      if (sampleError) {
+        console.error('Failed to load sample request status:', sampleError);
+      } else {
+        const hasPending = Boolean(sampleData?.length);
+        setHasPendingSampleRequest(hasPending);
+        if (hasPending) {
+          setIncludeSamples(true);
+        }
       }
 
-      const hasPending = Boolean(data?.length);
-      setHasPendingSampleRequest(hasPending);
-      if (hasPending) {
-        setIncludeSamples(true);
+      if (materialsError) {
+        console.error('Failed to load marketing materials request status:', materialsError);
+      } else {
+        setPendingMarketingMaterialsType((materialsData?.[0]?.materials_type as string | undefined) || null);
       }
     };
 
-    fetchPendingSampleRequest();
+    fetchPendingRequests();
   }, [supabase]);
 
   const normalizedProfileAddress = retailer?.business_address?.trim().toLowerCase();
@@ -254,6 +269,7 @@ export default function CatalogPage() {
         setShowCheckout(false);
         setIncludeSamples(false);
         setHasPendingSampleRequest(false);
+        setPendingMarketingMaterialsType(null);
         setTimeout(() => {
           setOrderSuccess(false);
           setShowCart(false);
@@ -481,6 +497,19 @@ export default function CatalogPage() {
                         </span>
                       </div>
                     </label>
+                    {pendingMarketingMaterialsType && (
+                      <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                        <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                        <div>
+                          <span className="block text-sm font-medium text-bark-500">
+                            Marketing materials will be added
+                          </span>
+                          <span className="block text-xs text-bark-500/70">
+                            {formatMarketingMaterialsLabel(pendingMarketingMaterialsType)} are flagged for this order.
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     {dropdownLocations.length > 1 ? (
                       <div>
                         <label className="label">Ship-To Location</label>

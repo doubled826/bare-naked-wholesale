@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
+import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 
 const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   pending: { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', label: 'Pending' },
@@ -208,6 +209,8 @@ export default function OrdersPage() {
             const orderItems = order.order_items as Array<{ product_id: string; quantity: number; total_price: number }> | undefined;
             const itemCount = orderItems?.reduce((sum: number, item) => sum + item.quantity, 0) || 0;
             const hasSamples = Boolean((order as any).include_samples);
+            const hasMarketingMaterials = Boolean((order as any).include_marketing_materials);
+            const marketingMaterialsLabel = formatMarketingMaterialsLabel((order as any).marketing_materials_type);
             const shipTo = (order as any).location as { location_name?: string; business_address?: string; phone?: string } | undefined;
             const shipToName = shipTo?.location_name || retailer?.company_name;
             const shipToAddress = shipTo?.business_address || retailer?.business_address;
@@ -229,6 +232,11 @@ export default function OrdersPage() {
                       {hasSamples && (
                         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
                           Samples
+                        </span>
+                      )}
+                      {hasMarketingMaterials && (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+                          Materials
                         </span>
                       )}
                     </div>
@@ -287,6 +295,11 @@ export default function OrdersPage() {
                       {hasSamples && (
                         <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold px-3 py-1">
                           Samples included with this order
+                        </div>
+                      )}
+                      {hasMarketingMaterials && (
+                        <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1">
+                          {marketingMaterialsLabel} included with this order
                         </div>
                       )}
                       {Number(order.credit_applied || 0) > 0 && (
