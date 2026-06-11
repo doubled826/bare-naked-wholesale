@@ -59,6 +59,7 @@ export default function DashboardPage() {
   const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
   const [successSavingAction, setSuccessSavingAction] = useState<string | null>(null);
   const [isMarkingPlacement, setIsMarkingPlacement] = useState(false);
+  const [isRequestingMaterials, setIsRequestingMaterials] = useState(false);
   const [successNotice, setSuccessNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const pendingSuccessSaveRef = useRef(false);
 
@@ -160,7 +161,11 @@ export default function DashboardPage() {
     setTimeout(() => setSuccessNotice(null), 3500);
   };
 
-  const updateSuccessProfile = async (updates: Partial<RetailerSuccessProfileInput>, message?: string) => {
+  const updateSuccessProfile = async (
+    updates: Partial<RetailerSuccessProfileInput>,
+    message?: string,
+    extraPayload?: Record<string, unknown>,
+  ) => {
     const previousProfile = successProfileRow;
     const optimisticProfile: RetailerSuccessProfileInput = {
       retailer_id: retailer?.id,
@@ -182,7 +187,7 @@ export default function DashboardPage() {
       const response = await fetch('/api/retailer-success', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
+        body: JSON.stringify({ ...updates, ...extraPayload }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || 'Unable to update success plan');
@@ -243,10 +248,7 @@ export default function DashboardPage() {
       return;
     }
     if (action === 'request_materials') {
-      updateSuccessProfile(
-        { marketing_materials_status: 'requested' as MarketingMaterialsStatus },
-        "Marketing materials requested - we'll follow up with next steps.",
-      );
+      setIsRequestingMaterials(true);
       return;
     }
     if (action === 'shelf_placement') {
@@ -265,6 +267,15 @@ export default function DashboardPage() {
   const handleShelfPlacement = (status: ShelfPlacementStatus) => {
     updateSuccessProfile({ shelf_placement_status: status }, 'Shelf placement saved.');
     setIsMarkingPlacement(false);
+  };
+
+  const handleMarketingMaterialsRequest = (materials: MarketingMaterialsSelection) => {
+    updateSuccessProfile(
+      { marketing_materials_status: 'requested' as MarketingMaterialsStatus },
+      "Marketing materials requested - we'll follow up with next steps.",
+      { marketing_materials_request: materials },
+    );
+    setIsRequestingMaterials(false);
   };
 
   return (
@@ -374,6 +385,14 @@ export default function DashboardPage() {
         <ShelfPlacementModal
           onClose={() => setIsMarkingPlacement(false)}
           onSelect={handleShelfPlacement}
+        />
+      )}
+
+      {isRequestingMaterials && (
+        <MarketingMaterialsModal
+          onClose={() => setIsRequestingMaterials(false)}
+          onSubmit={handleMarketingMaterialsRequest}
+          isSaving={Boolean(successSavingAction)}
         />
       )}
 
@@ -504,6 +523,14 @@ const actionLabels: Partial<Record<RetailerSuccessAction, string>> = {
   promo_link: 'Opt In Through Astro',
   promo_opted_in: 'Mark as Opted In',
   promo_not_this_time: 'Not This Time',
+};
+
+type MarketingMaterialsSelection = 'shelf_talker' | 'table_tent' | 'both';
+
+const marketingMaterialsLabels: Record<MarketingMaterialsSelection, string> = {
+  shelf_talker: 'Shelf talker',
+  table_tent: 'Table tent',
+  both: 'Shelf talker + table tent',
 };
 
 const undoableChecklistItems: Partial<Record<string, {
@@ -661,8 +688,8 @@ function RetailSuccessPlanCard({
     <div className="card p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="section-title">Your Retail Success Plan</h2>
-          <p className="text-sm text-bark-500/70 mt-1">Complete these steps to help customers discover Bare, try it, and come back for more.</p>
+          <h2 className="section-title">The Bare Retail Roadmap</h2>
+          <p className="text-sm text-bark-500/70 mt-1">Your simple checklist for helping customers discover Bare, try it, and come back for more.</p>
           <div className="mt-5">
             <h3 className="text-xl font-bold text-bark-500">{headline}</h3>
             <p className="text-sm text-bark-500/70 mt-1">{subtext}</p>
@@ -797,6 +824,72 @@ function ShelfPlacementModal({
         <button onClick={onClose} className="mt-5 w-full rounded-xl border border-bark-500/20 px-4 py-2 font-semibold text-bark-500 hover:bg-cream-200">
           Cancel
         </button>
+      </div>
+    </div>
+  );
+}
+
+function MarketingMaterialsModal({
+  onClose,
+  onSubmit,
+  isSaving,
+}: {
+  onClose: () => void;
+  onSubmit: (materials: MarketingMaterialsSelection) => void;
+  isSaving: boolean;
+}) {
+  const [selected, setSelected] = useState<MarketingMaterialsSelection>('both');
+  const options: Array<{ label: string; value: MarketingMaterialsSelection; icon: React.ElementType }> = [
+    { label: 'Shelf talker', value: 'shelf_talker', icon: Megaphone },
+    { label: 'Table tent', value: 'table_tent', icon: Gift },
+    { label: 'Both', value: 'both', icon: Package },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-bark-500/40 p-4 flex items-center justify-center">
+      <div className="bg-cream-100 rounded-2xl shadow-xl max-w-lg w-full p-6">
+        <h2 className="section-title">Request marketing materials</h2>
+        <p className="text-sm text-bark-500/70 mt-2">
+          Choose what would help your team sell Bare in-store.
+        </p>
+        <div className="grid gap-3 mt-5">
+          {options.map(({ label, value, icon: Icon }) => {
+            const isSelected = selected === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setSelected(value)}
+                className={cn(
+                  'flex items-center gap-3 rounded-xl p-4 text-left transition-colors',
+                  isSelected
+                    ? 'bg-bark-500 text-white'
+                    : 'bg-cream-200 text-bark-500 hover:bg-bark-500 hover:text-white',
+                )}
+              >
+                <Icon className={cn('w-5 h-5', isSelected ? 'text-white' : 'text-bark-500')} />
+                <span className="font-semibold">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={() => onSubmit(selected)}
+            className="rounded-xl bg-bark-500 px-4 py-2 font-semibold text-white hover:bg-bark-600 disabled:opacity-50"
+          >
+            Submit Request
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-bark-500/20 px-4 py-2 font-semibold text-bark-500 hover:bg-cream-200"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -24,16 +24,18 @@ export const sendTeamEmail = async (options: {
   subject: string;
   text: string;
   html?: string;
+  to?: string;
+  cc?: string;
 }) => {
   const transporter = getTransporter();
-  const to = getTeamEmailTo();
+  const to = options.to || getTeamEmailTo();
   const from = getTeamEmailFrom();
-  const cc = 'jack@barenakedpet.com';
+  const cc = options.cc ?? 'jack@barenakedpet.com';
 
   await transporter.sendMail({
     from: `"Bare Naked Pet Co." <${from}>`,
     to,
-    cc,
+    ...(cc ? { cc } : {}),
     subject: options.subject,
     text: options.text,
     html: options.html,
