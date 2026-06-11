@@ -6,6 +6,23 @@ import { Sidebar, MobileHeader } from '@/components/layout/Sidebar';
 import { useAppStore } from '@/lib/store';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
+const withTimeout = async <T,>(promise: PromiseLike<T>, label: string, timeoutMs = 12000): Promise<T | null> => {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<null>((resolve) => {
+        timeoutId = setTimeout(() => {
+          console.error(`${label} timed out`);
+          resolve(null);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeoutId!);
+  }
+};
+
 export default function DashboardLayout({
   children,
 }: {
@@ -18,59 +35,80 @@ export default function DashboardLayout({
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        router.push('/login');
-        return;
+      try {
+        const userResponse = await withTimeout(supabase.auth.getUser(), 'Retailer auth check');
+        const user = userResponse?.data?.user;
+
+        if (!user) {
+          router.push('/login');
+          return;
+        }
+
+        // If admin, route to admin dashboard instead of retailer dashboard
+        const adminResponse = await withTimeout(
+          supabase
+            .from('admin_users')
+            .select('id')
+            .eq('id', user.id)
+            .maybeSingle(),
+          'Admin dashboard check',
+        );
+        const adminUser = adminResponse?.data;
+
+        if (adminUser) {
+          router.push('/admin/dashboard');
+          return;
+        }
+
+        // Load retailer data
+        const retailerResponse = await withTimeout(
+          supabase
+            .from('retailers')
+            .select('*')
+            .eq('id', user.id)
+            .single(),
+          'Retailer profile load',
+        );
+        const retailer = retailerResponse?.data;
+
+        if (retailer) {
+          setRetailer({ ...retailer, email: user.email });
+        }
+
+        // Load products
+        const productsResponse = await withTimeout(
+          supabase
+            .from('products')
+            .select('*')
+            .order('name', { ascending: true }),
+          'Products load',
+        );
+        const products = productsResponse?.data;
+
+        if (products) {
+          setProducts(products);
+        }
+
+        // Load orders
+        const ordersResponse = await withTimeout(
+          supabase
+            .from('orders')
+            .select(`*, location:retailer_locations(id, location_name, business_address, phone), order_items(*, product_id)`)
+            .eq('retailer_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(50),
+          'Orders load',
+        );
+        const orders = ordersResponse?.data;
+
+        if (orders) {
+          setOrders(orders);
+        }
+      } catch (error) {
+        console.error('Dashboard load error:', error);
+      } finally {
+        setLoading(false);
       }
-
-      // If admin, route to admin dashboard instead of retailer dashboard
-      const { data: adminUser } = await supabase
-        .from('admin_users')
-        .select('id')
-        .eq('id', user.id)
-        .single();
-
-      if (adminUser) {
-        router.push('/admin/dashboard');
-        return;
-      }
-
-      // Load retailer data
-      const { data: retailer } = await supabase
-        .from('retailers')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      if (retailer) {
-        setRetailer({ ...retailer, email: user.email });
-      }
-
-      // Load products
-      const { data: products } = await supabase
-        .from('products')
-        .select('*')
-        .order('name', { ascending: true });
-
-      if (products) {
-        setProducts(products);
-      }
-
-      // Load orders
-      const { data: orders } = await supabase
-        .from('orders')
-        .select(`*, location:retailer_locations(id, location_name, business_address, phone), order_items(*, product_id)`)
-        .eq('retailer_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(50);
-
-      if (orders) {
-        setOrders(orders);
-      }
-
-      setLoading(false);
     };
 
     checkAuth();

@@ -149,6 +149,15 @@
     background-image: radial-gradient(circle, #d4c99c 1px, transparent 1px);
     background-size: 24px 24px;
   }
+
+  .perks-marquee {
+    animation: perks-marquee 34s linear infinite;
+  }
+
+  .perks-marquee:hover,
+  .perks-marquee:focus-within {
+    animation-play-state: paused;
+  }
 }
 
 /* Custom scrollbar */
@@ -182,6 +191,22 @@
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes perks-marquee {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .perks-marquee {
+    animation: none;
   }
 }
 

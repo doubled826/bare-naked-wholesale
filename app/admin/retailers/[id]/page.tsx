@@ -4,9 +4,23 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
+import {
+  calculateSuccessPlanProgress,
+  defaultCurrentAstroPromo,
+  getRecommendedNextStep,
+  getRetailerLifecycleStatus,
+  getRetailerSuccessChecklist,
+  getRetailerSuccessProfile,
+  normalizeCurrentAstroPromo,
+  type CurrentAstroPromo,
+  type CurrentPromoStatus,
+  type MarketingMaterialsStatus,
+  type RetailerSuccessProfileInput,
+  type ShelfPlacementStatus,
+} from '@/lib/retailerSuccess';
 
 interface Retailer {
   id: string;
@@ -21,9 +35,10 @@ interface Retailer {
 
 interface OrderItem {
   id: string;
+  product_id?: string | null;
   quantity: number;
   total_price: number;
-  product: { name: string; size: string } | { name: string; size: string }[] | null;
+  product: { name: string; size: string; category?: string | null } | null;
 }
 
 interface Order {
@@ -244,6 +259,10 @@ export default function AdminRetailerDetailPage() {
   const [isSavingCredit, setIsSavingCredit] = useState(false);
   const [isRemovingCreditId, setIsRemovingCreditId] = useState<string | null>(null);
   const [creditProducts, setCreditProducts] = useState<ProductOption[]>([]);
+  const [successProfileRow, setSuccessProfileRow] = useState<RetailerSuccessProfileInput | null>(null);
+  const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
+  const [successNotice, setSuccessNotice] = useState('');
+  const [isSavingSuccess, setIsSavingSuccess] = useState(false);
   const [newCredit, setNewCredit] = useState({
     mode: 'sku' as 'sku' | 'custom',
     reason: 'Return credit',
@@ -264,6 +283,11 @@ export default function AdminRetailerDetailPage() {
     setTimeout(() => setCreditNotice(''), 3000);
   };
 
+  const showSuccessNotice = (message: string) => {
+    setSuccessNotice(message);
+    setTimeout(() => setSuccessNotice(''), 3000);
+  };
+
   const fetchData = async () => {
       if (!retailerId) return;
       setIsLoading(true);
@@ -273,10 +297,14 @@ export default function AdminRetailerDetailPage() {
           retailerResponse,
           { data: ordersData, error: ordersError },
           { data: locationsData, error: locationsError },
+          { data: successProfileData },
+          { data: promoData },
         ] = await Promise.all([
           fetch(`/api/admin/retailers/${retailerId}`),
-          supabase.from('orders').select('id, order_number, status, total, subtotal, credit_applied, include_samples, created_at, order_items(id, quantity, total_price, product:products(name, size))').eq('retailer_id', retailerId).order('created_at', { ascending: false }),
+          supabase.from('orders').select('id, order_number, status, total, subtotal, credit_applied, include_samples, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category))').eq('retailer_id', retailerId).order('created_at', { ascending: false }),
           supabase.from('retailer_locations').select('id, location_name, business_address, phone, is_default, created_at').eq('retailer_id', retailerId).order('is_default', { ascending: false }).order('created_at', { ascending: true }),
+          supabase.from('retailer_success_profiles').select('*').eq('retailer_id', retailerId).maybeSingle(),
+          supabase.from('retailer_success_promo_settings').select('*').eq('id', 'current').maybeSingle(),
         ]);
 
         const retailerPayload = await retailerResponse.json();
@@ -288,7 +316,9 @@ export default function AdminRetailerDetailPage() {
 
         const retailerData = retailerPayload.retailer as Retailer;
         setRetailer(retailerData);
-        setOrders(normalizeOrders((ordersData || []) as Order[]));
+        setOrders(normalizeOrders((ordersData || []) as unknown as Order[]));
+        setSuccessProfileRow(successProfileData || null);
+        setCurrentPromo(normalizeCurrentAstroPromo(promoData));
         const nextLocations = (locationsData || []) as RetailerLocation[];
         setLocations(nextLocations);
 
@@ -700,6 +730,31 @@ export default function AdminRetailerDetailPage() {
     }
   };
 
+  const updateAdminSuccessProfile = async (updates: Partial<RetailerSuccessProfileInput>, message = 'Retailer success status updated.') => {
+    if (!retailerId) return;
+    setIsSavingSuccess(true);
+    try {
+      const response = await fetch(`/api/admin/retailer-success/${retailerId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'Failed to update success status.');
+      }
+
+      setSuccessProfileRow(data.profile);
+      showSuccessNotice(message);
+    } catch (successError) {
+      console.error('Error updating retailer success status:', successError);
+      showSuccessNotice(successError instanceof Error ? successError.message : 'Failed to update success status.');
+    } finally {
+      setIsSavingSuccess(false);
+    }
+  };
+
   const ordersForStats = useMemo(() => orders.filter((order) => order.status !== 'canceled'), [orders]);
 
   const orderStats = useMemo(() => {
@@ -719,6 +774,32 @@ export default function AdminRetailerDetailPage() {
 
   const skuStats = useMemo(() => buildSkuStats(ordersForStats).slice(0, 6), [ordersForStats]);
   const quarterPoints = useMemo(() => buildQuarterPoints(ordersForStats).slice(-6), [ordersForStats]);
+  const retailerSuccessProfile = useMemo(
+    () => getRetailerSuccessProfile(retailer || {}, ordersForStats, successProfileRow),
+    [retailer, ordersForStats, successProfileRow],
+  );
+  const retailerLifecycleStatus = useMemo(
+    () => getRetailerLifecycleStatus({
+      totalOrders: retailerSuccessProfile.totalOrders,
+      totalSpend: retailerSuccessProfile.totalSpend,
+      firstOrderDate: retailerSuccessProfile.firstOrderDate,
+      lastOrderDate: retailerSuccessProfile.lastOrderDate,
+      accountCreatedAt: retailer?.created_at,
+    }),
+    [retailer?.created_at, retailerSuccessProfile],
+  );
+  const retailerChecklist = useMemo(
+    () => getRetailerSuccessChecklist(retailer, retailerSuccessProfile, currentPromo),
+    [retailer, retailerSuccessProfile, currentPromo],
+  );
+  const retailerSuccessProgress = useMemo(
+    () => calculateSuccessPlanProgress(retailerChecklist),
+    [retailerChecklist],
+  );
+  const retailerRecommendedNextStep = useMemo(
+    () => getRecommendedNextStep(retailer, retailerSuccessProfile, currentPromo),
+    [retailer, retailerSuccessProfile, currentPromo],
+  );
 
   const trend = useMemo(() => {
     if (quarterPoints.length < 2) return null;
@@ -816,6 +897,133 @@ export default function AdminRetailerDetailPage() {
               <Package className="w-5 h-5" />
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-bark-600" />
+              <h2 className="text-lg font-semibold text-gray-900">Retailer Success Status</h2>
+            </div>
+            <p className="text-sm text-gray-500 mt-1">
+              Shared activation profile for dashboard guidance and admin adoption visibility.
+            </p>
+          </div>
+          <div className="text-left lg:text-right">
+            <p className="text-sm text-gray-500">Recommended next action</p>
+            <p className="font-semibold text-gray-900">{retailerRecommendedNextStep.headline}</p>
+          </div>
+        </div>
+
+        {successNotice && (
+          <div className="mt-4 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm px-3 py-2">
+            {successNotice}
+          </div>
+        )}
+
+        <div className="mt-5 grid grid-cols-1 lg:grid-cols-4 gap-4">
+          <div className="rounded-lg bg-gray-50 p-4">
+            <p className="text-xs uppercase tracking-wide text-gray-400">Lifecycle Status</p>
+            <p className="mt-1 font-semibold text-gray-900 capitalize">{retailerLifecycleStatus.replace(/_/g, ' ')}</p>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-4">
+            <p className="text-xs uppercase tracking-wide text-gray-400">Success Plan Progress</p>
+            <p className="mt-1 font-semibold text-gray-900">{retailerSuccessProgress.percentage}%</p>
+            <div className="mt-2 h-2 rounded-full bg-gray-200 overflow-hidden">
+              <div className="h-full rounded-full bg-bark-500" style={{ width: `${retailerSuccessProgress.percentage}%` }} />
+            </div>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-4">
+            <p className="text-xs uppercase tracking-wide text-gray-400">Last Order Date</p>
+            <p className="mt-1 font-semibold text-gray-900">
+              {retailerSuccessProfile.lastOrderDate ? new Date(retailerSuccessProfile.lastOrderDate).toLocaleDateString() : 'No orders yet'}
+            </p>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-4">
+            <p className="text-xs uppercase tracking-wide text-gray-400">Total Orders</p>
+            <p className="mt-1 font-semibold text-gray-900">{retailerSuccessProfile.totalOrders}</p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <label className="rounded-lg border border-gray-100 p-4">
+            <span className="block text-sm font-medium text-gray-700 mb-2">Samples acknowledged</span>
+            <select
+              value={retailerSuccessProfile.samplesAcknowledged ? 'yes' : 'no'}
+              disabled={isSavingSuccess}
+              onChange={(event) => updateAdminSuccessProfile({ samples_acknowledged: event.target.value === 'yes' })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+            >
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </label>
+          <label className="rounded-lg border border-gray-100 p-4">
+            <span className="block text-sm font-medium text-gray-700 mb-2">Astro enrolled</span>
+            <select
+              value={retailerSuccessProfile.astroEnrolled ? 'yes' : 'no'}
+              disabled={isSavingSuccess}
+              onChange={(event) => updateAdminSuccessProfile({ astro_enrolled: event.target.value === 'yes' })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+            >
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </label>
+          <label className="rounded-lg border border-gray-100 p-4">
+            <span className="block text-sm font-medium text-gray-700 mb-2">Marketing materials status</span>
+            <select
+              value={retailerSuccessProfile.marketingMaterialsStatus}
+              disabled={isSavingSuccess}
+              onChange={(event) => updateAdminSuccessProfile({ marketing_materials_status: event.target.value as MarketingMaterialsStatus })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+            >
+              <option value="not_requested">Not requested</option>
+              <option value="requested">Requested</option>
+              <option value="sent">Sent</option>
+            </select>
+          </label>
+          <div className="rounded-lg border border-gray-100 p-4">
+            <span className="block text-sm font-medium text-gray-700 mb-2">Treats ordered</span>
+            <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+              <CheckCircle className={cn('w-4 h-4', retailerSuccessProfile.hasOrderedTreats ? 'text-emerald-600' : 'text-gray-300')} />
+              {retailerSuccessProfile.hasOrderedTreats ? 'Yes' : 'No'}
+            </div>
+            <p className="text-xs text-gray-500 mt-2">Derived from order history.</p>
+          </div>
+          <label className="rounded-lg border border-gray-100 p-4">
+            <span className="block text-sm font-medium text-gray-700 mb-2">Shelf placement status</span>
+            <select
+              value={retailerSuccessProfile.shelfPlacementStatus}
+              disabled={isSavingSuccess}
+              onChange={(event) => updateAdminSuccessProfile({ shelf_placement_status: event.target.value as ShelfPlacementStatus })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+            >
+              <option value="not_set">Not set</option>
+              <option value="front_counter">Front counter</option>
+              <option value="end_cap">End cap</option>
+              <option value="kibble_aisle">Kibble aisle</option>
+              <option value="raw_freeze_dried_section">Raw/freeze-dried section</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          {currentPromo.promoVisible && (
+            <label className="rounded-lg border border-gray-100 p-4">
+              <span className="block text-sm font-medium text-gray-700 mb-2">Current promo status</span>
+              <select
+                value={retailerSuccessProfile.currentPromoStatus}
+                disabled={isSavingSuccess}
+                onChange={(event) => updateAdminSuccessProfile({ current_promo_status: event.target.value as CurrentPromoStatus })}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+              >
+                <option value="not_started">Not started</option>
+                <option value="opted_in">Opted in</option>
+                <option value="not_this_time">Not this time</option>
+              </select>
+            </label>
+          )}
         </div>
       </div>
 

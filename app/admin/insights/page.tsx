@@ -13,6 +13,13 @@ import {
   Bar,
 } from 'recharts';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import {
+  defaultCurrentAstroPromo,
+  getRetailerSuccessInsights,
+  normalizeCurrentAstroPromo,
+  type CurrentAstroPromo,
+  type RetailerSuccessProfileInput,
+} from '@/lib/retailerSuccess';
 
 type OrderRecord = {
   id: string;
@@ -90,6 +97,8 @@ type StoreSkuSnapshot = {
   storeKey: string;
   skuUnits: Record<string, number>;
 };
+
+type RetailerSuccessInsights = ReturnType<typeof getRetailerSuccessInsights>;
 
 type SkuComparison = {
   pairKey: string;
@@ -177,10 +186,57 @@ export default function AdminInsightsPage() {
   const [skuSearchQuery, setSkuSearchQuery] = useState('');
   const [comparisonDivisorWeeks, setComparisonDivisorWeeks] = useState(MIN_RUNNING_WEEKS);
   const [velocityWindowLabel, setVelocityWindowLabel] = useState('Running average since first order');
+  const [successInsights, setSuccessInsights] = useState<RetailerSuccessInsights | null>(null);
+  const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
+  const [promoForm, setPromoForm] = useState({
+    promo_visible: false,
+    promo_name: '',
+    promo_description: '',
+    promo_start_date: '',
+    promo_end_date: '',
+    astro_promo_url: '',
+  });
+  const [promoNotice, setPromoNotice] = useState('');
+  const [isSavingPromo, setIsSavingPromo] = useState(false);
 
   useEffect(() => {
     fetchInsights();
   }, []);
+
+  useEffect(() => {
+    setPromoForm({
+      promo_visible: currentPromo.promoVisible,
+      promo_name: currentPromo.promoName,
+      promo_description: currentPromo.promoDescription,
+      promo_start_date: currentPromo.promoStartDate || '',
+      promo_end_date: currentPromo.promoEndDate || '',
+      astro_promo_url: currentPromo.astroPromoUrl,
+    });
+  }, [currentPromo]);
+
+  const saveCurrentPromo = async () => {
+    setIsSavingPromo(true);
+    setPromoNotice('');
+    try {
+      const response = await fetch('/api/admin/retailer-success/promo', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(promoForm),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'Failed to save current promo.');
+      }
+      setCurrentPromo(data.currentPromo);
+      setPromoNotice('Current promo saved.');
+      fetchInsights();
+    } catch (error) {
+      console.error('Promo save error:', error);
+      setPromoNotice(error instanceof Error ? error.message : 'Failed to save current promo.');
+    } finally {
+      setIsSavingPromo(false);
+    }
+  };
 
   const fetchInsights = async () => {
     setIsLoading(true);
@@ -191,7 +247,7 @@ export default function AdminInsightsPage() {
 
       const { data: orderItems } = await supabase
         .from('order_items')
-        .select('quantity, product_id, product:products(id, name, size), order:orders(status, retailer_id, location_id, created_at)');
+        .select('order_id, quantity, product_id, product:products(id, name, size, category), order:orders(status, retailer_id, location_id, created_at)');
 
       const { data: retailers } = await supabase
         .from('retailers')
@@ -201,9 +257,41 @@ export default function AdminInsightsPage() {
         .from('retailer_locations')
         .select('id, retailer_id, created_at');
 
+      const { data: successProfiles } = await supabase
+        .from('retailer_success_profiles')
+        .select('*');
+
+      const { data: promoSetting } = await supabase
+        .from('retailer_success_promo_settings')
+        .select('*')
+        .eq('id', 'current')
+        .maybeSingle();
+
       const validOrders = (orders as OrderRecord[] | null || []).filter(order => order.status !== 'canceled');
       const totalRevenueValue = validOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
       const totalOrders = validOrders.length;
+      const normalizedPromo = normalizeCurrentAstroPromo(promoSetting);
+      setCurrentPromo(normalizedPromo);
+
+      const orderItemsByOrder = new Map<string, any[]>();
+      ((orderItems as any[]) || []).forEach((item) => {
+        if (!item.order_id) return;
+        const existing = orderItemsByOrder.get(item.order_id) || [];
+        existing.push({
+          product_id: item.product_id,
+          product: Array.isArray(item.product) ? item.product[0] : item.product,
+        });
+        orderItemsByOrder.set(item.order_id, existing);
+      });
+      setSuccessInsights(getRetailerSuccessInsights(
+        (retailers as RetailerRecord[] | null || []),
+        validOrders.map((order) => ({
+          ...order,
+          order_items: orderItemsByOrder.get(order.id) || [],
+        })),
+        (successProfiles as RetailerSuccessProfileInput[] | null || []),
+        normalizedPromo,
+      ));
 
       const unitsSoldValue = (orderItems || []).reduce((sum: number, item: any) => {
         if (item.order?.status === 'canceled') return sum;
@@ -835,6 +923,136 @@ export default function AdminInsightsPage() {
         </div>
       </section>
 
+      {successInsights && (
+        <section className="space-y-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Retailer Success Adoption</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Adoption of the simple sell-through tools retailers see in their dashboard.
+              </p>
+            </div>
+            {currentPromo.promoVisible && (
+              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-3 py-1">
+                Current promo: {currentPromo.promoName || 'Visible'}
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+            <SuccessMetricCard label="Total retailers" value={successInsights.totalRetailers} />
+            <SuccessMetricCard label="New stores" value={successInsights.byLifecycle.new_store} />
+            <SuccessMetricCard label="Active stores" value={successInsights.byLifecycle.active} />
+            <SuccessMetricCard label="At-risk stores" value={successInsights.byLifecycle.at_risk} />
+            <SuccessMetricCard label="Inactive stores" value={successInsights.byLifecycle.inactive} />
+            <SuccessMetricCard label="High-performing stores" value={successInsights.byLifecycle.high_performer} />
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h4 className="text-md font-semibold text-gray-900">Current Astro Promo</h4>
+                <p className="text-sm text-gray-500 mt-1">Simple V1 setting shown on retailer dashboards when visible.</p>
+              </div>
+              <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={promoForm.promo_visible}
+                  onChange={(event) => setPromoForm((current) => ({ ...current, promo_visible: event.target.checked }))}
+                  className="rounded border-gray-300 text-bark-500 focus:ring-bark-500"
+                />
+                Promo visible
+              </label>
+            </div>
+            <div className="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <input
+                type="text"
+                value={promoForm.promo_name}
+                onChange={(event) => setPromoForm((current) => ({ ...current, promo_name: event.target.value }))}
+                placeholder="Promo name"
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
+              />
+              <input
+                type="url"
+                value={promoForm.astro_promo_url}
+                onChange={(event) => setPromoForm((current) => ({ ...current, astro_promo_url: event.target.value }))}
+                placeholder="Astro promo URL"
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
+              />
+              <input
+                type="date"
+                value={promoForm.promo_start_date}
+                onChange={(event) => setPromoForm((current) => ({ ...current, promo_start_date: event.target.value }))}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
+              />
+              <input
+                type="date"
+                value={promoForm.promo_end_date}
+                onChange={(event) => setPromoForm((current) => ({ ...current, promo_end_date: event.target.value }))}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
+              />
+              <textarea
+                value={promoForm.promo_description}
+                onChange={(event) => setPromoForm((current) => ({ ...current, promo_description: event.target.value }))}
+                placeholder="Promo description"
+                className="md:col-span-2 lg:col-span-3 rounded-lg border border-gray-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
+                rows={2}
+              />
+              <button
+                type="button"
+                onClick={saveCurrentPromo}
+                disabled={isSavingPromo}
+                className="rounded-lg bg-bark-500 px-4 py-2 text-sm font-semibold text-white hover:bg-bark-600 disabled:opacity-50"
+              >
+                {isSavingPromo ? 'Saving...' : 'Save Promo'}
+              </button>
+            </div>
+            {promoNotice && <p className="mt-3 text-sm text-gray-600">{promoNotice}</p>}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <h4 className="text-md font-semibold text-gray-900">Success Tool Adoption</h4>
+              <div className="mt-5 space-y-4">
+                <AdoptionProgress label="Samples acknowledged" value={successInsights.samplesAcknowledgedPercent} />
+                <AdoptionProgress label="Astro enrolled" value={successInsights.astroEnrolledPercent} />
+                <AdoptionProgress label="Marketing materials requested/sent" value={successInsights.marketingMaterialsPercent} />
+                <AdoptionProgress label="Treats ordered" value={successInsights.treatsOrderedPercent} />
+                <AdoptionProgress label="Shelf placement marked" value={successInsights.shelfPlacementPercent} />
+                {currentPromo.promoVisible && (
+                  <AdoptionProgress label="Current promo opted in" value={successInsights.currentPromoOptedInPercent} />
+                )}
+              </div>
+              {currentPromo.promoVisible && (
+                <p className="mt-5 text-sm text-gray-600">
+                  {successInsights.currentPromoNotRespondedCount} retailers have not responded to the current promo.
+                </p>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h4 className="text-md font-semibold text-gray-900">Action Needed</h4>
+                  <p className="text-sm text-gray-500 mt-1">Retailers missing one of the core success steps.</p>
+                </div>
+                <span className="text-xs text-gray-400">Notify button TODO: wire to email infra</span>
+              </div>
+              <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <ActionNeededList title="Missing Astro enrollment" rows={successInsights.missingAstro} />
+                <ActionNeededList title="Samples not acknowledged" rows={successInsights.missingSamples} />
+                <ActionNeededList title="Materials not requested" rows={successInsights.missingMarketingMaterials} />
+                <ActionNeededList title="No treats ordered" rows={successInsights.missingTreats} />
+                <ActionNeededList title="Shelf placement not marked" rows={successInsights.missingShelfPlacement} />
+                {currentPromo.promoVisible && (
+                  <ActionNeededList title="Promo not responded" rows={successInsights.missingPromoResponse} />
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -1206,6 +1424,58 @@ export default function AdminInsightsPage() {
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+function SuccessMetricCard({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+      <p className="text-sm text-gray-500">{label}</p>
+      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+    </div>
+  );
+}
+
+function AdoptionProgress({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-gray-600">{label}</span>
+        <span className="font-semibold text-gray-900">{value}%</span>
+      </div>
+      <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
+        <div className="h-full rounded-full bg-bark-500" style={{ width: `${value}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function ActionNeededList({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: NonNullable<RetailerSuccessInsights>['retailerRows'];
+}) {
+  return (
+    <div className="rounded-lg border border-gray-100 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-gray-900">{title}</p>
+        <span className="text-xs font-semibold text-gray-500 bg-gray-100 rounded-full px-2 py-0.5">{rows.length}</span>
+      </div>
+      <div className="mt-3 space-y-2">
+        {rows.length === 0 ? (
+          <p className="text-sm text-gray-500">No retailers.</p>
+        ) : (
+          rows.slice(0, 5).map((row) => (
+            <Link key={row.retailer.id} href={`/admin/retailers/${row.retailer.id}`} className="block text-sm text-gray-700 hover:text-bark-600">
+              {row.retailer.company_name || 'Unnamed retailer'}
+            </Link>
+          ))
+        )}
+        {rows.length > 5 && <p className="text-xs text-gray-400">+{rows.length - 5} more</p>}
+      </div>
     </div>
   );
 }

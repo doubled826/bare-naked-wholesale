@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { 
   Package, 
   TrendingUp, 
@@ -10,13 +10,34 @@ import {
   Clock,
   CheckCircle,
   Truck,
+  Sparkles,
+  Gift,
+  Megaphone,
+  MessageCircle,
+  MapPin,
+  ExternalLink,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import type { Announcement } from '@/types';
-import { wholesaleBenefits } from '@/lib/wholesaleBenefits';
+import {
+  DEFAULT_ASTRO_URL,
+  calculateSuccessPlanProgress,
+  defaultCurrentAstroPromo,
+  getLifecycleMessaging,
+  getRecommendedNextStep,
+  getRetailerLifecycleStatus,
+  getRetailerSuccessChecklist,
+  getRetailerSuccessProfile,
+  type CurrentAstroPromo,
+  type RetailerSuccessAction,
+  type RetailerSuccessProfileInput,
+  type ShelfPlacementStatus,
+  type CurrentPromoStatus,
+  type MarketingMaterialsStatus,
+} from '@/lib/retailerSuccess';
 
 const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   pending: { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', label: 'Processing' },
@@ -26,11 +47,20 @@ const statusConfig: Record<string, { icon: React.ElementType; color: string; bg:
   canceled: { icon: Clock, color: 'text-bone-500', bg: 'bg-bone-100', label: 'Canceled' },
 };
 
+const getLocalSuccessProfileKey = (retailerId?: string) =>
+  retailerId ? `retailer-success-profile:${retailerId}` : null;
+
 export default function DashboardPage() {
-  const { retailer, orders, products } = useAppStore();
+  const { retailer, orders, products, addNotification } = useAppStore();
   const supabase = createClientComponentClient();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+  const [successProfileRow, setSuccessProfileRow] = useState<RetailerSuccessProfileInput | null>(null);
+  const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
+  const [successSavingAction, setSuccessSavingAction] = useState<string | null>(null);
+  const [isMarkingPlacement, setIsMarkingPlacement] = useState(false);
+  const [successNotice, setSuccessNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const pendingSuccessSaveRef = useRef(false);
 
   // Get the business name - check both possible field names
   const businessName = retailer?.company_name || retailer?.business_name || '';
@@ -59,6 +89,25 @@ export default function DashboardPage() {
   const potentialProfit = totalMSRP - totalWholesale;
 
   const recentOrders = orders.slice(0, 3);
+  const enrichedOrders = orders.map((order) => ({
+    ...order,
+    order_items: (order.order_items || []).map((item) => ({
+      ...item,
+      product: item.product || products.find((product) => product.id === item.product_id) || null,
+    })),
+  }));
+  const successProfile = getRetailerSuccessProfile(retailer || {}, enrichedOrders, successProfileRow);
+  const lifecycleStatus = getRetailerLifecycleStatus({
+    totalOrders: successProfile.totalOrders,
+    totalSpend: successProfile.totalSpend,
+    firstOrderDate: successProfile.firstOrderDate,
+    lastOrderDate: successProfile.lastOrderDate,
+    accountCreatedAt: retailer?.created_at,
+  });
+  const lifecycleMessaging = getLifecycleMessaging(lifecycleStatus);
+  const recommendedNextStep = getRecommendedNextStep(retailer, successProfile, currentPromo);
+  const checklistItems = getRetailerSuccessChecklist(retailer, successProfile, currentPromo);
+  const progress = calculateSuccessPlanProgress(checklistItems);
 
   useEffect(() => {
     const loadAnnouncements = async () => {
@@ -78,6 +127,146 @@ export default function DashboardPage() {
     loadAnnouncements();
   }, [supabase]);
 
+  useEffect(() => {
+    const loadRetailerSuccess = async () => {
+      const localProfileKey = getLocalSuccessProfileKey(retailer?.id);
+      const localProfile = localProfileKey ? window.localStorage.getItem(localProfileKey) : null;
+
+      if (localProfile) {
+        setSuccessProfileRow(JSON.parse(localProfile));
+      }
+
+      try {
+        const response = await fetch('/api/retailer-success');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || 'Unable to load success plan');
+        if (!pendingSuccessSaveRef.current && data.profile) {
+          setSuccessProfileRow(data.profile);
+          if (localProfileKey) window.localStorage.removeItem(localProfileKey);
+        } else if (!pendingSuccessSaveRef.current && !data.profile && !localProfile) {
+          setSuccessProfileRow(null);
+        }
+        setCurrentPromo(data.currentPromo || defaultCurrentAstroPromo);
+      } catch (error) {
+        console.error('Retailer success error:', error);
+      }
+    };
+
+    loadRetailerSuccess();
+  }, [retailer?.id]);
+
+  const showSuccessNotice = (notice: { type: 'success' | 'error'; message: string }) => {
+    setSuccessNotice(notice);
+    setTimeout(() => setSuccessNotice(null), 3500);
+  };
+
+  const updateSuccessProfile = async (updates: Partial<RetailerSuccessProfileInput>, message?: string) => {
+    const previousProfile = successProfileRow;
+    const optimisticProfile: RetailerSuccessProfileInput = {
+      retailer_id: retailer?.id,
+      samples_acknowledged: successProfile.samplesAcknowledged,
+      astro_enrolled: successProfile.astroEnrolled,
+      marketing_materials_status: successProfile.marketingMaterialsStatus,
+      shelf_placement_status: successProfile.shelfPlacementStatus,
+      shelf_placement_note: successProfile.shelfPlacementNote,
+      current_promo_status: successProfile.currentPromoStatus,
+      success_plan_last_updated_at: successProfile.successPlanLastUpdatedAt,
+      ...previousProfile,
+      ...updates,
+    };
+
+    setSuccessSavingAction(Object.keys(updates)[0] || 'success');
+    pendingSuccessSaveRef.current = true;
+    setSuccessProfileRow(optimisticProfile);
+    try {
+      const response = await fetch('/api/retailer-success', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'Unable to update success plan');
+      setSuccessProfileRow(data.profile);
+      const localProfileKey = getLocalSuccessProfileKey(retailer?.id);
+      if (localProfileKey) window.localStorage.removeItem(localProfileKey);
+      if (message) {
+        addNotification({ type: 'success', message });
+        showSuccessNotice({ type: 'success', message });
+      }
+    } catch (error) {
+      console.error('Retailer success save error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unable to update your success plan. Please try again.';
+      const localProfileKey = getLocalSuccessProfileKey(retailer?.id);
+      if (localProfileKey) {
+        window.localStorage.setItem(localProfileKey, JSON.stringify(optimisticProfile));
+        showSuccessNotice({
+          type: 'success',
+          message: message
+            ? `${message} Saved locally for this browser; database sync will work after the Retail Success migration is applied.`
+            : 'Saved locally for this browser; database sync will work after the Retail Success migration is applied.',
+        });
+        return;
+      }
+
+      setSuccessProfileRow(previousProfile);
+      addNotification({ type: 'error', message: errorMessage });
+      showSuccessNotice({ type: 'error', message: errorMessage });
+    } finally {
+      pendingSuccessSaveRef.current = false;
+      setSuccessSavingAction(null);
+    }
+  };
+
+  const handleSuccessAction = (action: RetailerSuccessAction) => {
+    if (action === 'shop') {
+      window.location.href = '/catalog';
+      return;
+    }
+    if (action === 'treats') {
+      window.location.href = '/catalog';
+      return;
+    }
+    if (action === 'astro_link') {
+      window.open(DEFAULT_ASTRO_URL, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (action === 'promo_link') {
+      window.open(currentPromo.astroPromoUrl || DEFAULT_ASTRO_URL, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (action === 'samples_acknowledged') {
+      updateSuccessProfile({ samples_acknowledged: true }, 'Samples noted. Add them from the checkout sample box on any order.');
+      return;
+    }
+    if (action === 'astro_enrolled') {
+      updateSuccessProfile({ astro_enrolled: true }, 'Astro enrollment marked complete.');
+      return;
+    }
+    if (action === 'request_materials') {
+      updateSuccessProfile(
+        { marketing_materials_status: 'requested' as MarketingMaterialsStatus },
+        "Marketing materials requested - we'll follow up with next steps.",
+      );
+      return;
+    }
+    if (action === 'shelf_placement') {
+      setIsMarkingPlacement(true);
+      return;
+    }
+    if (action === 'promo_opted_in') {
+      updateSuccessProfile({ current_promo_status: 'opted_in' as CurrentPromoStatus }, 'Current Astro promo marked as opted in.');
+      return;
+    }
+    if (action === 'promo_not_this_time') {
+      updateSuccessProfile({ current_promo_status: 'not_this_time' as CurrentPromoStatus }, 'Current Astro promo marked as not this time.');
+    }
+  };
+
+  const handleShelfPlacement = (status: ShelfPlacementStatus) => {
+    updateSuccessProfile({ shelf_placement_status: status }, 'Shelf placement saved.');
+    setIsMarkingPlacement(false);
+  };
+
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Header */}
@@ -89,6 +278,19 @@ export default function DashboardPage() {
           Here&apos;s what&apos;s happening with your account
         </p>
       </div>
+
+      <WholesalePerksBanner />
+
+      {successNotice && (
+        <div className={cn(
+          'mb-6 rounded-xl border px-4 py-3 text-sm font-medium',
+          successNotice.type === 'success'
+            ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+            : 'border-red-100 bg-red-50 text-red-700',
+        )}>
+          {successNotice.message}
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-8">
@@ -118,62 +320,35 @@ export default function DashboardPage() {
         />
       </div>
 
+      {currentPromo.promoVisible && (
+        <CurrentPromoCard
+          currentPromo={currentPromo}
+          onAction={handleSuccessAction}
+          isSaving={Boolean(successSavingAction)}
+        />
+      )}
+
       {/* Main content grid */}
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* Wholesale Benefits Card */}
-        <div className="lg:col-span-2">
-          <div className="card p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="section-title">
-                Wholesale Benefits
-              </h2>
-              <span className="badge-success">Active</span>
-            </div>
+        <div className="lg:col-span-2 space-y-6">
+          <RecommendedNextStepCard
+            step={recommendedNextStep}
+            onAction={handleSuccessAction}
+            isSaving={Boolean(successSavingAction)}
+          />
 
-            <div className="grid sm:grid-cols-2 gap-4 mb-6">
-              {wholesaleBenefits.map((benefit) => (
-                <div key={benefit} className="flex items-center gap-3 p-4 bg-cream-200 rounded-xl">
-                  <CheckCircle className="w-5 h-5 text-emerald-600" />
-                  <span className="text-sm text-bark-500">{benefit}</span>
-                </div>
-              ))}
-            </div>
-
-            <Link href="/catalog" className="btn-primary">
-              Shop Products
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Link>
-          </div>
+          <RetailSuccessPlanCard
+            headline={lifecycleMessaging.headline}
+            subtext={lifecycleMessaging.subtext}
+            progress={progress}
+            checklistItems={checklistItems}
+            onAction={handleSuccessAction}
+            isSaving={Boolean(successSavingAction)}
+          />
         </div>
 
-        {/* Quick Actions */}
         <div className="space-y-6">
-          <div className="card p-6">
-            <h2 className="section-title mb-4">
-              Quick Actions
-            </h2>
-            <div className="space-y-3">
-              <QuickAction
-                href="/catalog"
-                icon={ShoppingBag}
-                label="Browse Catalog"
-                description="Shop our products"
-              />
-              <QuickAction
-                href="/orders"
-                icon={Package}
-                label="View Orders"
-                description="View order history"
-              />
-              <QuickAction
-                href="/catalog"
-                icon={ShoppingBag}
-                label="Add Samples at Checkout"
-                description="Select samples while placing an order"
-              />
-            </div>
-          </div>
-
+          <NeedHelpCard />
           {!announcementsLoading && announcements.length > 0 && (
             <div className="card p-6">
               <h2 className="section-title mb-4">Announcements</h2>
@@ -190,6 +365,13 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {isMarkingPlacement && (
+        <ShelfPlacementModal
+          onClose={() => setIsMarkingPlacement(false)}
+          onSelect={handleShelfPlacement}
+        />
+      )}
 
       {/* Recent Orders */}
       <div className="mt-6">
@@ -298,6 +480,274 @@ export default function DashboardPage() {
   );
 }
 
+const perkItems = [
+  'Free shipping',
+  'No minimums',
+  'Free customer samples',
+  'Astro promos + loyalty rewards',
+  'In-store marketing support',
+  'Sell-through support',
+];
+
+const actionLabels: Partial<Record<RetailerSuccessAction, string>> = {
+  shop: 'Shop Products',
+  samples_acknowledged: 'Got It',
+  astro_link: 'Enroll in Astro',
+  astro_enrolled: 'Mark as Enrolled',
+  request_materials: 'Request Materials',
+  treats: 'Add Treats to Order',
+  shelf_placement: 'Mark Placement',
+  promo_link: 'Opt In Through Astro',
+  promo_opted_in: 'Mark as Opted In',
+  promo_not_this_time: 'Not This Time',
+};
+
+function WholesalePerksBanner() {
+  const marqueeItems = [...perkItems, ...perkItems];
+
+  return (
+    <div className="mb-8 card p-4">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+        <p className="text-sm font-semibold text-bark-500 whitespace-nowrap">
+          Wholesale perks included with every account
+        </p>
+        <div className="relative min-w-0 overflow-hidden">
+          <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-cream-100 to-transparent" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-cream-100 to-transparent" />
+          <div className="flex w-max gap-5 overflow-x-auto pb-1 perks-marquee">
+            {marqueeItems.map((perk, index) => (
+              <div
+                key={`${perk}-${index}`}
+                className="flex shrink-0 items-center gap-2 rounded-full bg-cream-200 px-4 py-2 text-sm text-bark-500"
+                aria-hidden={index >= perkItems.length}
+              >
+                <CheckCircle className="h-4 w-4 text-emerald-600" />
+                <span>{perk}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CurrentPromoCard({
+  currentPromo,
+  onAction,
+  isSaving,
+}: {
+  currentPromo: CurrentAstroPromo;
+  onAction: (action: RetailerSuccessAction) => void;
+  isSaving: boolean;
+}) {
+  return (
+    <div className="card p-6 mb-8 border border-amber-200 bg-cream-100">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-4">
+          <div className="w-11 h-11 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+            <Megaphone className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wide text-bark-500/60 font-semibold">Astro Seasonal Promo Available</p>
+            <h2 className="text-xl font-bold text-bark-500 mt-1">Opt into {currentPromo.promoName || 'the current promo'}</h2>
+            <p className="text-sm text-bark-500/70 mt-2 max-w-3xl">
+              {currentPromo.promoDescription || 'This promotion is managed through Astro. Visit Astro to opt in, then mark it complete here so our team knows your store is participating.'}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+          <button onClick={() => onAction('promo_link')} className="btn-primary inline-flex items-center justify-center">
+            Opt In Through Astro
+            <ExternalLink className="w-4 h-4 ml-2" />
+          </button>
+          <button disabled={isSaving} onClick={() => onAction('promo_opted_in')} className="px-4 py-2 rounded-xl border border-bark-500/20 text-bark-500 font-semibold hover:bg-cream-200 disabled:opacity-50">
+            Mark as Opted In
+          </button>
+          <button disabled={isSaving} onClick={() => onAction('promo_not_this_time')} className="px-4 py-2 rounded-xl text-bark-500/70 font-semibold hover:bg-cream-200 disabled:opacity-50">
+            Not This Time
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecommendedNextStepCard({
+  step,
+  onAction,
+  isSaving,
+}: {
+  step: ReturnType<typeof getRecommendedNextStep>;
+  onAction: (action: RetailerSuccessAction) => void;
+  isSaving: boolean;
+}) {
+  return (
+    <div className="card p-7 border border-bark-500/10 shadow-md">
+      <div className="flex items-center gap-2 mb-4">
+        <Sparkles className="w-5 h-5 text-amber-600" />
+        <p className="text-sm font-semibold uppercase tracking-wide text-bark-500/60">Recommended Next Step</p>
+      </div>
+      <h2 className="text-2xl lg:text-3xl font-bold text-bark-500">{step.headline}</h2>
+      <p className="text-bark-500/70 mt-3 max-w-2xl">{step.body}</p>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-6">
+        <button disabled={isSaving} onClick={() => onAction(step.primaryAction)} className="btn-primary inline-flex items-center justify-center">
+          {step.primaryLabel}
+          {['astro_link', 'promo_link'].includes(step.primaryAction) ? <ExternalLink className="w-4 h-4 ml-2" /> : <ArrowRight className="w-4 h-4 ml-2" />}
+        </button>
+        {step.secondaryAction && step.secondaryLabel && (
+          <button disabled={isSaving} onClick={() => onAction(step.secondaryAction!)} className="px-4 py-2 rounded-xl border border-bark-500/20 text-bark-500 font-semibold hover:bg-cream-200 disabled:opacity-50">
+            {step.secondaryLabel}
+          </button>
+        )}
+        {step.tertiaryAction && step.tertiaryLabel && (
+          <button disabled={isSaving} onClick={() => onAction(step.tertiaryAction!)} className="px-4 py-2 rounded-xl text-bark-500/70 font-semibold hover:bg-cream-200 disabled:opacity-50">
+            {step.tertiaryLabel}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RetailSuccessPlanCard({
+  headline,
+  subtext,
+  progress,
+  checklistItems,
+  onAction,
+  isSaving,
+}: {
+  headline: string;
+  subtext: string;
+  progress: ReturnType<typeof calculateSuccessPlanProgress>;
+  checklistItems: ReturnType<typeof getRetailerSuccessChecklist>;
+  onAction: (action: RetailerSuccessAction) => void;
+  isSaving: boolean;
+}) {
+  return (
+    <div className="card p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="section-title">Your Retail Success Plan</h2>
+          <p className="text-sm text-bark-500/70 mt-1">Complete these steps to help customers discover Bare, try it, and come back for more.</p>
+          <div className="mt-5">
+            <h3 className="text-xl font-bold text-bark-500">{headline}</h3>
+            <p className="text-sm text-bark-500/70 mt-1">{subtext}</p>
+          </div>
+        </div>
+        <div className="shrink-0 text-left sm:text-right">
+          <p className="text-sm font-semibold text-bark-500">{progress.completed} of {progress.total} steps complete</p>
+          <p className="text-xs text-bark-500/60 mt-1">{progress.percentage}% complete</p>
+        </div>
+      </div>
+      <div className="mt-5 h-3 rounded-full bg-cream-200 overflow-hidden">
+        <div className="h-full rounded-full bg-bark-500 transition-all" style={{ width: `${progress.percentage}%` }} />
+      </div>
+      <div className="mt-6 divide-y divide-cream-200">
+        {checklistItems.map((item) => (
+          <div key={item.id} className="py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-start gap-3">
+              <div className={cn('mt-0.5 w-7 h-7 rounded-full flex items-center justify-center shrink-0', item.complete ? 'bg-emerald-100 text-emerald-700' : 'bg-cream-200 text-bark-500/60')}>
+                <CheckCircle className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold text-bark-500">{item.title}</p>
+                  <StatusBadge label={item.statusLabel} />
+                </div>
+                <p className="text-sm text-bark-500/70 mt-1">{item.description}</p>
+              </div>
+            </div>
+            {!item.complete && item.primaryAction && (
+              <div className="flex flex-wrap gap-2 md:justify-end">
+                <button disabled={isSaving} onClick={() => onAction(item.primaryAction!)} className="px-3 py-2 rounded-lg bg-bark-500 text-white text-sm font-semibold hover:bg-bark-600 disabled:opacity-50">
+                  {actionLabels[item.primaryAction] || 'Start'}
+                </button>
+                {item.secondaryAction && (
+                  <button disabled={isSaving} onClick={() => onAction(item.secondaryAction!)} className="px-3 py-2 rounded-lg border border-bark-500/20 text-bark-500 text-sm font-semibold hover:bg-cream-200 disabled:opacity-50">
+                    {actionLabels[item.secondaryAction]}
+                  </button>
+                )}
+                {item.tertiaryAction && (
+                  <button disabled={isSaving} onClick={() => onAction(item.tertiaryAction!)} className="px-3 py-2 rounded-lg text-bark-500/70 text-sm font-semibold hover:bg-cream-200 disabled:opacity-50">
+                    {actionLabels[item.tertiaryAction]}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ label }: { label: string }) {
+  const done = label === 'Done' || label === 'Requested' || label === 'Sent';
+  return (
+    <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-semibold', done ? 'bg-emerald-100 text-emerald-700' : 'bg-cream-200 text-bark-500/70')}>
+      {label}
+    </span>
+  );
+}
+
+function NeedHelpCard() {
+  return (
+    <div className="card p-6">
+      <div className="w-11 h-11 rounded-xl bg-cream-200 flex items-center justify-center text-bark-500 mb-4">
+        <MessageCircle className="w-5 h-5" />
+      </div>
+      <h2 className="section-title">Want help building your launch plan?</h2>
+      <p className="text-sm text-bark-500/70 mt-2">
+        Message our team and we&apos;ll help you choose samples, promos, shelf placement, and materials.
+      </p>
+      <Link href="/messages" className="btn-primary mt-5 inline-flex">
+        Message Us
+        <ArrowRight className="w-4 h-4 ml-2" />
+      </Link>
+    </div>
+  );
+}
+
+function ShelfPlacementModal({
+  onClose,
+  onSelect,
+}: {
+  onClose: () => void;
+  onSelect: (status: ShelfPlacementStatus) => void;
+}) {
+  const options: Array<{ label: string; value: ShelfPlacementStatus; icon: React.ElementType }> = [
+    { label: 'Front counter', value: 'front_counter', icon: MapPin },
+    { label: 'End cap', value: 'end_cap', icon: Megaphone },
+    { label: 'Kibble aisle', value: 'kibble_aisle', icon: ShoppingBag },
+    { label: 'Raw/freeze-dried section', value: 'raw_freeze_dried_section', icon: Gift },
+    { label: 'Other', value: 'other', icon: Package },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-bark-500/40 p-4 flex items-center justify-center">
+      <div className="bg-cream-100 rounded-2xl shadow-xl max-w-lg w-full p-6">
+        <h2 className="section-title">Mark shelf placement</h2>
+        <p className="text-sm text-bark-500/70 mt-2">
+          Choose where Bare is most visible in your store.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3 mt-5">
+          {options.map(({ label, value, icon: Icon }) => (
+            <button key={value} onClick={() => onSelect(value)} className="flex items-center gap-3 rounded-xl bg-cream-200 p-4 text-left hover:bg-bark-500 hover:text-white transition-colors group">
+              <Icon className="w-5 h-5 text-bark-500 group-hover:text-white" />
+              <span className="font-semibold">{label}</span>
+            </button>
+          ))}
+        </div>
+        <button onClick={onClose} className="mt-5 w-full rounded-xl border border-bark-500/20 px-4 py-2 font-semibold text-bark-500 hover:bg-cream-200">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function StatCard({
   icon: Icon,
   label,
@@ -324,53 +774,5 @@ function StatCard({
       <p className="stat-value text-2xl lg:text-3xl">{value}</p>
       <p className="stat-label">{label}</p>
     </div>
-  );
-}
-
-function QuickAction({
-  href,
-  onClick,
-  icon: Icon,
-  label,
-  description,
-}: {
-  href?: string;
-  onClick?: () => void;
-  icon: React.ElementType;
-  label: string;
-  description: string;
-}) {
-  if (onClick) {
-    return (
-      <button
-        onClick={onClick}
-        className="w-full text-left flex items-center gap-4 p-3 rounded-xl hover:bg-cream-200 transition-colors group"
-      >
-        <div className="w-10 h-10 rounded-lg bg-cream-200 flex items-center justify-center group-hover:bg-bark-500 transition-colors">
-          <Icon className="w-5 h-5 text-bark-500 group-hover:text-white transition-colors" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-bark-500">{label}</p>
-          <p className="text-xs text-bark-500/60">{description}</p>
-        </div>
-        <ArrowRight className="w-4 h-4 text-bark-500/30 group-hover:text-bark-500 group-hover:translate-x-1 transition-all" />
-      </button>
-    );
-  }
-  if (!href) return null;
-  return (
-    <Link
-      href={href}
-      className="flex items-center gap-4 p-3 rounded-xl hover:bg-cream-200 transition-colors group"
-    >
-      <div className="w-10 h-10 rounded-lg bg-cream-200 flex items-center justify-center group-hover:bg-bark-500 transition-colors">
-        <Icon className="w-5 h-5 text-bark-500 group-hover:text-white transition-colors" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-bark-500">{label}</p>
-        <p className="text-xs text-bark-500/60">{description}</p>
-      </div>
-      <ArrowRight className="w-4 h-4 text-bark-500/30 group-hover:text-bark-500 group-hover:translate-x-1 transition-all" />
-    </Link>
   );
 }
