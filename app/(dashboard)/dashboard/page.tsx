@@ -838,7 +838,7 @@ function MarketingMaterialsModal({
   onSubmit: (materials: MarketingMaterialsSelection) => void;
   isSaving: boolean;
 }) {
-  const [selected, setSelected] = useState<MarketingMaterialsSelection>('both');
+  const [selected, setSelected] = useState<MarketingMaterialsSelection | null>(null);
   const options: Array<{ label: string; value: MarketingMaterialsSelection; icon: React.ElementType }> = [
     { label: 'Shelf talker', value: 'shelf_talker', icon: Megaphone },
     { label: 'Table tent', value: 'table_tent', icon: Gift },
@@ -867,7 +867,7 @@ function MarketingMaterialsModal({
                     : 'bg-cream-200 text-bark-500 hover:bg-bark-500 hover:text-white',
                 )}
               >
-                <Icon className={cn('w-5 h-5', isSelected ? 'text-white' : 'text-bark-500')} />
+                <Icon className="w-5 h-5 text-current" />
                 <span className="font-semibold">{label}</span>
               </button>
             );
@@ -876,8 +876,12 @@ function MarketingMaterialsModal({
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <button
             type="button"
-            disabled={isSaving}
-            onClick={() => onSubmit(selected)}
+            disabled={isSaving || !selected}
+            onClick={() => {
+              if (selected) {
+                onSubmit(selected);
+              }
+            }}
             className="rounded-xl bg-bark-500 px-4 py-2 font-semibold text-white hover:bg-bark-600 disabled:opacity-50"
           >
             Submit Request
