@@ -343,6 +343,10 @@ export default function DashboardPage() {
             progress={progress}
             checklistItems={checklistItems}
             onAction={handleSuccessAction}
+            onUndo={(itemId) => {
+              const undo = undoableChecklistItems[itemId];
+              if (undo) updateSuccessProfile(undo.updates, undo.message);
+            }}
             isSaving={Boolean(successSavingAction)}
           />
         </div>
@@ -502,6 +506,32 @@ const actionLabels: Partial<Record<RetailerSuccessAction, string>> = {
   promo_not_this_time: 'Not This Time',
 };
 
+const undoableChecklistItems: Partial<Record<string, {
+  updates: Partial<RetailerSuccessProfileInput>;
+  message: string;
+}>> = {
+  samples: {
+    updates: { samples_acknowledged: false },
+    message: 'Samples understanding marked incomplete.',
+  },
+  astro: {
+    updates: { astro_enrolled: false },
+    message: 'Astro enrollment marked incomplete.',
+  },
+  materials: {
+    updates: { marketing_materials_status: 'not_requested' },
+    message: 'Marketing materials request reset.',
+  },
+  placement: {
+    updates: { shelf_placement_status: 'not_set', shelf_placement_note: '' },
+    message: 'Shelf placement reset.',
+  },
+  promo: {
+    updates: { current_promo_status: 'not_started' },
+    message: 'Current promo response reset.',
+  },
+};
+
 function WholesalePerksBanner() {
   const marqueeItems = [...perkItems, ...perkItems];
 
@@ -616,6 +646,7 @@ function RetailSuccessPlanCard({
   progress,
   checklistItems,
   onAction,
+  onUndo,
   isSaving,
 }: {
   headline: string;
@@ -623,6 +654,7 @@ function RetailSuccessPlanCard({
   progress: ReturnType<typeof calculateSuccessPlanProgress>;
   checklistItems: ReturnType<typeof getRetailerSuccessChecklist>;
   onAction: (action: RetailerSuccessAction) => void;
+  onUndo: (itemId: string) => void;
   isSaving: boolean;
 }) {
   return (
@@ -645,39 +677,61 @@ function RetailSuccessPlanCard({
         <div className="h-full rounded-full bg-bark-500 transition-all" style={{ width: `${progress.percentage}%` }} />
       </div>
       <div className="mt-6 divide-y divide-cream-200">
-        {checklistItems.map((item) => (
-          <div key={item.id} className="py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-start gap-3">
-              <div className={cn('mt-0.5 w-7 h-7 rounded-full flex items-center justify-center shrink-0', item.complete ? 'bg-emerald-100 text-emerald-700' : 'bg-cream-200 text-bark-500/60')}>
-                <CheckCircle className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-semibold text-bark-500">{item.title}</p>
-                  <StatusBadge label={item.statusLabel} />
+        {checklistItems.map((item) => {
+          const canUndo = Boolean(item.complete && undoableChecklistItems[item.id]);
+          const iconClassName = cn(
+            'mt-0.5 w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-colors',
+            item.complete ? 'bg-emerald-100 text-emerald-700' : 'bg-cream-200 text-bark-500/60',
+            canUndo && 'hover:bg-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-cream-100 cursor-pointer',
+          );
+
+          return (
+            <div key={item.id} className="py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-start gap-3">
+                {canUndo ? (
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => onUndo(item.id)}
+                    className={iconClassName}
+                    title={`Mark ${item.title} incomplete`}
+                    aria-label={`Mark ${item.title} incomplete`}
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <div className={iconClassName}>
+                    <CheckCircle className="w-4 h-4" />
+                  </div>
+                )}
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold text-bark-500">{item.title}</p>
+                    <StatusBadge label={item.statusLabel} />
+                  </div>
+                  <p className="text-sm text-bark-500/70 mt-1">{item.description}</p>
                 </div>
-                <p className="text-sm text-bark-500/70 mt-1">{item.description}</p>
               </div>
+              {!item.complete && item.primaryAction && (
+                <div className="flex flex-wrap gap-2 md:justify-end">
+                  <button disabled={isSaving} onClick={() => onAction(item.primaryAction!)} className="px-3 py-2 rounded-lg bg-bark-500 text-white text-sm font-semibold hover:bg-bark-600 disabled:opacity-50">
+                    {actionLabels[item.primaryAction] || 'Start'}
+                  </button>
+                  {item.secondaryAction && (
+                    <button disabled={isSaving} onClick={() => onAction(item.secondaryAction!)} className="px-3 py-2 rounded-lg border border-bark-500/20 text-bark-500 text-sm font-semibold hover:bg-cream-200 disabled:opacity-50">
+                      {actionLabels[item.secondaryAction]}
+                    </button>
+                  )}
+                  {item.tertiaryAction && (
+                    <button disabled={isSaving} onClick={() => onAction(item.tertiaryAction!)} className="px-3 py-2 rounded-lg text-bark-500/70 text-sm font-semibold hover:bg-cream-200 disabled:opacity-50">
+                      {actionLabels[item.tertiaryAction]}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-            {!item.complete && item.primaryAction && (
-              <div className="flex flex-wrap gap-2 md:justify-end">
-                <button disabled={isSaving} onClick={() => onAction(item.primaryAction!)} className="px-3 py-2 rounded-lg bg-bark-500 text-white text-sm font-semibold hover:bg-bark-600 disabled:opacity-50">
-                  {actionLabels[item.primaryAction] || 'Start'}
-                </button>
-                {item.secondaryAction && (
-                  <button disabled={isSaving} onClick={() => onAction(item.secondaryAction!)} className="px-3 py-2 rounded-lg border border-bark-500/20 text-bark-500 text-sm font-semibold hover:bg-cream-200 disabled:opacity-50">
-                    {actionLabels[item.secondaryAction]}
-                  </button>
-                )}
-                {item.tertiaryAction && (
-                  <button disabled={isSaving} onClick={() => onAction(item.tertiaryAction!)} className="px-3 py-2 rounded-lg text-bark-500/70 text-sm font-semibold hover:bg-cream-200 disabled:opacity-50">
-                    {actionLabels[item.tertiaryAction]}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
