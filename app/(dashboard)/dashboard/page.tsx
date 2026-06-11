@@ -345,6 +345,7 @@ export default function DashboardPage() {
       {currentPromo.promoVisible && (
         <CurrentPromoCard
           currentPromo={currentPromo}
+          currentPromoStatus={successProfile.currentPromoStatus}
           onAction={handleSuccessAction}
           isSaving={Boolean(successSavingAction)}
         />
@@ -604,13 +605,73 @@ function WholesalePerksBanner() {
 
 function CurrentPromoCard({
   currentPromo,
+  currentPromoStatus,
   onAction,
   isSaving,
 }: {
   currentPromo: CurrentAstroPromo;
+  currentPromoStatus: CurrentPromoStatus;
   onAction: (action: RetailerSuccessAction) => void;
   isSaving: boolean;
 }) {
+  const isOptedIn = currentPromoStatus === 'opted_in';
+  const isNotThisTime = currentPromoStatus === 'not_this_time';
+  const hasResponded = isOptedIn || isNotThisTime;
+
+  if (hasResponded) {
+    return (
+      <div className={cn(
+        'card p-6 mb-8 border',
+        isOptedIn ? 'border-emerald-200 bg-emerald-50' : 'border-cream-300 bg-cream-100',
+      )}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className={cn(
+              'w-11 h-11 rounded-xl flex items-center justify-center',
+              isOptedIn ? 'bg-emerald-100 text-emerald-700' : 'bg-cream-200 text-bark-500',
+            )}>
+              {isOptedIn ? <CheckCircle className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-bark-500/60 font-semibold">
+                {isOptedIn ? "You're opted in" : 'Promo marked not this time'}
+              </p>
+              <h2 className="text-xl font-bold text-bark-500 mt-1">
+                {isOptedIn
+                  ? `Nice, your store is set for ${currentPromo.promoName || 'the current Astro promo'}.`
+                  : `No problem, we marked ${currentPromo.promoName || 'this promo'} as not this time.`}
+              </h2>
+              <p className="text-sm text-bark-500/70 mt-2 max-w-3xl">
+                {isOptedIn
+                  ? 'We marked your store as participating. Keep an eye on Astro for promo details and make sure your team knows what is running.'
+                  : 'You can still opt in through Astro if plans change, then mark your store as opted in here.'}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+            <button onClick={() => onAction('promo_link')} className={cn(
+              'inline-flex items-center justify-center rounded-xl px-4 py-2 font-semibold',
+              isOptedIn
+                ? 'border border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                : 'bg-bark-500 text-white hover:bg-bark-600',
+            )}>
+              Open Astro
+              <ExternalLink className="w-4 h-4 ml-2" />
+            </button>
+            {isNotThisTime && (
+              <button disabled={isSaving} onClick={() => onAction('promo_opted_in')} className="px-4 py-2 rounded-xl border border-bark-500/20 text-bark-500 font-semibold hover:bg-cream-200 disabled:opacity-50">
+                Mark as Opted In
+              </button>
+            )}
+            <button disabled={isSaving} onClick={() => onAction(isOptedIn ? 'promo_not_this_time' : 'promo_opted_in')} className="px-4 py-2 rounded-xl text-bark-500/70 font-semibold hover:bg-cream-200 disabled:opacity-50">
+              {isOptedIn ? 'Not This Time' : 'Change to Opted In'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="card p-6 mb-8 border border-amber-200 bg-cream-100">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
