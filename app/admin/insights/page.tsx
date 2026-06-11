@@ -914,7 +914,7 @@ export default function AdminInsightsPage() {
               <div className="mt-5 space-y-4">
                 <AdoptionProgress label="Samples acknowledged" value={successInsights.samplesAcknowledgedPercent} />
                 <AdoptionProgress label="Astro enrolled" value={successInsights.astroEnrolledPercent} />
-                <AdoptionProgress label="Marketing materials requested/sent" value={successInsights.marketingMaterialsPercent} />
+                <AdoptionProgress label="Marketing materials checked/requested" value={successInsights.marketingMaterialsPercent} />
                 <AdoptionProgress label="Treats ordered" value={successInsights.treatsOrderedPercent} />
                 <AdoptionProgress label="Shelf placement marked" value={successInsights.shelfPlacementPercent} />
                 {currentPromo.promoVisible && (
@@ -939,7 +939,7 @@ export default function AdminInsightsPage() {
               <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <ActionNeededList title="Missing Astro enrollment" rows={successInsights.missingAstro} />
                 <ActionNeededList title="Samples not acknowledged" rows={successInsights.missingSamples} />
-                <ActionNeededList title="Materials not requested" rows={successInsights.missingMarketingMaterials} />
+                <ActionNeededList title="Materials not checked" rows={successInsights.missingMarketingMaterials} />
                 <ActionNeededList title="No treats ordered" rows={successInsights.missingTreats} />
                 <ActionNeededList title="Shelf placement not marked" rows={successInsights.missingShelfPlacement} />
                 {currentPromo.promoVisible && (

@@ -984,6 +984,7 @@ export default function AdminRetailerDetailPage() {
               className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
             >
               <option value="not_requested">Not requested</option>
+              <option value="have_materials">Has materials</option>
               <option value="requested">Requested</option>
               <option value="sent">Sent</option>
             </select>

@@ -6,7 +6,7 @@ export type RetailerLifecycleStatus =
   | 'inactive'
   | 'high_performer';
 
-export type MarketingMaterialsStatus = 'not_requested' | 'requested' | 'sent';
+export type MarketingMaterialsStatus = 'not_requested' | 'have_materials' | 'requested' | 'sent';
 export type ShelfPlacementStatus =
   | 'not_set'
   | 'front_counter'
@@ -59,7 +59,7 @@ export type RetailerSuccessChecklistItem = {
   title: string;
   description: string;
   complete: boolean;
-  statusLabel: 'Done' | 'Not Started' | 'Requested' | 'Sent' | 'Not This Time';
+  statusLabel: 'Done' | 'Not Started' | 'Have Materials' | 'Requested' | 'Sent' | 'Not This Time';
   primaryAction?: RetailerSuccessAction;
   secondaryAction?: RetailerSuccessAction;
   tertiaryAction?: RetailerSuccessAction;
@@ -71,6 +71,7 @@ export type RetailerSuccessAction =
   | 'astro_link'
   | 'astro_enrolled'
   | 'request_materials'
+  | 'materials_have'
   | 'treats'
   | 'shelf_placement'
   | 'promo_link'
@@ -283,9 +284,9 @@ export function getRecommendedNextStep(
   if (successProfile.marketingMaterialsStatus === 'not_requested') {
     return {
       key: 'materials',
-      headline: 'Request in-store marketing',
-      body: 'Shelf talkers and table tents help customers understand Bare at the shelf. Request them now and we will include them with your next order.',
-      primaryLabel: 'Request Materials',
+      headline: 'Check your in-store marketing',
+      body: 'Shelf talkers and table tents help customers understand Bare at the shelf. Tell us if you already have them, or request them with your next order.',
+      primaryLabel: 'Check Materials',
       primaryAction: 'request_materials',
     };
   }
@@ -349,11 +350,13 @@ export function getRetailerSuccessChecklist(
     },
     {
       id: 'materials',
-      title: 'Marketing materials requested',
-      description: 'Shelf talkers and table tents help the shelf do more of the selling and can be included with your next order.',
-      complete: ['requested', 'sent'].includes(successProfile.marketingMaterialsStatus),
+      title: 'Marketing materials checked',
+      description: 'Tell us if you already have shelf talkers/table tents, or request them with your next order.',
+      complete: ['have_materials', 'requested', 'sent'].includes(successProfile.marketingMaterialsStatus),
       statusLabel: successProfile.marketingMaterialsStatus === 'sent'
         ? 'Sent'
+        : successProfile.marketingMaterialsStatus === 'have_materials'
+          ? 'Have Materials'
         : successProfile.marketingMaterialsStatus === 'requested'
           ? 'Requested'
           : 'Not Started',
@@ -463,7 +466,7 @@ export function getRetailerSuccessInsights(
     byLifecycle,
     samplesAcknowledgedPercent: percent(retailerRows.filter((row) => row.profile.samplesAcknowledged).length),
     astroEnrolledPercent: percent(retailerRows.filter((row) => row.profile.astroEnrolled).length),
-    marketingMaterialsPercent: percent(retailerRows.filter((row) => ['requested', 'sent'].includes(row.profile.marketingMaterialsStatus)).length),
+    marketingMaterialsPercent: percent(retailerRows.filter((row) => ['have_materials', 'requested', 'sent'].includes(row.profile.marketingMaterialsStatus)).length),
     treatsOrderedPercent: percent(retailerRows.filter((row) => row.profile.hasOrderedTreats).length),
     shelfPlacementPercent: percent(retailerRows.filter((row) => row.profile.shelfPlacementStatus !== 'not_set').length),
     currentPromoOptedInPercent: currentPromo.promoVisible

@@ -129,6 +129,21 @@ Requested Materials: ${materialsLabel}
       }
     }
 
+    if (
+      'marketing_materials_status' in updates &&
+      updates.marketing_materials_status !== 'requested'
+    ) {
+      const { error: cancelRequestError } = await supabase
+        .from('marketing_material_requests')
+        .update({ status: 'canceled' })
+        .eq('retailer_id', user.id)
+        .eq('status', 'pending');
+
+      if (cancelRequestError) {
+        console.error('Marketing materials request cancel error:', cancelRequestError);
+      }
+    }
+
     const { data, error } = await supabase
       .from('retailer_success_profiles')
       .upsert({

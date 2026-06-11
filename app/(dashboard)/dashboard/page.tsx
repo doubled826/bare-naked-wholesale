@@ -252,6 +252,10 @@ export default function DashboardPage() {
       setIsRequestingMaterials(true);
       return;
     }
+    if (action === 'materials_have') {
+      updateSuccessProfile({ marketing_materials_status: 'have_materials' as MarketingMaterialsStatus }, 'Marketing materials marked as already on hand.');
+      return;
+    }
     if (action === 'shelf_placement') {
       setIsMarkingPlacement(true);
       return;
@@ -277,6 +281,11 @@ export default function DashboardPage() {
       { marketing_materials_request: materials },
       { allowLocalFallback: false },
     );
+    setIsRequestingMaterials(false);
+  };
+
+  const handleMarketingMaterialsOnHand = () => {
+    updateSuccessProfile({ marketing_materials_status: 'have_materials' as MarketingMaterialsStatus }, 'Marketing materials marked as already on hand.');
     setIsRequestingMaterials(false);
   };
 
@@ -393,6 +402,7 @@ export default function DashboardPage() {
       {isRequestingMaterials && (
         <MarketingMaterialsModal
           onClose={() => setIsRequestingMaterials(false)}
+          onHaveMaterials={handleMarketingMaterialsOnHand}
           onSubmit={handleMarketingMaterialsRequest}
           isSaving={Boolean(successSavingAction)}
         />
@@ -520,6 +530,7 @@ const actionLabels: Partial<Record<RetailerSuccessAction, string>> = {
   astro_link: 'Enroll in Astro',
   astro_enrolled: 'Mark as Enrolled',
   request_materials: 'Request Materials',
+  materials_have: 'I Have Them',
   treats: 'Add Treats to Order',
   shelf_placement: 'Mark Placement',
   promo_link: 'Opt In Through Astro',
@@ -767,7 +778,7 @@ function RetailSuccessPlanCard({
 }
 
 function StatusBadge({ label }: { label: string }) {
-  const done = label === 'Done' || label === 'Requested' || label === 'Sent';
+  const done = label === 'Done' || label === 'Have Materials' || label === 'Requested' || label === 'Sent';
   return (
     <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-semibold', done ? 'bg-emerald-100 text-emerald-700' : 'bg-cream-200 text-bark-500/70')}>
       {label}
@@ -833,13 +844,16 @@ function ShelfPlacementModal({
 
 function MarketingMaterialsModal({
   onClose,
+  onHaveMaterials,
   onSubmit,
   isSaving,
 }: {
   onClose: () => void;
+  onHaveMaterials: () => void;
   onSubmit: (materials: MarketingMaterialsSelection) => void;
   isSaving: boolean;
 }) {
+  const [needsMaterials, setNeedsMaterials] = useState(false);
   const [selected, setSelected] = useState<MarketingMaterialsSelection | null>(null);
   const options: Array<{ label: string; value: MarketingMaterialsSelection; icon: React.ElementType }> = [
     { label: 'Shelf talker', value: 'shelf_talker', icon: Megaphone },
@@ -850,51 +864,85 @@ function MarketingMaterialsModal({
   return (
     <div className="fixed inset-0 z-50 bg-bark-500/40 p-4 flex items-center justify-center">
       <div className="bg-cream-100 rounded-2xl shadow-xl max-w-lg w-full p-6">
-        <h2 className="section-title">Request marketing materials</h2>
+        <h2 className="section-title">Do you have marketing materials?</h2>
         <p className="text-sm text-bark-500/70 mt-2">
-          Choose what would help your team sell Bare in-store. We will include these materials with your next order.
+          Shelf talkers and table tents help customers understand Bare in-store. Tell us if you already have them, or request what you need with your next order.
         </p>
-        <div className="grid gap-3 mt-5">
-          {options.map(({ label, value, icon: Icon }) => {
-            const isSelected = selected === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setSelected(value)}
-                className={cn(
-                  'flex items-center gap-3 rounded-xl p-4 text-left transition-colors',
-                  isSelected
-                    ? 'bg-bark-500 text-white'
-                    : 'bg-cream-200 text-bark-500 hover:bg-bark-500 hover:text-white',
-                )}
-              >
-                <Icon className="w-5 h-5 text-current" />
-                <span className="font-semibold">{label}</span>
-              </button>
-            );
-          })}
-        </div>
+        {!needsMaterials ? (
+          <div className="mt-5 grid gap-3">
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={onHaveMaterials}
+              className="flex items-center gap-3 rounded-xl bg-bark-500 p-4 text-left text-white transition-colors hover:bg-bark-600 disabled:opacity-50"
+            >
+              <CheckCircle className="h-5 w-5" />
+              <span className="font-semibold">Yes, we have them</span>
+            </button>
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={() => setNeedsMaterials(true)}
+              className="flex items-center gap-3 rounded-xl bg-cream-200 p-4 text-left text-bark-500 transition-colors hover:bg-bark-500 hover:text-white disabled:opacity-50"
+            >
+              <Package className="h-5 w-5" />
+              <span className="font-semibold">No, please add them to our next order</span>
+            </button>
+          </div>
+        ) : (
+          <div className="grid gap-3 mt-5">
+            {options.map(({ label, value, icon: Icon }) => {
+              const isSelected = selected === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setSelected(value)}
+                  className={cn(
+                    'flex items-center gap-3 rounded-xl p-4 text-left transition-colors',
+                    isSelected
+                      ? 'bg-bark-500 text-white'
+                      : 'bg-cream-200 text-bark-500 hover:bg-bark-500 hover:text-white',
+                  )}
+                >
+                  <Icon className="w-5 h-5 text-current" />
+                  <span className="font-semibold">{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {needsMaterials && (
+            <button
+              type="button"
+              disabled={isSaving || !selected}
+              onClick={() => {
+                if (selected) {
+                  onSubmit(selected);
+                }
+              }}
+              className="rounded-xl bg-bark-500 px-4 py-2 font-semibold text-white hover:bg-bark-600 disabled:opacity-50"
+            >
+              Submit Request
+            </button>
+          )}
           <button
             type="button"
-            disabled={isSaving || !selected}
-            onClick={() => {
-              if (selected) {
-                onSubmit(selected);
-              }
-            }}
-            className="rounded-xl bg-bark-500 px-4 py-2 font-semibold text-white hover:bg-bark-600 disabled:opacity-50"
-          >
-            Submit Request
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
+            onClick={needsMaterials ? () => { setNeedsMaterials(false); setSelected(null); } : onClose}
             className="rounded-xl border border-bark-500/20 px-4 py-2 font-semibold text-bark-500 hover:bg-cream-200"
           >
-            Cancel
+            {needsMaterials ? 'Back' : 'Cancel'}
           </button>
+          {needsMaterials && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-bark-500/20 px-4 py-2 font-semibold text-bark-500 hover:bg-cream-200"
+            >
+              Cancel
+            </button>
+          )}
         </div>
       </div>
     </div>
