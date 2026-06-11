@@ -188,55 +188,10 @@ export default function AdminInsightsPage() {
   const [velocityWindowLabel, setVelocityWindowLabel] = useState('Running average since first order');
   const [successInsights, setSuccessInsights] = useState<RetailerSuccessInsights | null>(null);
   const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
-  const [promoForm, setPromoForm] = useState({
-    promo_visible: false,
-    promo_name: '',
-    promo_description: '',
-    promo_start_date: '',
-    promo_end_date: '',
-    astro_promo_url: '',
-  });
-  const [promoNotice, setPromoNotice] = useState('');
-  const [isSavingPromo, setIsSavingPromo] = useState(false);
 
   useEffect(() => {
     fetchInsights();
   }, []);
-
-  useEffect(() => {
-    setPromoForm({
-      promo_visible: currentPromo.promoVisible,
-      promo_name: currentPromo.promoName,
-      promo_description: currentPromo.promoDescription,
-      promo_start_date: currentPromo.promoStartDate || '',
-      promo_end_date: currentPromo.promoEndDate || '',
-      astro_promo_url: currentPromo.astroPromoUrl,
-    });
-  }, [currentPromo]);
-
-  const saveCurrentPromo = async () => {
-    setIsSavingPromo(true);
-    setPromoNotice('');
-    try {
-      const response = await fetch('/api/admin/retailer-success/promo', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(promoForm),
-      });
-      const data = await response.json();
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.error || 'Failed to save current promo.');
-      }
-      setCurrentPromo(data.currentPromo);
-      setPromoNotice('Current promo saved.');
-      fetchInsights();
-    } catch (error) {
-      console.error('Promo save error:', error);
-      setPromoNotice(error instanceof Error ? error.message : 'Failed to save current promo.');
-    } finally {
-      setIsSavingPromo(false);
-    }
-  };
 
   const fetchInsights = async () => {
     setIsLoading(true);
@@ -933,9 +888,14 @@ export default function AdminInsightsPage() {
               </p>
             </div>
             {currentPromo.promoVisible && (
-              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-3 py-1">
-                Current promo: {currentPromo.promoName || 'Visible'}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-3 py-1">
+                  Current promo: {currentPromo.promoName || 'Visible'}
+                </p>
+                <Link href="/admin/sales-hub" className="text-sm font-medium text-bark-500 hover:text-bark-600">
+                  Manage in Sales Hub
+                </Link>
+              </div>
             )}
           </div>
 
@@ -946,68 +906,6 @@ export default function AdminInsightsPage() {
             <SuccessMetricCard label="At-risk stores" value={successInsights.byLifecycle.at_risk} />
             <SuccessMetricCard label="Inactive stores" value={successInsights.byLifecycle.inactive} />
             <SuccessMetricCard label="High-performing stores" value={successInsights.byLifecycle.high_performer} />
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <h4 className="text-md font-semibold text-gray-900">Current Astro Promo</h4>
-                <p className="text-sm text-gray-500 mt-1">Simple V1 setting shown on retailer dashboards when visible.</p>
-              </div>
-              <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={promoForm.promo_visible}
-                  onChange={(event) => setPromoForm((current) => ({ ...current, promo_visible: event.target.checked }))}
-                  className="rounded border-gray-300 text-bark-500 focus:ring-bark-500"
-                />
-                Promo visible
-              </label>
-            </div>
-            <div className="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <input
-                type="text"
-                value={promoForm.promo_name}
-                onChange={(event) => setPromoForm((current) => ({ ...current, promo_name: event.target.value }))}
-                placeholder="Promo name"
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
-              />
-              <input
-                type="url"
-                value={promoForm.astro_promo_url}
-                onChange={(event) => setPromoForm((current) => ({ ...current, astro_promo_url: event.target.value }))}
-                placeholder="Astro promo URL"
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
-              />
-              <input
-                type="date"
-                value={promoForm.promo_start_date}
-                onChange={(event) => setPromoForm((current) => ({ ...current, promo_start_date: event.target.value }))}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
-              />
-              <input
-                type="date"
-                value={promoForm.promo_end_date}
-                onChange={(event) => setPromoForm((current) => ({ ...current, promo_end_date: event.target.value }))}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
-              />
-              <textarea
-                value={promoForm.promo_description}
-                onChange={(event) => setPromoForm((current) => ({ ...current, promo_description: event.target.value }))}
-                placeholder="Promo description"
-                className="md:col-span-2 lg:col-span-3 rounded-lg border border-gray-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
-                rows={2}
-              />
-              <button
-                type="button"
-                onClick={saveCurrentPromo}
-                disabled={isSavingPromo}
-                className="rounded-lg bg-bark-500 px-4 py-2 text-sm font-semibold text-white hover:bg-bark-600 disabled:opacity-50"
-              >
-                {isSavingPromo ? 'Saving...' : 'Save Promo'}
-              </button>
-            </div>
-            {promoNotice && <p className="mt-3 text-sm text-gray-600">{promoNotice}</p>}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
