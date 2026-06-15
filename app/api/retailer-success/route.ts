@@ -9,6 +9,7 @@ const allowedProfileFields = [
   'samples_acknowledged',
   'astro_enrolled',
   'marketing_materials_status',
+  'launch_promo_status',
   'shelf_placement_status',
   'shelf_placement_note',
   'current_promo_status',
@@ -62,6 +63,9 @@ export async function PATCH(request: Request) {
     });
     const marketingMaterialsRequest = isMarketingMaterialsType(body.marketing_materials_request)
       ? body.marketing_materials_request
+      : null;
+    const launchPromoRequest = typeof body.launch_promo_request === 'object' && body.launch_promo_request
+      ? body.launch_promo_request as { start_date?: unknown; duration_weeks?: unknown }
       : null;
 
     if (updates.marketing_materials_status === 'requested' && marketingMaterialsRequest) {
@@ -141,6 +145,95 @@ Requested Materials: ${materialsLabel}
 
       if (cancelRequestError) {
         console.error('Marketing materials request cancel error:', cancelRequestError);
+      }
+    }
+
+    if (updates.launch_promo_status === 'requested' && launchPromoRequest) {
+      const startDate = typeof launchPromoRequest.start_date === 'string' ? launchPromoRequest.start_date : '';
+      const durationWeeks = Number(launchPromoRequest.duration_weeks);
+
+      if (!startDate || ![2, 3, 4].includes(durationWeeks)) {
+        return NextResponse.json(
+          { error: 'Please choose a promo start date and a 2-4 week duration.' },
+          { status: 400 },
+        );
+      }
+
+      const { data: retailer } = await supabase
+        .from('retailers')
+        .select('company_name, account_number, business_address, phone')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      const companyName = retailer?.company_name || 'Unknown retailer';
+
+      const { data: existingRequest } = await supabase
+        .from('launch_promo_requests')
+        .select('id')
+        .eq('retailer_id', user.id)
+        .eq('status', 'pending')
+        .maybeSingle();
+
+      const requestPayload = {
+        retailer_id: user.id,
+        promo_discount_percent: 10,
+        duration_weeks: durationWeeks,
+        start_date: startDate,
+        status: 'pending',
+      };
+
+      const { error: requestError } = existingRequest?.id
+        ? await supabase
+            .from('launch_promo_requests')
+            .update(requestPayload)
+            .eq('id', existingRequest.id)
+        : await supabase
+            .from('launch_promo_requests')
+            .insert(requestPayload);
+
+      if (requestError) {
+        return NextResponse.json(
+          { error: requestError.message || 'Failed to save launch promo request.' },
+          { status: 400 },
+        );
+      }
+
+      try {
+        await sendTeamEmail({
+          subject: `Launch promo requested: ${companyName}`,
+          text: `
+A retailer requested a fully supported in-store launch promo.
+
+Retailer: ${companyName}
+Account Number: ${retailer?.account_number || 'Not provided'}
+Email: ${user.email || 'Not provided'}
+Phone: ${retailer?.phone || 'Not provided'}
+Address: ${retailer?.business_address || 'Not provided'}
+
+Promo Details:
+- Discount: 10% off
+- Requested Start Date: ${startDate}
+- Requested Duration: ${durationWeeks} weeks
+          `.trim(),
+        });
+      } catch (emailError) {
+        console.error('Launch promo notification email error:', emailError);
+        return NextResponse.json(
+          { error: 'Launch promo request could not be emailed to the team. Please try again.' },
+          { status: 500 },
+        );
+      }
+    }
+
+    if ('launch_promo_status' in updates && updates.launch_promo_status !== 'requested') {
+      const { error: cancelLaunchPromoError } = await supabase
+        .from('launch_promo_requests')
+        .update({ status: 'canceled' })
+        .eq('retailer_id', user.id)
+        .eq('status', 'pending');
+
+      if (cancelLaunchPromoError) {
+        console.error('Launch promo request cancel error:', cancelLaunchPromoError);
       }
     }
 

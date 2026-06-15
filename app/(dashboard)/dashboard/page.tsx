@@ -9,6 +9,7 @@ import {
   ArrowRight,
   Clock,
   CheckCircle,
+  Calendar,
   Truck,
   Sparkles,
   Gift,
@@ -37,6 +38,7 @@ import {
   type ShelfPlacementStatus,
   type CurrentPromoStatus,
   type MarketingMaterialsStatus,
+  type LaunchPromoStatus,
 } from '@/lib/retailerSuccess';
 
 const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
@@ -60,6 +62,8 @@ export default function DashboardPage() {
   const [successSavingAction, setSuccessSavingAction] = useState<string | null>(null);
   const [isMarkingPlacement, setIsMarkingPlacement] = useState(false);
   const [isRequestingMaterials, setIsRequestingMaterials] = useState(false);
+  const [isRequestingLaunchPromo, setIsRequestingLaunchPromo] = useState(false);
+  const [isConfirmingLaunchPromoCancel, setIsConfirmingLaunchPromoCancel] = useState(false);
   const [successNotice, setSuccessNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const pendingSuccessSaveRef = useRef(false);
 
@@ -173,6 +177,7 @@ export default function DashboardPage() {
       samples_acknowledged: successProfile.samplesAcknowledged,
       astro_enrolled: successProfile.astroEnrolled,
       marketing_materials_status: successProfile.marketingMaterialsStatus,
+      launch_promo_status: successProfile.launchPromoStatus,
       shelf_placement_status: successProfile.shelfPlacementStatus,
       shelf_placement_note: successProfile.shelfPlacementNote,
       current_promo_status: successProfile.currentPromoStatus,
@@ -256,6 +261,10 @@ export default function DashboardPage() {
       updateSuccessProfile({ marketing_materials_status: 'have_materials' as MarketingMaterialsStatus }, 'Marketing materials marked as already on hand.');
       return;
     }
+    if (action === 'launch_promo') {
+      setIsRequestingLaunchPromo(true);
+      return;
+    }
     if (action === 'shelf_placement') {
       setIsMarkingPlacement(true);
       return;
@@ -287,6 +296,16 @@ export default function DashboardPage() {
   const handleMarketingMaterialsOnHand = () => {
     updateSuccessProfile({ marketing_materials_status: 'have_materials' as MarketingMaterialsStatus }, 'Marketing materials marked as already on hand.');
     setIsRequestingMaterials(false);
+  };
+
+  const handleLaunchPromoRequest = (request: LaunchPromoRequestInput) => {
+    updateSuccessProfile(
+      { launch_promo_status: 'requested' as LaunchPromoStatus },
+      'Launch promo requested. Our team will follow up with next steps.',
+      { launch_promo_request: request },
+      { allowLocalFallback: false },
+    );
+    setIsRequestingLaunchPromo(false);
   };
 
   return (
@@ -367,6 +386,10 @@ export default function DashboardPage() {
             checklistItems={checklistItems}
             onAction={handleSuccessAction}
             onUndo={(itemId) => {
+              if (itemId === 'launch_promo') {
+                setIsConfirmingLaunchPromoCancel(true);
+                return;
+              }
               const undo = undoableChecklistItems[itemId];
               if (undo) updateSuccessProfile(undo.updates, undo.message);
             }}
@@ -405,6 +428,26 @@ export default function DashboardPage() {
           onClose={() => setIsRequestingMaterials(false)}
           onHaveMaterials={handleMarketingMaterialsOnHand}
           onSubmit={handleMarketingMaterialsRequest}
+          isSaving={Boolean(successSavingAction)}
+        />
+      )}
+
+      {isRequestingLaunchPromo && (
+        <LaunchPromoModal
+          onClose={() => setIsRequestingLaunchPromo(false)}
+          onSubmit={handleLaunchPromoRequest}
+          isSaving={Boolean(successSavingAction)}
+        />
+      )}
+
+      {isConfirmingLaunchPromoCancel && (
+        <ConfirmLaunchPromoCancelModal
+          onClose={() => setIsConfirmingLaunchPromoCancel(false)}
+          onConfirm={() => {
+            const undo = undoableChecklistItems.launch_promo;
+            if (undo) updateSuccessProfile(undo.updates, undo.message);
+            setIsConfirmingLaunchPromoCancel(false);
+          }}
           isSaving={Boolean(successSavingAction)}
         />
       )}
@@ -532,6 +575,7 @@ const actionLabels: Partial<Record<RetailerSuccessAction, string>> = {
   astro_enrolled: 'Mark as Enrolled',
   request_materials: 'Request Materials',
   materials_have: 'I Have Them',
+  launch_promo: 'Request Launch Promo',
   treats: 'Add Treats to Order',
   shelf_placement: 'Mark Placement',
   promo_link: 'Opt In Through Astro',
@@ -540,6 +584,10 @@ const actionLabels: Partial<Record<RetailerSuccessAction, string>> = {
 };
 
 type MarketingMaterialsSelection = 'shelf_talker' | 'table_tent' | 'both';
+type LaunchPromoRequestInput = {
+  start_date: string;
+  duration_weeks: number;
+};
 
 const marketingMaterialsLabels: Record<MarketingMaterialsSelection, string> = {
   shelf_talker: 'Shelf talker',
@@ -562,6 +610,10 @@ const undoableChecklistItems: Partial<Record<string, {
   materials: {
     updates: { marketing_materials_status: 'not_requested' },
     message: 'Marketing materials request reset.',
+  },
+  launch_promo: {
+    updates: { launch_promo_status: 'not_requested' },
+    message: 'Launch promo request reset.',
   },
   placement: {
     updates: { shelf_placement_status: 'not_set', shelf_placement_note: '' },
@@ -1004,6 +1056,137 @@ function MarketingMaterialsModal({
               Cancel
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LaunchPromoModal({
+  onClose,
+  onSubmit,
+  isSaving,
+}: {
+  onClose: () => void;
+  onSubmit: (request: LaunchPromoRequestInput) => void;
+  isSaving: boolean;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState(today);
+  const [durationWeeks, setDurationWeeks] = useState(2);
+  const durationOptions = [2, 3, 4];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-bark-500/40 p-4 flex items-center justify-center">
+      <div className="bg-cream-100 rounded-2xl shadow-xl max-w-lg w-full p-6">
+        <h2 className="section-title">Request a launch promo</h2>
+        <p className="text-sm text-bark-500/70 mt-2">
+          We can fully support a 10% off in-store launch promo for new stores. Choose your preferred start date and length.
+        </p>
+
+        <div className="mt-5 space-y-5">
+          <div>
+            <label className="label" htmlFor="launch-promo-start">Promo start date</label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-bark-500/40" />
+              <input
+                id="launch-promo-start"
+                type="date"
+                min={today}
+                value={startDate}
+                onChange={(event) => setStartDate(event.target.value)}
+                className="input pl-10"
+              />
+            </div>
+          </div>
+
+          <div>
+            <p className="label">Promo length</p>
+            <div className="grid grid-cols-3 gap-3">
+              {durationOptions.map((weeks) => {
+                const isSelected = durationWeeks === weeks;
+                return (
+                  <button
+                    key={weeks}
+                    type="button"
+                    onClick={() => setDurationWeeks(weeks)}
+                    className={cn(
+                      'rounded-xl px-4 py-3 text-sm font-semibold transition-colors',
+                      isSelected
+                        ? 'bg-bark-500 text-white'
+                        : 'bg-cream-200 text-bark-500 hover:bg-bark-500 hover:text-white',
+                    )}
+                  >
+                    {weeks} weeks
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-bark-500/80">
+            Bare will support the promo cost. Our team will review the timing and follow up to confirm details.
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={isSaving || !startDate}
+            onClick={() => onSubmit({ start_date: startDate, duration_weeks: durationWeeks })}
+            className="rounded-xl bg-bark-500 px-4 py-2 font-semibold text-white hover:bg-bark-600 disabled:opacity-50"
+          >
+            Submit Request
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-bark-500/20 px-4 py-2 font-semibold text-bark-500 hover:bg-cream-200"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmLaunchPromoCancelModal({
+  onClose,
+  onConfirm,
+  isSaving,
+}: {
+  onClose: () => void;
+  onConfirm: () => void;
+  isSaving: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-bark-500/40 p-4 flex items-center justify-center">
+      <div className="bg-cream-100 rounded-2xl shadow-xl max-w-md w-full p-6">
+        <div className="w-11 h-11 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center mb-4">
+          <Clock className="w-5 h-5" />
+        </div>
+        <h2 className="section-title">Cancel launch promo request?</h2>
+        <p className="text-sm text-bark-500/70 mt-2">
+          This will cancel your pending 10% off launch promo request. If you clicked by accident, keep the request active.
+        </p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={onConfirm}
+            className="rounded-xl bg-bark-500 px-4 py-2 font-semibold text-white hover:bg-bark-600 disabled:opacity-50"
+          >
+            Yes, Cancel Request
+          </button>
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={onClose}
+            className="rounded-xl border border-bark-500/20 px-4 py-2 font-semibold text-bark-500 hover:bg-cream-200 disabled:opacity-50"
+          >
+            Keep Request
+          </button>
         </div>
       </div>
     </div>

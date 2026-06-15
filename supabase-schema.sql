@@ -92,6 +92,8 @@ CREATE TABLE IF NOT EXISTS retailer_success_profiles (
   astro_enrolled BOOLEAN NOT NULL DEFAULT false,
   marketing_materials_status TEXT NOT NULL DEFAULT 'not_requested'
     CHECK (marketing_materials_status IN ('not_requested', 'have_materials', 'requested', 'sent')),
+  launch_promo_status TEXT NOT NULL DEFAULT 'not_requested'
+    CHECK (launch_promo_status IN ('not_requested', 'requested')),
   shelf_placement_status TEXT NOT NULL DEFAULT 'not_set'
     CHECK (shelf_placement_status IN ('not_set', 'front_counter', 'end_cap', 'kibble_aisle', 'raw_freeze_dried_section', 'other')),
   shelf_placement_note TEXT NOT NULL DEFAULT '',
@@ -118,6 +120,19 @@ CREATE TABLE IF NOT EXISTS retailer_success_promo_settings (
 INSERT INTO retailer_success_promo_settings (id)
 VALUES ('current')
 ON CONFLICT (id) DO NOTHING;
+
+-- Launch promo requests table
+CREATE TABLE IF NOT EXISTS launch_promo_requests (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  retailer_id UUID REFERENCES retailers(id) ON DELETE CASCADE,
+  promo_discount_percent INTEGER NOT NULL DEFAULT 10,
+  duration_weeks INTEGER NOT NULL CHECK (duration_weeks IN (2, 3, 4)),
+  start_date DATE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'completed', 'canceled')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- Retailer locations table
 CREATE TABLE IF NOT EXISTS retailer_locations (
@@ -170,6 +185,7 @@ CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
 CREATE INDEX idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX idx_retailer_locations_retailer_id ON retailer_locations(retailer_id);
 CREATE INDEX idx_marketing_material_requests_retailer_status ON marketing_material_requests(retailer_id, status);
+CREATE INDEX idx_launch_promo_requests_retailer_status ON launch_promo_requests(retailer_id, status);
 
 -- Enable Row Level Security
 ALTER TABLE retailers ENABLE ROW LEVEL SECURITY;
@@ -179,6 +195,7 @@ ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sample_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marketing_material_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE launch_promo_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE retailer_locations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE retailer_success_profiles ENABLE ROW LEVEL SECURITY;
@@ -272,6 +289,34 @@ CREATE POLICY "Retailers can update their marketing material requests"
 
 CREATE POLICY "Admins can manage marketing material requests"
   ON marketing_material_requests FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Retailers can view their launch promo requests"
+  ON launch_promo_requests FOR SELECT
+  USING (auth.uid() = retailer_id);
+
+CREATE POLICY "Retailers can create their launch promo requests"
+  ON launch_promo_requests FOR INSERT
+  WITH CHECK (auth.uid() = retailer_id);
+
+CREATE POLICY "Retailers can update their launch promo requests"
+  ON launch_promo_requests FOR UPDATE
+  USING (auth.uid() = retailer_id)
+  WITH CHECK (auth.uid() = retailer_id);
+
+CREATE POLICY "Admins can manage launch promo requests"
+  ON launch_promo_requests FOR ALL
   USING (
     EXISTS (
       SELECT 1 FROM admin_users

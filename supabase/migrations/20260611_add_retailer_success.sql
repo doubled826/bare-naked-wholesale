@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS retailer_success_profiles (
   astro_enrolled BOOLEAN NOT NULL DEFAULT false,
   marketing_materials_status TEXT NOT NULL DEFAULT 'not_requested'
     CHECK (marketing_materials_status IN ('not_requested', 'have_materials', 'requested', 'sent')),
+  launch_promo_status TEXT NOT NULL DEFAULT 'not_requested'
+    CHECK (launch_promo_status IN ('not_requested', 'requested')),
   shelf_placement_status TEXT NOT NULL DEFAULT 'not_set'
     CHECK (shelf_placement_status IN ('not_set', 'front_counter', 'end_cap', 'kibble_aisle', 'raw_freeze_dried_section', 'other')),
   shelf_placement_note TEXT NOT NULL DEFAULT '',

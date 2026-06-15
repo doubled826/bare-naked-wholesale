@@ -7,6 +7,7 @@ export type RetailerLifecycleStatus =
   | 'high_performer';
 
 export type MarketingMaterialsStatus = 'not_requested' | 'have_materials' | 'requested' | 'sent';
+export type LaunchPromoStatus = 'not_requested' | 'requested';
 export type ShelfPlacementStatus =
   | 'not_set'
   | 'front_counter'
@@ -21,6 +22,7 @@ export type RetailerSuccessProfileInput = {
   samples_acknowledged?: boolean | null;
   astro_enrolled?: boolean | null;
   marketing_materials_status?: MarketingMaterialsStatus | null;
+  launch_promo_status?: LaunchPromoStatus | null;
   shelf_placement_status?: ShelfPlacementStatus | null;
   shelf_placement_note?: string | null;
   current_promo_status?: CurrentPromoStatus | null;
@@ -32,6 +34,8 @@ export type RetailerSuccessProfile = {
   samplesAcknowledged: boolean;
   astroEnrolled: boolean;
   marketingMaterialsStatus: MarketingMaterialsStatus;
+  launchPromoStatus: LaunchPromoStatus;
+  launchPromoEligible: boolean;
   shelfPlacementStatus: ShelfPlacementStatus;
   shelfPlacementNote: string;
   currentPromoStatus: CurrentPromoStatus;
@@ -72,6 +76,7 @@ export type RetailerSuccessAction =
   | 'astro_enrolled'
   | 'request_materials'
   | 'materials_have'
+  | 'launch_promo'
   | 'treats'
   | 'shelf_placement'
   | 'promo_link'
@@ -107,6 +112,8 @@ export const defaultRetailerSuccessProfile: RetailerSuccessProfile = {
   samplesAcknowledged: false,
   astroEnrolled: false,
   marketingMaterialsStatus: 'not_requested',
+  launchPromoStatus: 'not_requested',
+  launchPromoEligible: false,
   shelfPlacementStatus: 'not_set',
   shelfPlacementNote: '',
   currentPromoStatus: 'not_started',
@@ -183,6 +190,13 @@ export function getLifecycleMessaging(status: RetailerLifecycleStatus) {
   return messages[status];
 }
 
+function isLaunchPromoEligible(totalOrders: number, firstOrderDate: string | null) {
+  if (totalOrders === 0) return true;
+  if (totalOrders !== 1 || !firstOrderDate) return false;
+  const daysSinceFirstOrder = Math.floor((Date.now() - new Date(firstOrderDate).getTime()) / MS_IN_DAY);
+  return daysSinceFirstOrder <= 30;
+}
+
 export function getRetailerSuccessProfile(
   retailer: { id?: string; created_at?: string | null },
   orders: Array<{
@@ -218,6 +232,8 @@ export function getRetailerSuccessProfile(
     samplesAcknowledged: Boolean(storedProfile?.samples_acknowledged) || validOrders.some((order) => Boolean(order.include_samples)),
     astroEnrolled: Boolean(storedProfile?.astro_enrolled),
     marketingMaterialsStatus: storedProfile?.marketing_materials_status || 'not_requested',
+    launchPromoStatus: storedProfile?.launch_promo_status || 'not_requested',
+    launchPromoEligible: isLaunchPromoEligible(validOrders.length, firstOrderDate),
     shelfPlacementStatus: storedProfile?.shelf_placement_status || 'not_set',
     shelfPlacementNote: storedProfile?.shelf_placement_note || '',
     currentPromoStatus: storedProfile?.current_promo_status || 'not_started',
@@ -288,6 +304,15 @@ export function getRecommendedNextStep(
       body: 'Shelf talkers and table tents help customers understand Bare at the shelf. Tell us if you already have them, or request them with your next order.',
       primaryLabel: 'Check Materials',
       primaryAction: 'request_materials',
+    };
+  }
+  if (successProfile.launchPromoEligible && successProfile.launchPromoStatus === 'not_requested') {
+    return {
+      key: 'launch_promo',
+      headline: 'Request a supported launch promo',
+      body: 'New stores can request a fully supported 10% off in-store launch promo for 2 to 4 weeks.',
+      primaryLabel: 'Request Launch Promo',
+      primaryAction: 'launch_promo',
     };
   }
   if (!successProfile.hasOrderedTreats) {
@@ -362,6 +387,20 @@ export function getRetailerSuccessChecklist(
           : 'Not Started',
       primaryAction: 'request_materials',
     },
+  ];
+
+  if (successProfile.launchPromoEligible) {
+    items.push({
+      id: 'launch_promo',
+      title: 'Launch promo requested',
+      description: 'New stores can request a fully supported 10% off promo for 2 to 4 weeks.',
+      complete: successProfile.launchPromoStatus === 'requested',
+      statusLabel: successProfile.launchPromoStatus === 'requested' ? 'Requested' : 'Not Started',
+      primaryAction: 'launch_promo',
+    });
+  }
+
+  items.push(
     {
       id: 'treats',
       title: 'Treats added',
@@ -378,7 +417,7 @@ export function getRetailerSuccessChecklist(
       statusLabel: successProfile.shelfPlacementStatus !== 'not_set' ? 'Done' : 'Not Started',
       primaryAction: 'shelf_placement',
     },
-  ];
+  );
 
   if (currentPromo.promoVisible) {
     items.push({
