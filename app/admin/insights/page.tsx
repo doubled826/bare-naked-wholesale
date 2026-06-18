@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import {
@@ -12,6 +12,7 @@ import {
   BarChart,
   Bar,
 } from 'recharts';
+import { Info } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   defaultCurrentAstroPromo,
@@ -129,9 +130,64 @@ type SelectedSkuMetric = {
   storeWins: number;
 };
 
+type InsightsView = 'overview' | 'health' | 'skus' | 'markets';
+type InsightsTimeRange = 'mtd' | '90d' | '12m' | 'all';
+type OutreachPriority = 'High' | 'Medium' | 'Low';
+type RetailerSuccessRow = NonNullable<RetailerSuccessInsights>['retailerRows'][number];
+
+type OutreachRow = {
+  retailerId: string;
+  retailerName: string;
+  priority: OutreachPriority;
+  issue: string;
+  issueCount: number;
+  context: string;
+  lastOrderLabel: string;
+  progress: number;
+};
+
+type ComparisonMetrics = {
+  label: string;
+  totalRevenue: number | null;
+  unitsSold: number | null;
+  avgOrderValue: number | null;
+  activeRetailers: number | null;
+  reorderRate: number | null;
+  activeStates: number | null;
+};
+
 const MS_IN_DAY = 1000 * 60 * 60 * 24;
 const UPSPW_TRAILING_WEEKS = 52;
 const MIN_RUNNING_WEEKS = 1;
+
+const insightsViews: Array<{ id: InsightsView; label: string; description: string }> = [
+  { id: 'overview', label: 'Overview', description: 'Revenue, velocity, and priority follow-ups' },
+  { id: 'health', label: 'Retailer Health', description: 'Adoption, risk, and top accounts' },
+  { id: 'skus', label: 'SKU Performance', description: 'Same-store SKU matchups' },
+  { id: 'markets', label: 'Markets', description: 'Geography and state revenue' },
+];
+
+const timeRangeOptions: Array<{ id: InsightsTimeRange; label: string; description: string }> = [
+  { id: 'mtd', label: 'MTD', description: 'Month to date' },
+  { id: '90d', label: '90 days', description: 'Last 90 days' },
+  { id: '12m', label: '12 months', description: 'Last 12 months' },
+  { id: 'all', label: 'All time', description: 'All available data' },
+];
+
+const priorityRank: Record<OutreachPriority, number> = {
+  High: 0,
+  Medium: 1,
+  Low: 2,
+};
+
+const lifecycleLabels: Record<string, string> = {
+  new_no_order: 'New, no order',
+  new_store: 'New store',
+  active: 'Active',
+  at_risk: 'At risk',
+  inactive: 'Inactive',
+  high_performer: 'High performer',
+};
 
 const formatCompactCurrency = (value: number) =>
   `$${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value)}`;
@@ -162,6 +218,41 @@ const buildTrailingMonths = (count: number) => {
   });
 };
 
+const getTimeRangeStart = (range: InsightsTimeRange, today = new Date()) => {
+  if (range === 'mtd') return new Date(today.getFullYear(), today.getMonth(), 1);
+  if (range === '90d') return new Date(today.getTime() - 89 * MS_IN_DAY);
+  if (range === '12m') return new Date(today.getTime() - (365 - 1) * MS_IN_DAY);
+  return null;
+};
+
+const getTimeRangeLabel = (range: InsightsTimeRange) =>
+  timeRangeOptions.find((option) => option.id === range)?.description || 'Selected range';
+
+const getPreviousTimeRange = (range: InsightsTimeRange, today = new Date()) => {
+  if (range === 'all') return null;
+
+  if (range === 'mtd') {
+    const previousMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const previousMonthLastDay = new Date(today.getFullYear(), today.getMonth(), 0).getDate();
+    const comparableDay = Math.min(today.getDate(), previousMonthLastDay);
+    const previousMonthEnd = new Date(today.getFullYear(), today.getMonth() - 1, comparableDay + 1);
+    return {
+      start: previousMonthStart,
+      end: previousMonthEnd,
+      label: 'previous month-to-date',
+    };
+  }
+
+  const currentStart = getTimeRangeStart(range, today);
+  if (!currentStart) return null;
+  const windowDays = range === '90d' ? 90 : 365;
+  return {
+    start: new Date(currentStart.getTime() - windowDays * MS_IN_DAY),
+    end: currentStart,
+    label: `previous ${range === '90d' ? '90 days' : '12 months'}`,
+  };
+};
+
 export default function AdminInsightsPage() {
   const supabase = createClientComponentClient();
   const [isLoading, setIsLoading] = useState(true);
@@ -169,6 +260,15 @@ export default function AdminInsightsPage() {
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [unitsSold, setUnitsSold] = useState(0);
   const [avgOrderValue, setAvgOrderValue] = useState(0);
+  const [comparisonMetrics, setComparisonMetrics] = useState<ComparisonMetrics>({
+    label: '',
+    totalRevenue: null,
+    unitsSold: null,
+    avgOrderValue: null,
+    activeRetailers: null,
+    reorderRate: null,
+    activeStates: null,
+  });
   const [activeRetailers, setActiveRetailers] = useState(0);
   const [newLocationsThisMonth, setNewLocationsThisMonth] = useState(0);
   const [reorderRate, setReorderRate] = useState(0);
@@ -188,10 +288,12 @@ export default function AdminInsightsPage() {
   const [velocityWindowLabel, setVelocityWindowLabel] = useState('Running average since first order');
   const [successInsights, setSuccessInsights] = useState<RetailerSuccessInsights | null>(null);
   const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
+  const [activeView, setActiveView] = useState<InsightsView>('overview');
+  const [timeRange, setTimeRange] = useState<InsightsTimeRange>('90d');
 
   useEffect(() => {
     fetchInsights();
-  }, []);
+  }, [timeRange]);
 
   const fetchInsights = async () => {
     setIsLoading(true);
@@ -222,9 +324,25 @@ export default function AdminInsightsPage() {
         .eq('id', 'current')
         .maybeSingle();
 
+      const today = new Date();
+      const rangeStart = getTimeRangeStart(timeRange, today);
+      const previousRange = getPreviousTimeRange(timeRange, today);
       const validOrders = (orders as OrderRecord[] | null || []).filter(order => order.status !== 'canceled');
-      const totalRevenueValue = validOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
-      const totalOrders = validOrders.length;
+      const reportingOrders = rangeStart
+        ? validOrders.filter((order) => new Date(order.created_at) >= rangeStart)
+        : validOrders;
+      const previousOrders = previousRange
+        ? validOrders.filter((order) => {
+          const orderDate = new Date(order.created_at);
+          return orderDate >= previousRange.start && orderDate < previousRange.end;
+        })
+        : [];
+      const totalRevenueValue = reportingOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
+      const totalOrders = reportingOrders.length;
+      const previousTotalRevenue = previousRange
+        ? previousOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0)
+        : null;
+      const previousTotalOrders = previousOrders.length;
       const normalizedPromo = normalizeCurrentAstroPromo(promoSetting);
       setCurrentPromo(normalizedPromo);
 
@@ -250,8 +368,17 @@ export default function AdminInsightsPage() {
 
       const unitsSoldValue = (orderItems || []).reduce((sum: number, item: any) => {
         if (item.order?.status === 'canceled') return sum;
+        if (rangeStart && item.order?.created_at && new Date(item.order.created_at) < rangeStart) return sum;
         return sum + (item.quantity || 0);
       }, 0);
+      const previousUnitsSoldValue = previousRange
+        ? (orderItems || []).reduce((sum: number, item: any) => {
+          if (item.order?.status === 'canceled' || !item.order?.created_at) return sum;
+          const orderDate = new Date(item.order.created_at);
+          if (orderDate < previousRange.start || orderDate >= previousRange.end) return sum;
+          return sum + (item.quantity || 0);
+        }, 0)
+        : null;
 
       setTotalRevenue(totalRevenueValue);
       setUnitsSold(unitsSoldValue);
@@ -264,22 +391,25 @@ export default function AdminInsightsPage() {
         }, new Date(validOrders[0].created_at))
         : null;
 
-      const today = new Date();
-      const daysSinceInception = firstValidOrderDate
-        ? Math.max(1, Math.ceil((today.getTime() - firstValidOrderDate.getTime()) / MS_IN_DAY) + 1)
-        : 0;
-      const runningWeeksSinceInception = firstValidOrderDate
-        ? Math.max(MIN_RUNNING_WEEKS, daysSinceInception / 7)
-        : MIN_RUNNING_WEEKS;
-      const useTrailingYearWindow = runningWeeksSinceInception >= UPSPW_TRAILING_WEEKS;
-      const divisorWeeks = useTrailingYearWindow ? UPSPW_TRAILING_WEEKS : runningWeeksSinceInception;
-      const unitsWindowStart = useTrailingYearWindow
-        ? new Date(today.getTime() - (UPSPW_TRAILING_WEEKS * 7 - 1) * MS_IN_DAY)
-        : firstValidOrderDate;
+      const daysSinceWindowStart = rangeStart
+        ? Math.max(1, Math.ceil((today.getTime() - rangeStart.getTime()) / MS_IN_DAY) + 1)
+        : firstValidOrderDate
+          ? Math.max(1, Math.ceil((today.getTime() - firstValidOrderDate.getTime()) / MS_IN_DAY) + 1)
+          : 0;
+      const runningWeeksSinceWindowStart = Math.max(MIN_RUNNING_WEEKS, daysSinceWindowStart / 7);
+      const useTrailingYearWindow = !rangeStart && runningWeeksSinceWindowStart >= UPSPW_TRAILING_WEEKS;
+      const divisorWeeks = useTrailingYearWindow ? UPSPW_TRAILING_WEEKS : runningWeeksSinceWindowStart;
+      const unitsWindowStart = rangeStart || (
+        useTrailingYearWindow
+          ? new Date(today.getTime() - (UPSPW_TRAILING_WEEKS * 7 - 1) * MS_IN_DAY)
+          : firstValidOrderDate
+      );
       const effectiveUnitsWindowStart = unitsWindowStart || new Date(0);
 
       setVelocityWindowLabel(
-        useTrailingYearWindow
+        rangeStart
+          ? `${getTimeRangeLabel(timeRange)} average (${divisorWeeks.toFixed(1)} weeks)`
+          : useTrailingYearWindow
           ? 'Trailing 52-week average'
           : `Running average since first order (${divisorWeeks.toFixed(1)} weeks)`,
       );
@@ -522,12 +652,13 @@ export default function AdminInsightsPage() {
         return nextSkuOptions.slice(0, 2).map((option) => option.id);
       });
 
-      const trailingMonths = buildTrailingMonths(12);
+      const chartMonthCount = timeRange === 'mtd' ? 2 : timeRange === '90d' ? 4 : 12;
+      const trailingMonths = buildTrailingMonths(chartMonthCount);
       const revenueByMonth = new Map<string, number>();
       const paceRevenueByMonth = new Map<string, number>();
       const currentDayOfMonth = today.getDate();
 
-      validOrders.forEach(order => {
+      reportingOrders.forEach(order => {
         const date = new Date(order.created_at);
         const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         const orderTotal = Number(order.total) || 0;
@@ -549,10 +680,11 @@ export default function AdminInsightsPage() {
       }));
       setMonthlyRevenue(monthly);
 
-      const retailerStats = new Map<string, RetailerStats>();
-      validOrders.forEach(order => {
+      const buildRetailerStats = (ordersToSummarize: OrderRecord[]) => {
+        const stats = new Map<string, RetailerStats>();
+        ordersToSummarize.forEach(order => {
         if (!order.retailer_id || !order.retailer) return;
-        const existing = retailerStats.get(order.retailer_id) || {
+        const existing = stats.get(order.retailer_id) || {
           id: order.retailer_id,
           company_name: order.retailer.company_name,
           business_address: order.retailer.business_address,
@@ -566,10 +698,17 @@ export default function AdminInsightsPage() {
         if (orderDate > existing.last_order_date) {
           existing.last_order_date = orderDate;
         }
-        retailerStats.set(order.retailer_id, existing);
-      });
+        stats.set(order.retailer_id, existing);
+        });
+        return stats;
+      };
+
+      const retailerStats = buildRetailerStats(reportingOrders);
+      const previousRetailerStats = previousRange ? buildRetailerStats(previousOrders) : new Map<string, RetailerStats>();
+      const allTimeRetailerStats = buildRetailerStats(validOrders);
 
       const activeRetailerCount = retailerStats.size;
+      const previousActiveRetailerCount = previousRange ? previousRetailerStats.size : null;
       setActiveRetailers(activeRetailerCount);
 
       const now = new Date();
@@ -586,9 +725,15 @@ export default function AdminInsightsPage() {
 
       const reorderCount = Array.from(retailerStats.values()).filter(retailer => retailer.total_orders >= 2).length;
       setReorderRate(activeRetailerCount > 0 ? (reorderCount / activeRetailerCount) * 100 : 0);
+      const previousReorderCount = previousRange
+        ? Array.from(previousRetailerStats.values()).filter(retailer => retailer.total_orders >= 2).length
+        : 0;
+      const previousReorderRate = previousRange && previousActiveRetailerCount && previousActiveRetailerCount > 0
+        ? (previousReorderCount / previousActiveRetailerCount) * 100
+        : null;
 
       const riskThreshold = new Date(now.getTime() - 90 * MS_IN_DAY);
-      const atRisk = Array.from(retailerStats.values())
+      const atRisk = Array.from(allTimeRetailerStats.values())
         .filter(retailer => retailer.last_order_date < riskThreshold)
         .map(retailer => ({
           id: retailer.id,
@@ -600,7 +745,7 @@ export default function AdminInsightsPage() {
       setAtRiskRetailers(atRisk);
 
       const stateRevenueMap = new Map<string, number>();
-      validOrders.forEach(order => {
+      reportingOrders.forEach(order => {
         const state = parseStateFromAddress(order.retailer?.business_address);
         if (!state) return;
         stateRevenueMap.set(state, (stateRevenueMap.get(state) || 0) + (Number(order.total) || 0));
@@ -617,6 +762,27 @@ export default function AdminInsightsPage() {
         if (state) activeStateSet.add(state);
       });
       setActiveStates(activeStateSet.size);
+      const previousActiveStateSet = new Set<string>();
+      if (previousRange) {
+        Array.from(previousRetailerStats.values()).forEach(retailer => {
+          const state = parseStateFromAddress(retailer.business_address);
+          if (state) previousActiveStateSet.add(state);
+        });
+      }
+      const previousAvgOrderValue = previousRange && previousTotalOrders > 0 && previousTotalRevenue !== null
+        ? previousTotalRevenue / previousTotalOrders
+        : previousRange
+          ? 0
+          : null;
+      setComparisonMetrics({
+        label: previousRange?.label || '',
+        totalRevenue: previousTotalRevenue,
+        unitsSold: previousUnitsSoldValue,
+        avgOrderValue: previousAvgOrderValue,
+        activeRetailers: previousActiveRetailerCount,
+        reorderRate: previousReorderRate,
+        activeStates: previousRange ? previousActiveStateSet.size : null,
+      });
 
       const byRevenue = Array.from(retailerStats.values())
         .sort((a, b) => b.total_spent - a.total_spent)
@@ -741,8 +907,129 @@ export default function AdminInsightsPage() {
   }, [comparisonDivisorWeeks, selectedSkuIds, skuOptions, storeSkuSnapshots]);
 
   const growthToneClass = monthToDateComparison.percentDelta >= 0 ? 'text-emerald-600' : 'text-amber-600';
-  const topSkuComparison = skuComparisons[0] || null;
   const selectedSkuLeader = selectedSkuComparison?.metrics[0] || null;
+
+  const attentionItems = useMemo(() => {
+    if (!successInsights) {
+      return [
+        {
+          label: 'At-risk retailers',
+          value: atRiskRetailers.length,
+          detail: 'No orders in 90 days',
+          tone: 'amber',
+        },
+      ];
+    }
+
+    const items = [
+      {
+        label: 'At-risk retailers',
+        value: successInsights.byLifecycle.at_risk,
+        detail: 'Lifecycle status needs review',
+        tone: 'amber',
+      },
+      {
+        label: 'Missing Astro enrollment',
+        value: successInsights.missingAstro.length,
+        detail: 'Enrollment follow-up',
+        tone: 'bark',
+      },
+      {
+        label: 'Samples not acknowledged',
+        value: successInsights.missingSamples.length,
+        detail: 'Confirm retailer received samples',
+        tone: 'bark',
+      },
+      {
+        label: 'High-performing stores',
+        value: successInsights.byLifecycle.high_performer,
+        detail: 'Good candidates for growth asks',
+        tone: 'emerald',
+      },
+    ];
+
+    if (currentPromo.promoVisible) {
+      items.splice(3, 0, {
+        label: 'Promo non-responses',
+        value: successInsights.currentPromoNotRespondedCount,
+        detail: 'Current promo needs a yes/no',
+        tone: 'amber',
+      });
+    }
+
+    return items;
+  }, [atRiskRetailers.length, currentPromo.promoVisible, successInsights]);
+
+  const outreachRows = useMemo<OutreachRow[]>(() => {
+    if (!successInsights) return [];
+
+    const buildIssues = (row: RetailerSuccessRow) => {
+      const issues: Array<{ priority: OutreachPriority; label: string }> = [];
+
+      if (row.lifecycleStatus === 'inactive') {
+        issues.push({ priority: 'High', label: 'Inactive account' });
+      } else if (row.lifecycleStatus === 'at_risk') {
+        issues.push({ priority: 'High', label: 'At-risk account' });
+      }
+
+      if (currentPromo.promoVisible && row.profile.currentPromoStatus === 'not_started') {
+        issues.push({ priority: 'High', label: 'Promo not answered' });
+      }
+
+      if (!row.profile.astroEnrolled) {
+        issues.push({ priority: 'Medium', label: 'Missing Astro enrollment' });
+      }
+
+      if (!row.profile.samplesAcknowledged) {
+        issues.push({ priority: 'Medium', label: 'Samples not acknowledged' });
+      }
+
+      if (row.profile.marketingMaterialsStatus === 'not_requested') {
+        issues.push({ priority: 'Low', label: 'Materials not checked' });
+      }
+
+      if (!row.profile.hasOrderedTreats) {
+        issues.push({ priority: 'Low', label: 'No treats ordered' });
+      }
+
+      if (row.profile.shelfPlacementStatus === 'not_set') {
+        issues.push({ priority: 'Low', label: 'Shelf placement not marked' });
+      }
+
+      return issues.sort((a, b) => priorityRank[a.priority] - priorityRank[b.priority]);
+    };
+
+    return successInsights.retailerRows
+      .map((row) => {
+        const issues = buildIssues(row);
+        if (issues.length === 0) return null;
+
+        const primaryIssue = issues[0];
+        const daysSince = row.profile.daysSinceLastOrder;
+        const lastOrderLabel = row.profile.lastOrderDate
+          ? `${formatDate(row.profile.lastOrderDate)}${daysSince !== null ? ` (${daysSince} days)` : ''}`
+          : 'No orders yet';
+        const lifecycleLabel = lifecycleLabels[row.lifecycleStatus] || row.lifecycleStatus;
+        const orderContext = `${row.profile.totalOrders} order${row.profile.totalOrders === 1 ? '' : 's'} - ${formatCurrency(row.profile.totalSpend)}`;
+
+        return {
+          retailerId: row.retailer.id,
+          retailerName: row.retailer.company_name || 'Unnamed retailer',
+          priority: primaryIssue.priority,
+          issue: primaryIssue.label,
+          issueCount: issues.length,
+          context: `${lifecycleLabel} - ${orderContext}`,
+          lastOrderLabel,
+          progress: row.progress.percentage,
+        };
+      })
+      .filter((row): row is OutreachRow => Boolean(row))
+      .sort((a, b) => (
+        priorityRank[a.priority] - priorityRank[b.priority] ||
+        b.issueCount - a.issueCount ||
+        a.retailerName.localeCompare(b.retailerName)
+      ));
+  }, [currentPromo.promoVisible, successInsights]);
 
   const toggleSkuSelection = (skuId: string) => {
     setSelectedSkuIds((current) => (
@@ -761,17 +1048,81 @@ export default function AdminInsightsPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Insights</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Organized views for growth, retailer follow-up, product performance, and markets.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3">
+          <div className="flex overflow-x-auto rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+            {timeRangeOptions.map((range) => {
+              const isActive = timeRange === range.id;
+              return (
+                <button
+                  key={range.id}
+                  type="button"
+                  onClick={() => setTimeRange(range.id)}
+                  className={`shrink-0 rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+                    isActive
+                      ? 'bg-bark-500 text-white shadow-sm'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                  aria-pressed={isActive}
+                  title={range.description}
+                >
+                  {range.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex overflow-x-auto rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+            {insightsViews.map((view) => {
+              const isActive = activeView === view.id;
+              return (
+                <button
+                  key={view.id}
+                  type="button"
+                  onClick={() => setActiveView(view.id)}
+                  className={`shrink-0 rounded-md px-4 py-2 text-left text-sm transition-colors ${
+                    isActive
+                      ? 'bg-bark-500 text-white shadow-sm'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                  aria-pressed={isActive}
+                >
+                  <span className="block font-semibold">{view.label}</span>
+                  <span className={`block text-xs ${isActive ? 'text-white/75' : 'text-gray-400'}`}>
+                    {view.description}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {activeView === 'overview' && (
+        <>
       <section className="space-y-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 lg:col-span-2">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Revenue & Volume</h3>
-                <p className="text-sm text-gray-500 mt-1">Trailing 12 months revenue with month-to-date pacing</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  {getTimeRangeLabel(timeRange)} revenue and volume with month-to-date pacing
+                </p>
               </div>
               <div className="text-right">
-                <p className="text-sm text-gray-500">Month-to-date pace</p>
+                <MetricLabel
+                  className="justify-end text-sm text-gray-500"
+                  tooltip="Compares this month's revenue through today's calendar day against revenue through the same day last month."
+                >
+                  Month-to-date pace
+                </MetricLabel>
                 <p className={`text-2xl font-semibold ${growthToneClass}`}>{growthLabel}</p>
                 <p className={`text-sm font-medium mt-1 ${growthToneClass}`}>{growthDeltaLabel}</p>
               </div>
@@ -821,21 +1172,26 @@ export default function AdminInsightsPage() {
 
           <div className="space-y-4">
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500">Total Revenue</p>
+              <p className="text-sm text-gray-500">Revenue in Range</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalRevenue)}</p>
+              <TrendDelta current={totalRevenue} previous={comparisonMetrics.totalRevenue} label={comparisonMetrics.label} />
             </div>
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500">Units Sold</p>
+              <p className="text-sm text-gray-500">Units Sold in Range</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{unitsSold}</p>
+              <TrendDelta current={unitsSold} previous={comparisonMetrics.unitsSold} label={comparisonMetrics.label} />
             </div>
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500">Average Order Value</p>
+              <p className="text-sm text-gray-500">Average Order Value in Range</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(avgOrderValue)}</p>
+              <TrendDelta current={avgOrderValue} previous={comparisonMetrics.avgOrderValue} label={comparisonMetrics.label} />
             </div>
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm text-gray-500">Units per Store per Week</p>
+                  <MetricLabel tooltip="Total units sold divided by active stores and weeks in the averaging window. This normalizes volume across stores.">
+                    Units per Store per Week
+                  </MetricLabel>
                   <p className="text-xs text-gray-400 mt-1">{velocityWindowLabel}</p>
                 </div>
               </div>
@@ -845,17 +1201,29 @@ export default function AdminInsightsPage() {
                   <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStoreMetrics.overall.toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Top 10% retailers</p>
+                  <MetricLabel
+                    className="text-xs uppercase tracking-wide text-gray-400"
+                    tooltip="Average velocity among the top decile of retailers ranked by units per store per week."
+                  >
+                    Top 10% retailers
+                  </MetricLabel>
                   <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStoreMetrics.topDecile.toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Top 10 stores</p>
+                  <MetricLabel
+                    className="text-xs uppercase tracking-wide text-gray-400"
+                    tooltip="Average velocity for the ten highest-volume store locations in the active averaging window."
+                  >
+                    Top 10 stores
+                  </MetricLabel>
                   <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStoreMetrics.topStores.toFixed(2)}</p>
                 </div>
               </div>
               <div className="mt-5 pt-5 border-t border-gray-100">
                 <div>
-                  <p className="text-sm text-gray-500">Units per Store per Week per SKU</p>
+                  <MetricLabel tooltip="Units per store per week divided by the number of distinct SKUs carried. This helps compare productivity across broader or narrower assortments.">
+                    Units per Store per Week per SKU
+                  </MetricLabel>
                   <p className="text-xs text-gray-400 mt-1">Based on distinct SKUs ordered in the active averaging window</p>
                 </div>
                 <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -864,11 +1232,21 @@ export default function AdminInsightsPage() {
                     <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStorePerSkuMetrics.overall.toFixed(2)}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Top 10% retailers</p>
+                    <MetricLabel
+                      className="text-xs uppercase tracking-wide text-gray-400"
+                      tooltip="Average per-SKU velocity among the top decile of retailers ranked by units per store per week per SKU."
+                    >
+                      Top 10% retailers
+                    </MetricLabel>
                     <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStorePerSkuMetrics.topDecile.toFixed(2)}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Top 10 stores</p>
+                    <MetricLabel
+                      className="text-xs uppercase tracking-wide text-gray-400"
+                      tooltip="Average per-SKU velocity for the ten strongest store locations in the active averaging window."
+                    >
+                      Top 10 stores
+                    </MetricLabel>
                     <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStorePerSkuMetrics.topStores.toFixed(2)}</p>
                   </div>
                 </div>
@@ -878,7 +1256,74 @@ export default function AdminInsightsPage() {
         </div>
       </section>
 
-      {successInsights && (
+      <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 lg:col-span-2">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Attention Queue</h3>
+              <p className="text-sm text-gray-500 mt-1">The shortest path from insights to follow-up.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveView('health')}
+              className="rounded-lg border border-bark-200 px-3 py-2 text-sm font-medium text-bark-700 hover:bg-bark-50"
+            >
+              Review health
+            </button>
+          </div>
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {attentionItems.map((item) => {
+              const toneClass = item.tone === 'emerald'
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                : item.tone === 'amber'
+                  ? 'bg-amber-50 text-amber-700 border-amber-100'
+                  : 'bg-bark-50 text-bark-700 border-bark-100';
+              return (
+                <div key={item.label} className={`rounded-lg border p-4 ${toneClass}`}>
+                  <p className="text-sm font-medium">{item.label}</p>
+                  <p className="mt-2 text-3xl font-bold">{item.value}</p>
+                  <p className="mt-2 text-xs opacity-80">{item.detail}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-lg font-semibold text-gray-900">Snapshot</h3>
+          <div className="mt-5 space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-gray-500">Active retailers in range</p>
+              <div className="text-right">
+                <p className="font-semibold text-gray-900">{activeRetailers}</p>
+                <TrendDelta current={activeRetailers} previous={comparisonMetrics.activeRetailers} label={comparisonMetrics.label} />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-gray-500">Reorder rate</p>
+              <div className="text-right">
+                <p className="font-semibold text-gray-900">{reorderRate.toFixed(1)}%</p>
+                <TrendDelta current={reorderRate} previous={comparisonMetrics.reorderRate} label={comparisonMetrics.label} mode="points" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-gray-500">Active states</p>
+              <div className="text-right">
+                <p className="font-semibold text-gray-900">{activeStates}</p>
+                <TrendDelta current={activeStates} previous={comparisonMetrics.activeStates} label={comparisonMetrics.label} />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-gray-500">Suggested SKU pairs</p>
+              <p className="font-semibold text-gray-900">{skuComparisons.length}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+        </>
+      )}
+
+      {activeView === 'health' && successInsights && (
         <section className="space-y-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -908,7 +1353,7 @@ export default function AdminInsightsPage() {
             <SuccessMetricCard label="High-performing stores" value={successInsights.byLifecycle.high_performer} />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
               <h4 className="text-md font-semibold text-gray-900">Success Tool Adoption</h4>
               <div className="mt-5 space-y-4">
@@ -928,29 +1373,23 @@ export default function AdminInsightsPage() {
               )}
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 lg:col-span-2">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h4 className="text-md font-semibold text-gray-900">Action Needed</h4>
-                  <p className="text-sm text-gray-500 mt-1">Retailers missing one of the core success steps.</p>
+                  <h4 className="text-md font-semibold text-gray-900">Outreach Queue</h4>
+                  <p className="text-sm text-gray-500 mt-1">One prioritized row per retailer that needs follow-up.</p>
                 </div>
-                <span className="text-xs text-gray-400">Notify button TODO: wire to email infra</span>
+                <span className="text-xs font-semibold text-gray-500 bg-gray-100 rounded-full px-2 py-1">
+                  {outreachRows.length} retailers
+                </span>
               </div>
-              <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <ActionNeededList title="Missing Astro enrollment" rows={successInsights.missingAstro} />
-                <ActionNeededList title="Samples not acknowledged" rows={successInsights.missingSamples} />
-                <ActionNeededList title="Materials not checked" rows={successInsights.missingMarketingMaterials} />
-                <ActionNeededList title="No treats ordered" rows={successInsights.missingTreats} />
-                <ActionNeededList title="Shelf placement not marked" rows={successInsights.missingShelfPlacement} />
-                {currentPromo.promoVisible && (
-                  <ActionNeededList title="Promo not responded" rows={successInsights.missingPromoResponse} />
-                )}
-              </div>
+              <OutreachQueueTable rows={outreachRows} />
             </div>
           </div>
         </section>
       )}
 
+      {activeView === 'skus' && (
       <section className="space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -1020,7 +1459,9 @@ export default function AdminInsightsPage() {
             <p className="text-xs text-gray-400 mt-2">Choose at least two SKUs to unlock the comparison</p>
           </div>
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <p className="text-sm text-gray-500">Shared stores in scope</p>
+            <MetricLabel tooltip="Only stores that ordered every selected SKU are included, so each SKU is compared against the same store set.">
+              Shared stores in scope
+            </MetricLabel>
             <p className="text-lg font-semibold text-gray-900 mt-1">
               {selectedSkuComparison ? selectedSkuComparison.sharedStores : 'Select more SKUs'}
             </p>
@@ -1045,7 +1486,15 @@ export default function AdminInsightsPage() {
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="p-6 border-b border-gray-100">
-            <h4 className="text-md font-semibold text-gray-900">Dynamic Same-Store Comparison</h4>
+            <div className="flex items-center gap-2">
+              <h4 className="text-md font-semibold text-gray-900">Dynamic Same-Store Comparison</h4>
+              <MetricLabel
+                className="text-sm text-gray-500"
+                tooltip="Compares selected SKUs only within stores that carried all of them, reducing assortment bias."
+              >
+                Method
+              </MetricLabel>
+            </div>
             <p className="text-sm text-gray-500 mt-1">
               Great for questions like how Chicken and Beef compare among stores that carry both, or how three-plus SKUs stack up where all of them are stocked.
             </p>
@@ -1057,8 +1506,22 @@ export default function AdminInsightsPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Shared-Store Units</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Units / Store / Week</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Store Wins</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit Share</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <MetricLabel
+                      className="text-xs font-medium uppercase text-gray-500"
+                      tooltip="Number of shared stores where this SKU had the highest unit volume among the selected SKUs."
+                    >
+                      Store Wins
+                    </MetricLabel>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <MetricLabel
+                      className="text-xs font-medium uppercase text-gray-500"
+                      tooltip="This SKU's percentage of all selected-SKU units sold inside the shared-store set."
+                    >
+                      Unit Share
+                    </MetricLabel>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -1159,33 +1622,50 @@ export default function AdminInsightsPage() {
           </div>
         </div>
       </section>
+      )}
 
+      {activeView === 'health' && (
+      <>
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">Retailer Health</h3>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <p className="text-sm text-gray-500">Total Active Retailers</p>
+            <p className="text-sm text-gray-500">Active Retailers in Range</p>
             <p className="text-2xl font-bold text-gray-900 mt-1">{activeRetailers}</p>
+            <TrendDelta current={activeRetailers} previous={comparisonMetrics.activeRetailers} label={comparisonMetrics.label} />
           </div>
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
             <p className="text-sm text-gray-500">New Retail Locations This Month</p>
             <p className="text-2xl font-bold text-gray-900 mt-1">{newLocationsThisMonth}</p>
           </div>
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <p className="text-sm text-gray-500">Reorder Rate</p>
+            <MetricLabel tooltip="Percentage of retailers with two or more non-canceled orders inside the selected range.">
+              Reorder Rate
+            </MetricLabel>
             <p className="text-2xl font-bold text-gray-900 mt-1">{reorderRate.toFixed(1)}%</p>
+            <TrendDelta current={reorderRate} previous={comparisonMetrics.reorderRate} label={comparisonMetrics.label} mode="points" />
           </div>
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <p className="text-sm text-gray-500">At-Risk Retailers</p>
+            <MetricLabel tooltip="Retailers whose last non-canceled order is old enough to suggest follow-up. The table below uses 90+ days without an order.">
+              At-Risk Retailers
+            </MetricLabel>
             <p className="text-2xl font-bold text-gray-900 mt-1">{atRiskRetailers.length}</p>
           </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="p-6 border-b border-gray-100">
-            <h4 className="text-md font-semibold text-gray-900">At-Risk Retailers</h4>
+            <div className="flex items-center gap-2">
+              <h4 className="text-md font-semibold text-gray-900">At-Risk Retailers</h4>
+              <MetricLabel
+                className="text-sm text-gray-500"
+                tooltip="This list is based on retailers with no non-canceled orders in the last 90 days."
+              >
+                Rule
+              </MetricLabel>
+            </div>
             <p className="text-sm text-gray-500 mt-1">No orders in the last 90 days</p>
           </div>
           <div className="overflow-x-auto">
@@ -1220,7 +1700,10 @@ export default function AdminInsightsPage() {
           </div>
         </div>
       </section>
+      </>
+      )}
 
+      {activeView === 'markets' && (
       <section className="space-y-4">
         <h3 className="text-lg font-semibold text-gray-900">Geographic Spread</h3>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -1236,14 +1719,20 @@ export default function AdminInsightsPage() {
             </ResponsiveContainer>
           </div>
           <div className="mt-6 flex items-center justify-between">
-            <p className="text-sm text-gray-500">States with active retailers</p>
-            <p className="text-lg font-semibold text-gray-900">{activeStates}</p>
+            <p className="text-sm text-gray-500">States with active retailers in range</p>
+            <div className="text-right">
+              <p className="text-lg font-semibold text-gray-900">{activeStates}</p>
+              <TrendDelta current={activeStates} previous={comparisonMetrics.activeStates} label={comparisonMetrics.label} />
+            </div>
           </div>
         </div>
       </section>
+      )}
 
+      {activeView === 'health' && (
       <section className="space-y-4">
         <h3 className="text-lg font-semibold text-gray-900">Top 10 Retailers Leaderboard</h3>
+        <p className="text-sm text-gray-500 -mt-2">{getTimeRangeLabel(timeRange)} performance</p>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-6 border-b border-gray-100">
@@ -1322,6 +1811,7 @@ export default function AdminInsightsPage() {
           </div>
         </div>
       </section>
+      )}
     </div>
   );
 }
@@ -1333,6 +1823,67 @@ function SuccessMetricCard({ label, value }: { label: string; value: string | nu
       <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
     </div>
   );
+}
+
+function MetricLabel({
+  children,
+  tooltip,
+  className = 'text-sm text-gray-500',
+}: {
+  children: ReactNode;
+  tooltip: string;
+  className?: string;
+}) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 ${className}`}>
+      <span>{children}</span>
+      <span className="group relative inline-flex">
+        <button
+          type="button"
+          className="inline-flex h-4 w-4 items-center justify-center rounded-full text-gray-400 hover:text-bark-600 focus:outline-none focus:ring-2 focus:ring-bark-500"
+          aria-label={`${children} definition`}
+        >
+          <Info className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+        <span className="pointer-events-none absolute left-1/2 top-6 z-20 hidden w-64 -translate-x-1/2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-xs font-normal leading-relaxed text-gray-600 shadow-lg group-hover:block group-focus-within:block">
+          {tooltip}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function TrendDelta({
+  current,
+  previous,
+  label,
+  mode = 'percent',
+}: {
+  current: number;
+  previous: number | null;
+  label: string;
+  mode?: 'percent' | 'points';
+}) {
+  if (previous === null) return null;
+
+  const delta = current - previous;
+  const toneClass = delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-amber-600' : 'text-gray-500';
+  let text = `No change vs ${label}`;
+
+  if (mode === 'points') {
+    if (delta !== 0) {
+      const sign = delta > 0 ? '+' : '-';
+      text = `${sign}${Math.abs(delta).toFixed(1)} pts vs ${label}`;
+    }
+  } else if (previous === 0 && current > 0) {
+    text = `New vs ${label}`;
+  } else if (previous !== 0 && delta !== 0) {
+    const percentDelta = (delta / previous) * 100;
+    const sign = percentDelta > 0 ? '+' : '';
+    text = `${sign}${percentDelta.toFixed(1)}% vs ${label}`;
+  }
+
+  return <p className={`mt-2 text-xs font-medium ${toneClass}`}>{text}</p>;
 }
 
 function AdoptionProgress({ label, value }: { label: string; value: number }) {
@@ -1349,30 +1900,76 @@ function AdoptionProgress({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ActionNeededList({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: NonNullable<RetailerSuccessInsights>['retailerRows'];
-}) {
+function OutreachQueueTable({ rows }: { rows: OutreachRow[] }) {
+  const priorityClass = (priority: OutreachPriority) => {
+    if (priority === 'High') return 'bg-amber-100 text-amber-800';
+    if (priority === 'Medium') return 'bg-bark-100 text-bark-800';
+    return 'bg-gray-100 text-gray-700';
+  };
+
   return (
-    <div className="rounded-lg border border-gray-100 p-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold text-gray-900">{title}</p>
-        <span className="text-xs font-semibold text-gray-500 bg-gray-100 rounded-full px-2 py-0.5">{rows.length}</span>
-      </div>
-      <div className="mt-3 space-y-2">
+    <div className="mt-5 overflow-hidden rounded-lg border border-gray-100">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Retailer</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Priority</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Issue</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Last Order</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Progress</th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
         {rows.length === 0 ? (
-          <p className="text-sm text-gray-500">No retailers.</p>
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
+                  No retailer follow-ups right now.
+                </td>
+              </tr>
         ) : (
-          rows.slice(0, 5).map((row) => (
-            <Link key={row.retailer.id} href={`/admin/retailers/${row.retailer.id}`} className="block text-sm text-gray-700 hover:text-bark-600">
-              {row.retailer.company_name || 'Unnamed retailer'}
-            </Link>
+              rows.map((row) => (
+                <tr key={row.retailerId} className="align-top hover:bg-gray-50">
+                  <td className="px-4 py-4">
+                    <Link href={`/admin/retailers/${row.retailerId}`} className="font-medium text-gray-900 hover:text-bark-600">
+                      {row.retailerName}
+                    </Link>
+                    <p className="mt-1 text-xs text-gray-500">{row.context}</p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${priorityClass(row.priority)}`}>
+                      {row.priority}
+                    </span>
+                  </td>
+                  <td className="px-4 py-4 text-sm text-gray-700">
+                    {row.issue}
+                    {row.issueCount > 1 && (
+                      <span className="ml-2 text-xs text-gray-400">+{row.issueCount - 1} more</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-4 text-sm text-gray-600">{row.lastOrderLabel}</td>
+                  <td className="px-4 py-4">
+                    <div className="flex min-w-24 items-center gap-2">
+                      <div className="h-2 flex-1 rounded-full bg-gray-100">
+                        <div className="h-full rounded-full bg-bark-500" style={{ width: `${row.progress}%` }} />
+                      </div>
+                      <span className="text-xs font-medium text-gray-600">{row.progress}%</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <Link
+                      href={`/admin/retailers/${row.retailerId}`}
+                      className="text-sm font-medium text-bark-600 hover:text-bark-700"
+                    >
+                      View retailer
+                    </Link>
+                  </td>
+                </tr>
           ))
         )}
-        {rows.length > 5 && <p className="text-xs text-gray-400">+{rows.length - 5} more</p>}
+          </tbody>
+        </table>
       </div>
     </div>
   );
