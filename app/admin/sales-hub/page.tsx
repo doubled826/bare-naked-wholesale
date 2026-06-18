@@ -1,48 +1,37 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   Bot,
+  CalendarDays,
   Check,
   CheckSquare,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   ClipboardList,
+  Clock,
   Copy,
-  ExternalLink,
   FileText,
   Mail,
-  Megaphone,
   MessageSquare,
-  Phone,
   RefreshCw,
-  Save,
   Search,
   Send,
+  ShoppingCart,
+  Star,
   StickyNote,
+  Store,
   User,
 } from 'lucide-react';
 import { ONBOARDING_CHECKLIST_SECTIONS } from '@/lib/onboardingChecklist';
-import {
-  DEFAULT_ASTRO_URL,
-  defaultCurrentAstroPromo,
-  type CurrentAstroPromo,
-} from '@/lib/retailerSuccess';
-import { cn } from '@/lib/utils';
+import { cn, formatCurrency } from '@/lib/utils';
 
-type Tab = 'intro' | 'followup' | 'checklist' | 'assistant' | 'templates' | 'onepager';
+type Tab = 'today' | 'firstorder' | 'launch' | 'reorder' | 'atrisk' | 'growth' | 'playbooks';
 type ChecklistType = 'onboarding' | 'day30' | 'day60';
 type CheckItemKind = 'checkbox' | 'rating' | 'note' | 'boolean';
-
-type PromoForm = {
-  promo_visible: boolean;
-  promo_name: string;
-  promo_description: string;
-  promo_start_date: string;
-  promo_end_date: string;
-  astro_promo_url: string;
-};
+type CustomerReviewCtaMode = 'both' | 'samples' | 'wholesale';
 
 interface CheckItem {
   id: string;
@@ -90,6 +79,99 @@ interface DealOption {
   id: number;
   title: string;
 }
+
+type FirstOrderPriority = 'setup_pending' | 'overdue' | 'due' | 'aging' | 'new';
+type FirstOrderFollowUpStatus = 'not_set' | 'overdue' | 'due' | 'upcoming';
+
+type FirstOrderStore = {
+  id: string;
+  company_name: string;
+  business_address: string;
+  phone: string;
+  account_number: string;
+  status: string;
+  created_at: string | null;
+  email: string;
+  signup_age_days: number | null;
+  priority: FirstOrderPriority;
+  follow_up: {
+    owner_name: string;
+    next_follow_up_at: string | null;
+    last_contacted_at: string | null;
+    last_contact_method: string;
+    notes: string;
+    status: FirstOrderFollowUpStatus;
+  };
+};
+
+type OutreachReview = {
+  id: string;
+  title: string;
+  review_text: string;
+  reviewer_name: string | null;
+  rating: number;
+  product_name: string | null;
+  image_url: string | null;
+  fera_review_id: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+type OutreachProspect = {
+  id: string;
+  store_name: string;
+  contact_name: string | null;
+  email: string;
+  status: 'prospect' | 'samples_sent' | 'signed_up' | 'ordered' | 'suppressed';
+  source: string | null;
+  last_customer_review_sent_at: string | null;
+  suppressed_at: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+type OutreachSend = {
+  id: string;
+  review_id: string | null;
+  subject: string;
+  cta_mode: CustomerReviewCtaMode;
+  recipient_count: number;
+  created_at: string;
+};
+
+type MomentumLifecycle = 'needs_first_order' | 'launch_follow_up' | 'reorder_due' | 'at_risk' | 'growth';
+
+type MomentumRetailer = {
+  id: string;
+  company_name: string;
+  business_address: string;
+  phone: string;
+  account_number: string;
+  status: string;
+  created_at: string | null;
+  email: string;
+  signup_age_days: number | null;
+  lifecycle: MomentumLifecycle;
+  priority: number;
+  order_count: number;
+  total_revenue: number;
+  first_order_date: string | null;
+  last_order_date: string | null;
+  days_since_last_order: number | null;
+  recommended_action: {
+    label: string;
+    reason: string;
+    angle: string;
+  };
+  follow_up: {
+    owner_name: string;
+    next_follow_up_at: string | null;
+    last_contacted_at: string | null;
+    last_contact_method: string;
+    notes: string;
+    status: 'not_set' | 'overdue' | 'due' | 'upcoming';
+  };
+};
 
 function createChecklistSections(): CheckSection[] {
   return ONBOARDING_CHECKLIST_SECTIONS.map((section) => ({
@@ -593,6 +675,28 @@ function subtractDays(dateString: string, days: number): string {
   d.setDate(d.getDate() - days);
   return d.toISOString().split('T')[0];
 }
+
+function toDateInputValue(value?: string | null) {
+  if (!value) return '';
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function formatShortDate(value?: string | null) {
+  if (!value) return 'Not set';
+  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function firstOrderNudge(store: FirstOrderStore) {
+  const storeName = store.company_name || 'your store';
+  return `Hi ${storeName} team,
+
+Just wanted to keep Bare Naked Pet Co. on your radar. Your wholesale account is set up, and the next step is simply placing your first order when you are ready.
+
+Most stores start with a small mix of best sellers, then add free customer samples at checkout so the team has something easy to hand out and talk through in-store.
+
+If it would help, I can point you toward a simple starter order or walk you through the portal.`;
+}
+
 async function generateSalesHubText(messages: { role: string; content: string }[], system: string): Promise<string> {
   const res = await fetch('/api/admin/sales-hub', {
     method: 'POST',
@@ -631,223 +735,730 @@ function TabButton({
   );
 }
 
-function AstroPromoManager() {
-  const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
-  const [promoForm, setPromoForm] = useState<PromoForm>({
-    promo_visible: false,
-    promo_name: '',
-    promo_description: '',
-    promo_start_date: '',
-    promo_end_date: '',
-    astro_promo_url: DEFAULT_ASTRO_URL,
-  });
+function priorityBadge(priority: FirstOrderPriority, followUpStatus: FirstOrderFollowUpStatus) {
+  if (priority === 'setup_pending') return { label: 'Setup pending', tone: 'bg-slate-100 text-slate-700 border-slate-200' };
+  if (followUpStatus === 'overdue') return { label: 'Overdue', tone: 'bg-red-100 text-red-700 border-red-200' };
+  if (followUpStatus === 'due') return { label: 'Due today', tone: 'bg-amber-100 text-amber-700 border-amber-200' };
+  if (priority === 'aging') return { label: 'Needs nudge', tone: 'bg-orange-100 text-orange-700 border-orange-200' };
+  return { label: 'New signup', tone: 'bg-blue-100 text-blue-700 border-blue-200' };
+}
+
+function NeedsFirstOrderTab() {
+  const [stores, setStores] = useState<FirstOrderStore[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, { ownerName: string; nextFollowUpAt: string; notes: string }>>({});
+  const [searchQuery, setSearchQuery] = useState('');
   const [notice, setNotice] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+
+  async function loadQueue(initial = false) {
+    if (initial) setLoading(true);
+    else setRefreshing(true);
+    setNotice('');
+
+    try {
+      const response = await fetch('/api/admin/sales-hub/needs-first-order');
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to load first-order queue.');
+
+      const nextStores = (payload.stores || []) as FirstOrderStore[];
+      setStores(nextStores);
+      setDrafts((current) => {
+        const next = { ...current };
+        nextStores.forEach((store) => {
+          if (!next[store.id]) {
+            next[store.id] = {
+              ownerName: store.follow_up.owner_name || '',
+              nextFollowUpAt: toDateInputValue(store.follow_up.next_follow_up_at),
+              notes: store.follow_up.notes || '',
+            };
+          }
+        });
+        return next;
+      });
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to load first-order queue.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }
 
   useEffect(() => {
-    let isMounted = true;
-
-    async function loadPromo() {
-      setIsLoading(true);
-      setNotice('');
-      try {
-        const response = await fetch('/api/admin/retailer-success/promo');
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data?.error || 'Failed to load current promo.');
-        }
-        if (!isMounted) return;
-        const promo = data.currentPromo || defaultCurrentAstroPromo;
-        setCurrentPromo(promo);
-        setPromoForm({
-          promo_visible: promo.promoVisible,
-          promo_name: promo.promoName,
-          promo_description: promo.promoDescription,
-          promo_start_date: promo.promoStartDate || '',
-          promo_end_date: promo.promoEndDate || '',
-          astro_promo_url: promo.astroPromoUrl || DEFAULT_ASTRO_URL,
-        });
-      } catch (error) {
-        if (isMounted) {
-          setNotice(error instanceof Error ? error.message : 'Failed to load current promo.');
-        }
-      } finally {
-        if (isMounted) setIsLoading(false);
-      }
-    }
-
-    loadPromo();
-
-    return () => {
-      isMounted = false;
-    };
+    loadQueue(true);
   }, []);
 
-  const savePromo = async () => {
-    setIsSaving(true);
+  const stats = useMemo(() => {
+    return {
+      total: stores.length,
+      setupPending: stores.filter((store) => store.priority === 'setup_pending').length,
+      due: stores.filter((store) => ['due', 'overdue'].includes(store.follow_up.status)).length,
+      aging: stores.filter((store) => (store.signup_age_days || 0) >= 7).length,
+    };
+  }, [stores]);
+
+  const filteredStores = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return stores;
+    return stores.filter((store) =>
+      [
+        store.company_name,
+        store.account_number,
+        store.email,
+        store.phone,
+        store.business_address,
+        store.follow_up.owner_name,
+      ].some((value) => value.toLowerCase().includes(query)),
+    );
+  }, [stores, searchQuery]);
+
+  function updateDraft(storeId: string, updates: Partial<{ ownerName: string; nextFollowUpAt: string; notes: string }>) {
+    setDrafts((current) => ({
+      ...current,
+      [storeId]: {
+        ownerName: current[storeId]?.ownerName || '',
+        nextFollowUpAt: current[storeId]?.nextFollowUpAt || '',
+        notes: current[storeId]?.notes || '',
+        ...updates,
+      },
+    }));
+  }
+
+  async function saveFollowUp(storeId: string, contactMethod?: string) {
+    const draft = drafts[storeId] || { ownerName: '', nextFollowUpAt: '', notes: '' };
+    setSavingId(storeId);
     setNotice('');
+
     try {
-      const response = await fetch('/api/admin/retailer-success/promo', {
+      const response = await fetch('/api/admin/sales-hub/needs-first-order', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...promoForm,
-          astro_promo_url: promoForm.astro_promo_url || DEFAULT_ASTRO_URL,
+          retailerId: storeId,
+          ownerName: draft.ownerName,
+          nextFollowUpAt: draft.nextFollowUpAt,
+          notes: draft.notes,
+          ...(contactMethod ? { contactMethod } : {}),
         }),
       });
-      const data = await response.json();
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.error || 'Failed to save current promo.');
-      }
-      const promo = data.currentPromo || defaultCurrentAstroPromo;
-      setCurrentPromo(promo);
-      setPromoForm({
-        promo_visible: promo.promoVisible,
-        promo_name: promo.promoName,
-        promo_description: promo.promoDescription,
-        promo_start_date: promo.promoStartDate || '',
-        promo_end_date: promo.promoEndDate || '',
-        astro_promo_url: promo.astroPromoUrl || DEFAULT_ASTRO_URL,
-      });
-      setNotice('Current Astro promo saved.');
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Failed to save current promo.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to save follow-up.');
 
-  const statusLabel = promoForm.promo_visible ? 'Active on retailer dashboards' : 'Inactive';
+      setNotice(contactMethod ? 'Contact attempt recorded.' : 'Follow-up saved.');
+      await loadQueue();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to save follow-up.');
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function resendSetupLink(storeId: string) {
+    setResendingId(storeId);
+    setNotice('');
+
+    try {
+      const response = await fetch('/api/admin/retailers/resend-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ retailerId: storeId }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Failed to send setup email.');
+      await saveFollowUp(storeId, 'setup_link');
+      setNotice('Setup email sent and contact attempt recorded.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Failed to send setup email.');
+    } finally {
+      setResendingId(null);
+    }
+  }
+
+  async function copyNudge(store: FirstOrderStore) {
+    try {
+      await navigator.clipboard.writeText(firstOrderNudge(store));
+      setNotice('First-order nudge copied.');
+    } catch {
+      setNotice('Unable to copy nudge text.');
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="bg-cream-100 rounded-2xl border border-cream-200 p-10 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-bark-500" />
+      </div>
+    );
+  }
 
   return (
-    <section className="bg-cream-100 rounded-2xl border border-cream-200 p-5 space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0">
-            <Megaphone className="w-5 h-5" />
-          </div>
+    <section className="space-y-5">
+      <div className="bg-cream-100 rounded-2xl border border-cream-200 p-5 space-y-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="section-title">Astro Seasonal Promo</h2>
-              <span className={cn('badge', promoForm.promo_visible ? 'bg-emerald-100 text-emerald-700' : 'bg-bone-100 text-bone-600')}>
-                {statusLabel}
-              </span>
-            </div>
+            <h2 className="section-title">Needs First Order</h2>
             <p className="text-sm text-bark-500/60 mt-1">
-              Manage the current Astro promo shown to retailers on their dashboard.
+              Signed-up retailers with no non-canceled orders.
             </p>
           </div>
+          <button onClick={() => loadQueue()} className="btn-secondary text-sm gap-2" disabled={refreshing}>
+            <RefreshCw className={cn('w-4 h-4', refreshing && 'animate-spin')} />
+            Refresh
+          </button>
         </div>
-        <label className="inline-flex items-center gap-2 rounded-xl bg-white border border-cream-200 px-3 py-2 text-sm font-semibold text-bark-500">
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: 'No order yet', value: stats.total, icon: Store },
+            { label: 'Setup pending', value: stats.setupPending, icon: AlertCircle },
+            { label: 'Due now', value: stats.due, icon: CalendarDays },
+            { label: '7+ days old', value: stats.aging, icon: Clock },
+          ].map((card) => (
+            <div key={card.label} className="bg-white rounded-xl border border-cream-200 px-4 py-3">
+              <div className="flex items-center gap-2 text-bark-500/60">
+                <card.icon className="w-4 h-4" />
+                <p className="text-xs font-semibold uppercase tracking-wide">{card.label}</p>
+              </div>
+              <p className="text-2xl font-bold text-bark-500 mt-2">{card.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-bark-500/40" />
           <input
-            type="checkbox"
-            checked={promoForm.promo_visible}
-            onChange={(event) => setPromoForm((current) => ({ ...current, promo_visible: event.target.checked }))}
-            className="rounded border-cream-300 text-bark-500 focus:ring-bark-500"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search store, email, account, owner..."
+            className="input pl-9 text-sm"
           />
-          Show promo on retailer dashboards
-        </label>
+        </div>
+
+        {notice && (
+          <div className="rounded-xl bg-white border border-cream-200 px-4 py-3 text-sm text-bark-500">
+            {notice}
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-5">
-        <div className="space-y-4">
-          <div>
-            <label className="label" htmlFor="astro-promo-name">Promo name</label>
-            <input
-              id="astro-promo-name"
-              type="text"
-              value={promoForm.promo_name}
-              onChange={(event) => setPromoForm((current) => ({ ...current, promo_name: event.target.value }))}
-              placeholder="June Astro double-punch promo"
-              className="input"
-              disabled={isLoading}
-            />
+      <div className="space-y-3">
+        {filteredStores.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-cream-200 p-10 text-center">
+            <Check className="w-10 h-10 mx-auto text-emerald-600" />
+            <p className="text-sm font-semibold text-bark-500 mt-3">No stores match this queue.</p>
           </div>
+        ) : (
+          filteredStores.map((store) => {
+            const draft = drafts[store.id] || { ownerName: '', nextFollowUpAt: '', notes: '' };
+            const badge = priorityBadge(store.priority, store.follow_up.status);
+            const mailSubject = encodeURIComponent('Your Bare Naked Pet Co. wholesale account');
+            const mailBody = encodeURIComponent(firstOrderNudge(store));
+
+            return (
+              <div key={store.id} className="bg-white rounded-2xl border border-cream-200 p-5 space-y-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-semibold text-bark-500">{store.company_name}</h3>
+                      <span className={cn('inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-semibold', badge.tone)}>
+                        {badge.label}
+                      </span>
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-cream-100 text-xs font-semibold text-bark-500/70">
+                        {store.signup_age_days === null ? 'Signup date unknown' : `${store.signup_age_days} days since signup`}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-bark-500/60">
+                      <span>{store.account_number || 'No account number'}</span>
+                      <span>{store.email || 'No email on file'}</span>
+                      <span>{store.phone || 'No phone'}</span>
+                    </div>
+                    <p className="text-sm text-bark-500/50">{store.business_address || 'No address on file'}</p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <a href={`/admin/retailers/${store.id}`} className="btn-secondary text-sm px-3 py-2">
+                      Open retailer
+                    </a>
+                    {store.email && (
+                      <a
+                        href={`mailto:${store.email}?subject=${mailSubject}&body=${mailBody}`}
+                        onClick={() => saveFollowUp(store.id, 'email')}
+                        className="btn-secondary text-sm px-3 py-2 gap-2"
+                      >
+                        <Mail className="w-4 h-4" />
+                        Email
+                      </a>
+                    )}
+                    <button onClick={() => copyNudge(store)} className="btn-secondary text-sm px-3 py-2 gap-2">
+                      <Copy className="w-4 h-4" />
+                      Copy nudge
+                    </button>
+                    {store.status === 'pending' && (
+                      <button
+                        onClick={() => resendSetupLink(store.id)}
+                        disabled={resendingId === store.id || savingId === store.id}
+                        className="btn-primary text-sm px-3 py-2 gap-2"
+                      >
+                        <Mail className="w-4 h-4" />
+                        {resendingId === store.id ? 'Sending...' : 'Send setup link'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-[180px_180px_minmax(0,1fr)_auto] gap-3 items-end">
+                  <div>
+                    <label className="label">Owner</label>
+                    <input
+                      value={draft.ownerName}
+                      onChange={(event) => updateDraft(store.id, { ownerName: event.target.value })}
+                      className="input text-sm py-2"
+                      placeholder="Rep name"
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Next follow-up</label>
+                    <input
+                      type="date"
+                      value={draft.nextFollowUpAt}
+                      onChange={(event) => updateDraft(store.id, { nextFollowUpAt: event.target.value })}
+                      className="input text-sm py-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Notes</label>
+                    <input
+                      value={draft.notes}
+                      onChange={(event) => updateDraft(store.id, { notes: event.target.value })}
+                      className="input text-sm py-2"
+                      placeholder="Last touch, blocker, or promised next step"
+                    />
+                  </div>
+                  <button
+                    onClick={() => saveFollowUp(store.id)}
+                    disabled={savingId === store.id}
+                    className="btn-primary text-sm px-4 py-2"
+                  >
+                    {savingId === store.id ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-bark-500/50">
+                  <span>Last contacted: {formatShortDate(store.follow_up.last_contacted_at)}</span>
+                  <span>Method: {store.follow_up.last_contact_method || 'Not recorded'}</span>
+                  <span>Next follow-up: {formatShortDate(store.follow_up.next_follow_up_at)}</span>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+}
+
+function parseProspectLines(value: string) {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(',').map((part) => part.trim());
+      if (parts.length >= 3) {
+        return { storeName: parts[0], contactName: parts[1], email: parts[2], status: 'prospect' };
+      }
+      if (parts.length === 2) {
+        return { storeName: parts[0], contactName: '', email: parts[1], status: 'prospect' };
+      }
+      return { storeName: '', contactName: '', email: parts[0], status: 'prospect' };
+    })
+    .filter((prospect) => prospect.storeName && prospect.email);
+}
+
+function CustomerReviewOutreachTab() {
+  const [reviews, setReviews] = useState<OutreachReview[]>([]);
+  const [prospects, setProspects] = useState<OutreachProspect[]>([]);
+  const [sends, setSends] = useState<OutreachSend[]>([]);
+  const [selectedReviewId, setSelectedReviewId] = useState('');
+  const [selectedProspectIds, setSelectedProspectIds] = useState<string[]>([]);
+  const [subject, setSubject] = useState('New customer review | Bare Naked Pet Co.');
+  const [ctaMode, setCtaMode] = useState<CustomerReviewCtaMode>('both');
+  const [previewHtml, setPreviewHtml] = useState('');
+  const [notice, setNotice] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [reviewForm, setReviewForm] = useState({
+    title: '',
+    reviewText: '',
+    reviewerName: '',
+    rating: 5,
+    productName: '',
+    imageUrl: '',
+    feraReviewId: '',
+  });
+  const [prospectLines, setProspectLines] = useState('');
+
+  const selectedReview = reviews.find((review) => review.id === selectedReviewId) || null;
+  const selectedProspects = prospects.filter((prospect) => selectedProspectIds.includes(prospect.id));
+
+  async function loadOutreach(initial = false) {
+    if (initial) setLoading(true);
+    else setRefreshing(true);
+    setNotice('');
+
+    try {
+      const response = await fetch('/api/admin/outreach/customer-review');
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to load Outreach.');
+
+      const nextReviews = (payload.reviews || []) as OutreachReview[];
+      const nextProspects = (payload.prospects || []) as OutreachProspect[];
+      setReviews(nextReviews);
+      setProspects(nextProspects);
+      setSends((payload.sends || []) as OutreachSend[]);
+      setSelectedReviewId((current) => current || nextReviews[0]?.id || '');
+      setSelectedProspectIds((current) => {
+        if (current.length > 0) return current.filter((id) => nextProspects.some((prospect) => prospect.id === id));
+        return nextProspects
+          .filter((prospect) => !prospect.last_customer_review_sent_at)
+          .slice(0, 25)
+          .map((prospect) => prospect.id);
+      });
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to load Outreach.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => {
+    loadOutreach(true);
+  }, []);
+
+  useEffect(() => {
+    setPreviewHtml('');
+  }, [selectedReviewId, subject, ctaMode]);
+
+  async function saveReview() {
+    setNotice('');
+    try {
+      const response = await fetch('/api/admin/outreach/customer-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'review', ...reviewForm }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to save review.');
+      setReviewForm({ title: '', reviewText: '', reviewerName: '', rating: 5, productName: '', imageUrl: '', feraReviewId: '' });
+      setNotice('Review saved.');
+      await loadOutreach();
+      if (payload.review?.id) setSelectedReviewId(payload.review.id);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to save review.');
+    }
+  }
+
+  async function saveProspects() {
+    const parsed = parseProspectLines(prospectLines);
+    setNotice('');
+    try {
+      const response = await fetch('/api/admin/outreach/customer-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'prospects', prospects: parsed }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to save prospects.');
+      setProspectLines('');
+      setNotice(`${(payload.prospects || []).length} prospect${(payload.prospects || []).length === 1 ? '' : 's'} saved.`);
+      await loadOutreach();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to save prospects.');
+    }
+  }
+
+  async function previewEmail() {
+    if (!selectedReview) {
+      setNotice('Choose a review first.');
+      return;
+    }
+
+    setPreviewing(true);
+    setNotice('');
+
+    try {
+      const sampleProspect = selectedProspects[0] || prospects[0];
+      const response = await fetch('/api/admin/outreach/customer-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'preview',
+          subject,
+          reviewText: selectedReview.review_text,
+          reviewerName: selectedReview.reviewer_name,
+          rating: selectedReview.rating,
+          productName: selectedReview.product_name,
+          imageUrl: selectedReview.image_url,
+          ctaMode,
+          contactName: sampleProspect?.contact_name || 'there',
+          storeName: sampleProspect?.store_name || 'Preview Store',
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to build preview.');
+      setPreviewHtml(payload.html || '');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to build preview.');
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function sendEmail() {
+    if (!selectedReview) {
+      setNotice('Choose a review first.');
+      return;
+    }
+    if (selectedProspectIds.length === 0) {
+      setNotice('Choose at least one prospect.');
+      return;
+    }
+
+    setSending(true);
+    setNotice('');
+
+    try {
+      const response = await fetch('/api/admin/outreach/customer-review/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewId: selectedReview.id, prospectIds: selectedProspectIds, subject, ctaMode }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to send Customer Review.');
+      setNotice(`Customer Review sent to ${payload.sent || 0} prospect${payload.sent === 1 ? '' : 's'}${payload.failed ? `; ${payload.failed} failed` : ''}.`);
+      setSelectedProspectIds([]);
+      setPreviewHtml('');
+      await loadOutreach();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to send Customer Review.');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function toggleProspect(prospectId: string) {
+    setSelectedProspectIds((current) =>
+      current.includes(prospectId) ? current.filter((id) => id !== prospectId) : [...current, prospectId],
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="bg-cream-100 rounded-2xl border border-cream-200 p-10 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-bark-500" />
+      </div>
+    );
+  }
+
+  return (
+    <section className="space-y-5">
+      <div className="bg-cream-100 rounded-2xl border border-cream-200 p-5 space-y-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <label className="label" htmlFor="astro-promo-description">Promo description</label>
-            <textarea
-              id="astro-promo-description"
-              value={promoForm.promo_description}
-              onChange={(event) => setPromoForm((current) => ({ ...current, promo_description: event.target.value }))}
-              placeholder="Short retailer-facing description of the current promo."
-              className="input min-h-[104px]"
-              rows={4}
-              disabled={isLoading}
-            />
+            <h2 className="section-title">Customer Review</h2>
+            <p className="text-sm text-bark-500/60 mt-1">
+              Send low-pressure social proof emails to prospective stores.
+            </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="label" htmlFor="astro-promo-start">Promo start date</label>
-              <input
-                id="astro-promo-start"
-                type="date"
-                value={promoForm.promo_start_date}
-                onChange={(event) => setPromoForm((current) => ({ ...current, promo_start_date: event.target.value }))}
-                className="input"
-                disabled={isLoading}
-              />
+          <button onClick={() => loadOutreach()} className="btn-secondary text-sm gap-2" disabled={refreshing}>
+            <RefreshCw className={cn('w-4 h-4', refreshing && 'animate-spin')} />
+            Refresh
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            { label: 'Reviews', value: reviews.length, icon: Star },
+            { label: 'Eligible prospects', value: prospects.length, icon: Store },
+            { label: 'Selected', value: selectedProspectIds.length, icon: CheckSquare },
+            { label: 'Recent sends', value: sends.length, icon: Send },
+          ].map((card) => (
+            <div key={card.label} className="bg-white rounded-xl border border-cream-200 px-4 py-3">
+              <div className="flex items-center gap-2 text-bark-500/60">
+                <card.icon className="w-4 h-4" />
+                <p className="text-xs font-semibold uppercase tracking-wide">{card.label}</p>
+              </div>
+              <p className="text-2xl font-bold text-bark-500 mt-2">{card.value}</p>
             </div>
-            <div>
-              <label className="label" htmlFor="astro-promo-end">Promo end date</label>
-              <input
-                id="astro-promo-end"
-                type="date"
-                value={promoForm.promo_end_date}
-                onChange={(event) => setPromoForm((current) => ({ ...current, promo_end_date: event.target.value }))}
-                className="input"
-                disabled={isLoading}
-              />
+          ))}
+        </div>
+
+        {notice && (
+          <div className="rounded-xl bg-white border border-cream-200 px-4 py-3 text-sm text-bark-500">
+            {notice}
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-5">
+        <div className="space-y-5">
+          <div className="bg-white rounded-2xl border border-cream-200 p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-bark-500">1. Choose review</h3>
+                <p className="text-sm text-bark-500/60 mt-1">Pick the customer quote that will anchor the email.</p>
+              </div>
             </div>
+            {reviews.length === 0 ? (
+              <p className="text-sm text-bark-500/60">Add a review to start building Customer Review emails.</p>
+            ) : (
+              <div className="space-y-2">
+                {reviews.map((review) => (
+                  <button
+                    key={review.id}
+                    onClick={() => setSelectedReviewId(review.id)}
+                    className={cn(
+                      'w-full text-left rounded-xl border p-4 transition-colors',
+                      selectedReviewId === review.id ? 'border-bark-500 bg-cream-100' : 'border-cream-200 hover:bg-cream-50'
+                    )}
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-semibold text-bark-500">{review.title}</p>
+                        <p className="text-sm text-bark-500/70 mt-1 line-clamp-2">“{review.review_text}”</p>
+                      </div>
+                      <span className="badge bg-amber-100 text-amber-700">{'★'.repeat(review.rating || 5)}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-3 text-xs text-bark-500/50">
+                      <span>{review.reviewer_name || 'Verified customer'}</span>
+                      {review.product_name && <span>{review.product_name}</span>}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div>
-            <label className="label" htmlFor="astro-promo-url">Astro promo URL</label>
-            <input
-              id="astro-promo-url"
-              type="url"
-              value={promoForm.astro_promo_url}
-              onChange={(event) => setPromoForm((current) => ({ ...current, astro_promo_url: event.target.value }))}
-              placeholder={DEFAULT_ASTRO_URL}
-              className="input"
-              disabled={isLoading}
-            />
+
+          <div className="bg-white rounded-2xl border border-cream-200 p-5 space-y-4">
+            <div>
+              <h3 className="text-base font-semibold text-bark-500">2. Select prospects</h3>
+              <p className="text-sm text-bark-500/60 mt-1">Eligible prospects are stores that have not been suppressed or moved past prospect/sample status.</p>
+            </div>
+            {prospects.length === 0 ? (
+              <p className="text-sm text-bark-500/60">Add prospects using the panel on the right.</p>
+            ) : (
+              <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                {prospects.map((prospect) => (
+                  <label key={prospect.id} className="flex items-start gap-3 rounded-xl border border-cream-200 p-3 hover:bg-cream-50">
+                    <input
+                      type="checkbox"
+                      checked={selectedProspectIds.includes(prospect.id)}
+                      onChange={() => toggleProspect(prospect.id)}
+                      className="mt-1 rounded border-cream-300 text-bark-500 focus:ring-bark-500"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-bark-500 truncate">{prospect.store_name}</p>
+                        <span className="badge bg-cream-100 text-bark-500">{prospect.status === 'samples_sent' ? 'Samples sent' : 'Prospect'}</span>
+                      </div>
+                      <p className="text-sm text-bark-500/60 truncate">
+                        {prospect.contact_name ? `${prospect.contact_name} · ` : ''}{prospect.email}
+                      </p>
+                      <p className="text-xs text-bark-500/45 mt-1">
+                        Last Customer Review: {formatShortDate(prospect.last_customer_review_sent_at)}
+                      </p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <button
-              type="button"
-              onClick={savePromo}
-              disabled={isLoading || isSaving}
-              className="btn-primary text-sm px-4 py-2 flex items-center gap-2"
-            >
-              <Save className="w-4 h-4" />
-              {isSaving ? 'Saving...' : 'Save promo'}
-            </button>
-            {notice && <p className="text-sm text-bark-500/60">{notice}</p>}
+
+          <div className="bg-white rounded-2xl border border-cream-200 p-5 space-y-4">
+            <div>
+              <h3 className="text-base font-semibold text-bark-500">3. Preview and send</h3>
+              <p className="text-sm text-bark-500/60 mt-1">The email uses one simple template with the review as the hero.</p>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-4">
+              <div>
+                <label className="label">Subject</label>
+                <input value={subject} onChange={(event) => setSubject(event.target.value)} className="input" />
+              </div>
+              <div>
+                <label className="label">CTA buttons</label>
+                <select value={ctaMode} onChange={(event) => setCtaMode(event.target.value as CustomerReviewCtaMode)} className="input">
+                  <option value="both">Both CTAs</option>
+                  <option value="samples">Request Samples</option>
+                  <option value="wholesale">Create Account</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={previewEmail} disabled={previewing || !selectedReview} className="btn-secondary text-sm gap-2">
+                <FileText className="w-4 h-4" />
+                {previewing ? 'Previewing...' : 'Preview email'}
+              </button>
+              <button onClick={sendEmail} disabled={sending || !selectedReview || selectedProspectIds.length === 0} className="btn-primary text-sm gap-2">
+                <Send className="w-4 h-4" />
+                {sending ? 'Sending...' : `Send to ${selectedProspectIds.length}`}
+              </button>
+            </div>
+            {previewHtml && (
+              <iframe
+                title="Customer Review email preview"
+                srcDoc={previewHtml}
+                className="w-full h-[620px] rounded-xl border border-cream-200 bg-white"
+              />
+            )}
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-cream-200 p-4 self-start">
-          <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50">Retailer preview</p>
-          <div className="mt-3 rounded-xl border border-amber-200 bg-cream-100 p-4">
-            <p className="text-xs uppercase tracking-wide text-bark-500/60 font-semibold">Astro Seasonal Promo Available</p>
-            <h3 className="text-lg font-bold text-bark-500 mt-1">
-              Opt into {promoForm.promo_name || currentPromo.promoName || 'the current promo'}
-            </h3>
-            <p className="text-sm text-bark-500/70 mt-2">
-              {promoForm.promo_description ||
-                currentPromo.promoDescription ||
-                'This promotion is managed through Astro. Visit Astro to opt in, then mark it complete here so our team knows your store is participating.'}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-xl bg-bark-500 px-3 py-2 text-xs font-semibold text-white">
-                Opt In Through Astro
-                <ExternalLink className="w-3.5 h-3.5" />
-              </span>
-              <span className="rounded-xl border border-bark-500/20 px-3 py-2 text-xs font-semibold text-bark-500">Mark as Opted In</span>
-              <span className="rounded-xl px-3 py-2 text-xs font-semibold text-bark-500/70">Not This Time</span>
+        <aside className="space-y-5">
+          <div className="bg-white rounded-2xl border border-cream-200 p-5 space-y-4">
+            <h3 className="text-base font-semibold text-bark-500">Add review</h3>
+            <input value={reviewForm.title} onChange={(event) => setReviewForm((current) => ({ ...current, title: event.target.value }))} className="input text-sm" placeholder="Short title" />
+            <textarea value={reviewForm.reviewText} onChange={(event) => setReviewForm((current) => ({ ...current, reviewText: event.target.value }))} className="input text-sm min-h-[120px]" placeholder="Review text" />
+            <div className="grid grid-cols-[1fr_90px] gap-3">
+              <input value={reviewForm.reviewerName} onChange={(event) => setReviewForm((current) => ({ ...current, reviewerName: event.target.value }))} className="input text-sm" placeholder="Reviewer name" />
+              <input type="number" min={1} max={5} value={reviewForm.rating} onChange={(event) => setReviewForm((current) => ({ ...current, rating: Number(event.target.value) }))} className="input text-sm" />
             </div>
+            <input value={reviewForm.productName} onChange={(event) => setReviewForm((current) => ({ ...current, productName: event.target.value }))} className="input text-sm" placeholder="Product name" />
+            <input value={reviewForm.imageUrl} onChange={(event) => setReviewForm((current) => ({ ...current, imageUrl: event.target.value }))} className="input text-sm" placeholder="Review image URL" />
+            <input value={reviewForm.feraReviewId} onChange={(event) => setReviewForm((current) => ({ ...current, feraReviewId: event.target.value }))} className="input text-sm" placeholder="Fera review ID" />
+            <button onClick={saveReview} className="btn-primary w-full justify-center text-sm">Save review</button>
           </div>
-        </div>
+
+          <div className="bg-white rounded-2xl border border-cream-200 p-5 space-y-4">
+            <h3 className="text-base font-semibold text-bark-500">Add prospects</h3>
+            <p className="text-xs text-bark-500/50">One per line: Store, Contact, email</p>
+            <textarea
+              value={prospectLines}
+              onChange={(event) => setProspectLines(event.target.value)}
+              className="input text-sm min-h-[140px]"
+              placeholder={'Happy Paws, Jamie, jamie@example.com\nNorthside Pets, buyer@example.com'}
+            />
+            <button onClick={saveProspects} className="btn-secondary w-full justify-center text-sm">Save prospects</button>
+          </div>
+
+          {sends.length > 0 && (
+            <div className="bg-white rounded-2xl border border-cream-200 p-5 space-y-3">
+              <h3 className="text-base font-semibold text-bark-500">Recent sends</h3>
+              {sends.map((send) => (
+                <div key={send.id} className="border-t border-cream-200 pt-3 first:border-t-0 first:pt-0">
+                  <p className="text-sm font-semibold text-bark-500">{send.subject}</p>
+                  <p className="text-xs text-bark-500/50 mt-1">
+                    {send.recipient_count} recipient{send.recipient_count === 1 ? '' : 's'} · {formatShortDate(send.created_at)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </aside>
       </div>
     </section>
   );
@@ -1932,26 +2543,420 @@ function OnePagerTab() {
   );
 }
 
+const LIFECYCLE_META: Record<MomentumLifecycle, { label: string; tone: string }> = {
+  needs_first_order: { label: 'Needs first order', tone: 'bg-blue-100 text-blue-700 border-blue-200' },
+  launch_follow_up: { label: 'Launch follow-up', tone: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+  reorder_due: { label: 'Reorder due', tone: 'bg-amber-100 text-amber-700 border-amber-200' },
+  at_risk: { label: 'At risk', tone: 'bg-red-100 text-red-700 border-red-200' },
+  growth: { label: 'Growth', tone: 'bg-purple-100 text-purple-700 border-purple-200' },
+};
+
+function tabLifecycle(tab: Tab): MomentumLifecycle | null {
+  if (tab === 'firstorder') return 'needs_first_order';
+  if (tab === 'launch') return 'launch_follow_up';
+  if (tab === 'reorder') return 'reorder_due';
+  if (tab === 'atrisk') return 'at_risk';
+  if (tab === 'growth') return 'growth';
+  return null;
+}
+
+function isTodayRetailer(retailer: MomentumRetailer) {
+  if (['overdue', 'due'].includes(retailer.follow_up.status)) return true;
+  if (retailer.lifecycle === 'at_risk') return true;
+  if (retailer.lifecycle === 'needs_first_order' && (retailer.signup_age_days || 0) >= 7) return true;
+  if (retailer.lifecycle === 'launch_follow_up' && (retailer.days_since_last_order || 0) >= 14) return true;
+  if (retailer.lifecycle === 'reorder_due') return true;
+  return false;
+}
+
+function followUpBadge(status: MomentumRetailer['follow_up']['status']) {
+  if (status === 'overdue') return { label: 'Follow-up overdue', tone: 'bg-red-100 text-red-700 border-red-200' };
+  if (status === 'due') return { label: 'Follow-up due', tone: 'bg-amber-100 text-amber-700 border-amber-200' };
+  if (status === 'upcoming') return { label: 'Follow-up scheduled', tone: 'bg-cream-100 text-bark-500/70 border-cream-200' };
+  return { label: 'No follow-up set', tone: 'bg-bone-100 text-bone-600 border-bone-200' };
+}
+
+function retailerEmailBody(retailer: MomentumRetailer) {
+  return `Hi ${retailer.company_name} team,
+
+I wanted to check in and keep Bare Naked Pet Co. moving for your store.
+
+${retailer.recommended_action.angle}
+
+Would it be helpful if I sent over a simple next step or suggested order mix?`;
+}
+
+function PlaybooksTab() {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {[
+        {
+          title: 'Needs first order',
+          action: 'Reduce friction and help them place a small starter order.',
+          bullets: ['Mention no minimums and free shipping.', 'Offer a simple best-seller mix.', 'Ask if they need portal help.'],
+        },
+        {
+          title: 'Launch follow-up',
+          action: 'Make sure the first order turns into shelf presence and a second order.',
+          bullets: ['Ask how the team introduced it.', 'Offer samples or staff talking points.', 'Set a reorder date.'],
+        },
+        {
+          title: 'Reorder due',
+          action: 'Make replenishment easy and timely.',
+          bullets: ['Reference their last order.', 'Suggest a reorder quantity.', 'Offer promo or sample support if useful.'],
+        },
+        {
+          title: 'At risk',
+          action: 'Diagnose before asking for another order.',
+          bullets: ['Ask what happened after launch.', 'Look for sell-through friction.', 'Offer help moving existing product.'],
+        },
+        {
+          title: 'Growth',
+          action: 'Deepen accounts that already have momentum.',
+          bullets: ['Suggest additional sizes or SKUs.', 'Encourage Astro participation.', 'Look for seasonal promo opportunities.'],
+        },
+      ].map((playbook) => (
+        <div key={playbook.title} className="bg-white rounded-2xl border border-cream-200 p-5">
+          <h3 className="text-base font-semibold text-bark-500">{playbook.title}</h3>
+          <p className="text-sm text-bark-500/70 mt-2">{playbook.action}</p>
+          <ul className="mt-4 space-y-2">
+            {playbook.bullets.map((bullet) => (
+              <li key={bullet} className="flex gap-2 text-sm text-bark-500/70">
+                <Check className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                <span>{bullet}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MomentumQueue({ activeTab }: { activeTab: Tab }) {
+  const [retailers, setRetailers] = useState<MomentumRetailer[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, { ownerName: string; nextFollowUpAt: string; notes: string }>>({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [notice, setNotice] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  async function loadMomentum(initial = false) {
+    if (initial) setLoading(true);
+    else setRefreshing(true);
+    setNotice('');
+
+    try {
+      const response = await fetch('/api/admin/sales-hub/momentum');
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to load retailer momentum.');
+
+      const nextRetailers = (payload.retailers || []) as MomentumRetailer[];
+      setRetailers(nextRetailers);
+      setDrafts((current) => {
+        const next = { ...current };
+        nextRetailers.forEach((retailer) => {
+          if (!next[retailer.id]) {
+            next[retailer.id] = {
+              ownerName: retailer.follow_up.owner_name || '',
+              nextFollowUpAt: toDateInputValue(retailer.follow_up.next_follow_up_at),
+              notes: retailer.follow_up.notes || '',
+            };
+          }
+        });
+        return next;
+      });
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to load retailer momentum.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => {
+    loadMomentum(true);
+  }, []);
+
+  function updateDraft(retailerId: string, updates: Partial<{ ownerName: string; nextFollowUpAt: string; notes: string }>) {
+    setDrafts((current) => ({
+      ...current,
+      [retailerId]: {
+        ownerName: current[retailerId]?.ownerName || '',
+        nextFollowUpAt: current[retailerId]?.nextFollowUpAt || '',
+        notes: current[retailerId]?.notes || '',
+        ...updates,
+      },
+    }));
+  }
+
+  async function saveFollowUp(retailerId: string, contactMethod?: string) {
+    const draft = drafts[retailerId] || { ownerName: '', nextFollowUpAt: '', notes: '' };
+    setSavingId(retailerId);
+    setNotice('');
+
+    try {
+      const response = await fetch('/api/admin/sales-hub/momentum', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          retailerId,
+          ownerName: draft.ownerName,
+          nextFollowUpAt: draft.nextFollowUpAt,
+          notes: draft.notes,
+          ...(contactMethod ? { contactMethod } : {}),
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to save follow-up.');
+
+      setNotice(contactMethod ? 'Contact attempt recorded.' : 'Follow-up saved.');
+      await loadMomentum();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to save follow-up.');
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  const stats = useMemo(() => {
+    return {
+      today: retailers.filter(isTodayRetailer).length,
+      firstorder: retailers.filter((retailer) => retailer.lifecycle === 'needs_first_order').length,
+      launch: retailers.filter((retailer) => retailer.lifecycle === 'launch_follow_up').length,
+      reorder: retailers.filter((retailer) => retailer.lifecycle === 'reorder_due').length,
+      atrisk: retailers.filter((retailer) => retailer.lifecycle === 'at_risk').length,
+      growth: retailers.filter((retailer) => retailer.lifecycle === 'growth').length,
+    };
+  }, [retailers]);
+
+  const filteredRetailers = useMemo(() => {
+    const lifecycle = tabLifecycle(activeTab);
+    const query = searchQuery.trim().toLowerCase();
+    return retailers.filter((retailer) => {
+      const matchesTab = activeTab === 'today' ? isTodayRetailer(retailer) : lifecycle ? retailer.lifecycle === lifecycle : true;
+      const matchesSearch = !query || [
+        retailer.company_name,
+        retailer.account_number,
+        retailer.email,
+        retailer.phone,
+        retailer.business_address,
+        retailer.follow_up.owner_name,
+      ].some((value) => value.toLowerCase().includes(query));
+      return matchesTab && matchesSearch;
+    });
+  }, [activeTab, retailers, searchQuery]);
+
+  if (loading) {
+    return (
+      <div className="bg-cream-100 rounded-2xl border border-cream-200 p-10 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-bark-500" />
+      </div>
+    );
+  }
+
+  return (
+    <section className="space-y-5">
+      <div className="bg-cream-100 rounded-2xl border border-cream-200 p-5 space-y-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="section-title">Retailer Momentum</h2>
+            <p className="text-sm text-bark-500/60 mt-1">
+              Signed-up retailers organized by the next account-growth move.
+            </p>
+          </div>
+          <button onClick={() => loadMomentum()} className="btn-secondary text-sm gap-2" disabled={refreshing}>
+            <RefreshCw className={cn('w-4 h-4', refreshing && 'animate-spin')} />
+            Refresh
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+          {[
+            { label: 'Today', value: stats.today, icon: CalendarDays },
+            { label: 'No order', value: stats.firstorder, icon: Store },
+            { label: 'Launch', value: stats.launch, icon: CheckSquare },
+            { label: 'Reorder', value: stats.reorder, icon: ShoppingCart },
+            { label: 'At risk', value: stats.atrisk, icon: AlertCircle },
+            { label: 'Growth', value: stats.growth, icon: Star },
+          ].map((card) => (
+            <div key={card.label} className="bg-white rounded-xl border border-cream-200 px-4 py-3">
+              <div className="flex items-center gap-2 text-bark-500/60">
+                <card.icon className="w-4 h-4" />
+                <p className="text-xs font-semibold uppercase tracking-wide">{card.label}</p>
+              </div>
+              <p className="text-2xl font-bold text-bark-500 mt-2">{card.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-bark-500/40" />
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search retailer, email, account, owner..."
+            className="input pl-9 text-sm"
+          />
+        </div>
+
+        {notice && (
+          <div className="rounded-xl bg-white border border-cream-200 px-4 py-3 text-sm text-bark-500">
+            {notice}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        {filteredRetailers.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-cream-200 p-10 text-center">
+            <Check className="w-10 h-10 mx-auto text-emerald-600" />
+            <p className="text-sm font-semibold text-bark-500 mt-3">No retailers in this queue.</p>
+          </div>
+        ) : (
+          filteredRetailers.map((retailer) => {
+            const draft = drafts[retailer.id] || { ownerName: '', nextFollowUpAt: '', notes: '' };
+            const lifecycle = LIFECYCLE_META[retailer.lifecycle];
+            const followUp = followUpBadge(retailer.follow_up.status);
+            const mailSubject = encodeURIComponent(`Checking in on ${retailer.company_name}`);
+            const mailBody = encodeURIComponent(retailerEmailBody(retailer));
+
+            return (
+              <div key={retailer.id} className="bg-white rounded-2xl border border-cream-200 p-5 space-y-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-semibold text-bark-500">{retailer.company_name}</h3>
+                      <span className={cn('inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-semibold', lifecycle.tone)}>
+                        {lifecycle.label}
+                      </span>
+                      <span className={cn('inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-semibold', followUp.tone)}>
+                        {followUp.label}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-bark-500/60">
+                      <span>{retailer.account_number || 'No account number'}</span>
+                      <span>{retailer.email || 'No email on file'}</span>
+                      <span>{retailer.phone || 'No phone'}</span>
+                    </div>
+                    <p className="text-sm text-bark-500/50">{retailer.business_address || 'No address on file'}</p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <a href={`/admin/retailers/${retailer.id}`} className="btn-secondary text-sm px-3 py-2">
+                      Open retailer
+                    </a>
+                    {retailer.email && (
+                      <a
+                        href={`mailto:${retailer.email}?subject=${mailSubject}&body=${mailBody}`}
+                        onClick={() => saveFollowUp(retailer.id, 'email')}
+                        className="btn-primary text-sm px-3 py-2 gap-2"
+                      >
+                        <Mail className="w-4 h-4" />
+                        Email
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="rounded-xl bg-cream-100 px-3 py-2">
+                    <p className="text-xs text-bark-500/50">Orders</p>
+                    <p className="text-sm font-semibold text-bark-500">{retailer.order_count}</p>
+                  </div>
+                  <div className="rounded-xl bg-cream-100 px-3 py-2">
+                    <p className="text-xs text-bark-500/50">Revenue</p>
+                    <p className="text-sm font-semibold text-bark-500">{formatCurrency(retailer.total_revenue)}</p>
+                  </div>
+                  <div className="rounded-xl bg-cream-100 px-3 py-2">
+                    <p className="text-xs text-bark-500/50">Last order</p>
+                    <p className="text-sm font-semibold text-bark-500">{formatShortDate(retailer.last_order_date)}</p>
+                  </div>
+                  <div className="rounded-xl bg-cream-100 px-3 py-2">
+                    <p className="text-xs text-bark-500/50">Signed up</p>
+                    <p className="text-sm font-semibold text-bark-500">{formatShortDate(retailer.created_at)}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-cream-200 bg-cream-50 p-4">
+                  <p className="text-sm font-semibold text-bark-500">{retailer.recommended_action.label}</p>
+                  <p className="text-sm text-bark-500/60 mt-1">{retailer.recommended_action.reason}</p>
+                  <p className="text-sm text-bark-500/70 mt-2">{retailer.recommended_action.angle}</p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-[180px_180px_minmax(0,1fr)_auto] gap-3 items-end">
+                  <div>
+                    <label className="label">Owner</label>
+                    <input
+                      value={draft.ownerName}
+                      onChange={(event) => updateDraft(retailer.id, { ownerName: event.target.value })}
+                      className="input text-sm py-2"
+                      placeholder="Rep name"
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Next follow-up</label>
+                    <input
+                      type="date"
+                      value={draft.nextFollowUpAt}
+                      onChange={(event) => updateDraft(retailer.id, { nextFollowUpAt: event.target.value })}
+                      className="input text-sm py-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Notes</label>
+                    <input
+                      value={draft.notes}
+                      onChange={(event) => updateDraft(retailer.id, { notes: event.target.value })}
+                      className="input text-sm py-2"
+                      placeholder="Last touch, blocker, or promised next step"
+                    />
+                  </div>
+                  <button
+                    onClick={() => saveFollowUp(retailer.id)}
+                    disabled={savingId === retailer.id}
+                    className="btn-primary text-sm px-4 py-2"
+                  >
+                    {savingId === retailer.id ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-bark-500/50">
+                  <span>Last contacted: {formatShortDate(retailer.follow_up.last_contacted_at)}</span>
+                  <span>Method: {retailer.follow_up.last_contact_method || 'Not recorded'}</span>
+                  <span>Next follow-up: {formatShortDate(retailer.follow_up.next_follow_up_at)}</span>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function SalesHubPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('intro');
+  const [activeTab, setActiveTab] = useState<Tab>('today');
 
   const tabs: Array<{ id: Tab; icon: React.ElementType; label: string; href?: string }> = [
-    { id: 'intro', icon: Phone, label: 'Intro call guide' },
-    { id: 'followup', icon: Phone, label: 'Follow-up call guide' },
-    { id: 'checklist', icon: CheckSquare, label: 'Onboarding checklist' },
-    { id: 'assistant', icon: ClipboardList, label: 'Performance', href: 'https://sales.barenakedpet.com/' },
+    { id: 'today', icon: CalendarDays, label: 'Today' },
+    { id: 'firstorder', icon: Store, label: 'Needs first order' },
+    { id: 'launch', icon: CheckSquare, label: 'Launch follow-up' },
+    { id: 'reorder', icon: RefreshCw, label: 'Reorder due' },
+    { id: 'atrisk', icon: AlertCircle, label: 'At risk' },
+    { id: 'growth', icon: Star, label: 'Growth' },
+    { id: 'playbooks', icon: ClipboardList, label: 'Playbooks' },
   ];
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6">
       <div>
         <h1 className="page-title">Sales Hub</h1>
         <p className="text-bark-500/60 text-sm mt-1">
-          Intro and follow-up call guides, onboarding support, and quick access to sales performance tools.
+          Keep signed-up retailers moving from first order to reorder to growth.
         </p>
       </div>
-
-      <AstroPromoManager />
 
       <div className="flex flex-wrap gap-1.5 bg-cream-100 p-1.5 rounded-2xl border border-cream-200">
         {tabs.map((tab) => (
@@ -1976,40 +2981,7 @@ export default function SalesHubPage() {
       </div>
 
       <div>
-        {activeTab === 'intro' && (
-          <GuideTab
-            title="Intro call guide"
-            subtitle="The intro call is for opening the relationship, getting permission to send samples, and setting a follow-up path. You are not trying to close the sale on call one."
-            sections={INTRO_GUIDE_SECTIONS}
-            cheatSheet={[
-              'Goal: permission to send samples and keep the conversation alive.',
-              'Before calling: find one store-specific detail online.',
-              'Lead with: who handles vendors and purchasing?',
-              'Core low-risk points: no minimums, free shipping, direct support.',
-              'Know pricing: 6 oz $16.67 wholesale / $25 retail, 12 oz $30 wholesale / $45 retail.',
-              'Close with email + samples + follow-up timing.',
-            ]}
-          />
-        )}
-        {activeTab === 'followup' && (
-          <GuideTab
-            title="Follow-up call guide"
-            subtitle="Follow up on samples about 3 weeks after sending so the team has time to try and test them. Re-open the conversation, reinforce the launch support, and always land a next step."
-            sections={FOLLOW_UP_GUIDE_SECTIONS}
-            cheatSheet={[
-              'Open with the samples first, not a long intro.',
-              'Timing: follow up about 3 weeks after samples were sent.',
-              'Core story: 5 whole-food ingredients, no minimums, free shipping, sticky repeat purchase.',
-              'Astro goal: get shoppers to the third punch quickly.',
-              'Use launch support as proof you are invested: samples, promo, shelf placement, Astro.',
-              'Never end the call without a next action or callback date.',
-            ]}
-          />
-        )}
-        {activeTab === 'checklist' && <ChecklistTab />}
-        {activeTab === 'assistant' && <AssistantTab />}
-        {activeTab === 'templates' && <TemplatesTab />}
-        {activeTab === 'onepager' && <OnePagerTab />}
+        {activeTab === 'playbooks' ? <PlaybooksTab /> : <MomentumQueue activeTab={activeTab} />}
       </div>
     </div>
   );
