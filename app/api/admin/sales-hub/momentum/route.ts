@@ -30,6 +30,15 @@ type FollowUpRow = {
   notes: string | null;
 };
 
+function isMissingRelationError(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: string }).code === '42P01',
+  );
+}
+
 function daysSince(value: string | null) {
   if (!value) return null;
   const time = new Date(value).getTime();
@@ -116,7 +125,7 @@ export async function GET() {
   try {
     const { adminClient } = await requireAdminAccess();
 
-    const [{ data: retailers, error: retailersError }, { data: orders, error: ordersError }, { data: followUps, error: followUpsError }] =
+    const [{ data: retailers, error: retailersError }, { data: orders, error: ordersError }, followUpsResult] =
       await Promise.all([
         adminClient
           .from('retailers')
@@ -132,7 +141,7 @@ export async function GET() {
 
     if (retailersError) throw retailersError;
     if (ordersError) throw ordersError;
-    if (followUpsError) throw followUpsError;
+    if (followUpsResult.error && !isMissingRelationError(followUpsResult.error)) throw followUpsResult.error;
 
     const validOrders = ((orders || []) as OrderRow[]).filter((order) => order.retailer_id && order.status !== 'canceled');
     const ordersByRetailerId = new Map<string, OrderRow[]>();
@@ -142,7 +151,7 @@ export async function GET() {
     });
 
     const followUpByRetailerId = new Map(
-      ((followUps || []) as FollowUpRow[]).map((followUp) => [followUp.retailer_id, followUp]),
+      ((followUpsResult.data || []) as FollowUpRow[]).map((followUp) => [followUp.retailer_id, followUp]),
     );
 
     const { data: authUsers } = await adminClient.auth.admin.listUsers({
