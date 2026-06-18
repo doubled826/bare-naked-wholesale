@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target, Search, X } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
@@ -31,6 +31,8 @@ interface Retailer {
   email?: string;
   account_number: string;
   status?: string;
+  pipedrive_deal_id?: number | null;
+  pipedrive_stage_name?: string | null;
   created_at: string;
 }
 
@@ -105,6 +107,14 @@ interface RetailerCredit {
   applications: RetailerCreditApplication[];
 }
 
+interface DealOption {
+  id: number;
+  title: string;
+  stageName?: string | null;
+  ownerName?: string | null;
+  orgName?: string | null;
+}
+
 interface QuarterPoint {
   label: string;
   start: Date;
@@ -165,6 +175,8 @@ const normalizeOrders = (orders: Order[]) =>
       product: Array.isArray(item.product) ? item.product[0] ?? null : item.product ?? null,
     })),
   }));
+
+const getPipedriveDealUrl = (dealId: number) => `https://app.pipedrive.com/deal/${dealId}`;
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -266,6 +278,12 @@ export default function AdminRetailerDetailPage() {
   const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
   const [successNotice, setSuccessNotice] = useState('');
   const [isSavingSuccess, setIsSavingSuccess] = useState(false);
+  const [showPipedriveLinkModal, setShowPipedriveLinkModal] = useState(false);
+  const [pipedriveDealQuery, setPipedriveDealQuery] = useState('');
+  const [pipedriveDealResults, setPipedriveDealResults] = useState<DealOption[]>([]);
+  const [isSearchingPipedriveDeals, setIsSearchingPipedriveDeals] = useState(false);
+  const [isLinkingPipedriveDeal, setIsLinkingPipedriveDeal] = useState(false);
+  const [pipedriveLinkError, setPipedriveLinkError] = useState('');
   const [newCredit, setNewCredit] = useState({
     mode: 'sku' as 'sku' | 'custom',
     reason: 'Return credit',
@@ -289,6 +307,67 @@ export default function AdminRetailerDetailPage() {
   const showSuccessNotice = (message: string) => {
     setSuccessNotice(message);
     setTimeout(() => setSuccessNotice(''), 3000);
+  };
+
+  const openPipedriveLinkModal = () => {
+    setPipedriveDealQuery(retailer?.company_name || '');
+    setPipedriveDealResults([]);
+    setPipedriveLinkError('');
+    setShowPipedriveLinkModal(true);
+  };
+
+  const searchPipedriveDeals = async () => {
+    const query = pipedriveDealQuery.trim();
+    if (!query) {
+      setPipedriveLinkError('Enter a retailer or deal name to search.');
+      return;
+    }
+
+    setIsSearchingPipedriveDeals(true);
+    setPipedriveLinkError('');
+    try {
+      const response = await fetch(`/api/admin/pipedrive/deals/search?term=${encodeURIComponent(query)}`);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Unable to search Pipedrive deals.');
+      }
+      setPipedriveDealResults((payload.deals || []) as DealOption[]);
+    } catch (error) {
+      setPipedriveDealResults([]);
+      setPipedriveLinkError(error instanceof Error ? error.message : 'Unable to search Pipedrive deals.');
+    } finally {
+      setIsSearchingPipedriveDeals(false);
+    }
+  };
+
+  const linkPipedriveDeal = async (deal: DealOption) => {
+    if (!retailerId) return;
+    setIsLinkingPipedriveDeal(true);
+    setPipedriveLinkError('');
+    try {
+      const response = await fetch(`/api/admin/retailers/${retailerId}/pipedrive-deal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dealId: deal.id }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Unable to link Pipedrive deal.');
+      }
+
+      setRetailer((current) => current ? ({
+        ...current,
+        pipedrive_deal_id: deal.id,
+        pipedrive_stage_name: payload.deal?.stageName || deal.stageName || null,
+      }) : current);
+      setShowPipedriveLinkModal(false);
+      setPipedriveDealResults([]);
+      showSuccessNotice('Pipedrive deal linked.');
+    } catch (error) {
+      setPipedriveLinkError(error instanceof Error ? error.message : 'Unable to link Pipedrive deal.');
+    } finally {
+      setIsLinkingPipedriveDeal(false);
+    }
   };
 
   const fetchData = async () => {
@@ -844,6 +923,27 @@ export default function AdminRetailerDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {retailer.pipedrive_deal_id ? (
+            <a
+              href={getPipedriveDealUrl(retailer.pipedrive_deal_id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-bark-200 text-bark-700 bg-white hover:bg-bark-50"
+              title={retailer.pipedrive_stage_name ? `Pipedrive stage: ${retailer.pipedrive_stage_name}` : 'Open linked Pipedrive deal'}
+            >
+              Open Pipedrive
+              <ArrowUpRight className="w-4 h-4" />
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={openPipedriveLinkModal}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-bark-200 text-bark-700 bg-white hover:bg-bark-50"
+            >
+              Link Pipedrive deal
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
           <Link href="/admin/orders" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50">
             View all orders
             <ArrowUpRight className="w-4 h-4" />
@@ -926,7 +1026,35 @@ export default function AdminRetailerDetailPage() {
           </div>
         )}
 
-        <div className="mt-5 grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+          <div className="rounded-lg bg-gray-50 p-4">
+            <p className="text-xs uppercase tracking-wide text-gray-400">Pipedrive Deal</p>
+            {retailer.pipedrive_deal_id ? (
+              <>
+                <a
+                  href={getPipedriveDealUrl(retailer.pipedrive_deal_id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1 font-semibold text-bark-700 hover:text-bark-800"
+                >
+                  Deal #{retailer.pipedrive_deal_id}
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </a>
+                {retailer.pipedrive_stage_name && (
+                  <p className="mt-1 text-xs text-gray-500">{retailer.pipedrive_stage_name}</p>
+                )}
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={openPipedriveLinkModal}
+                className="mt-1 inline-flex items-center gap-1 font-semibold text-bark-700 hover:text-bark-800"
+              >
+                Link deal
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
           <div className="rounded-lg bg-gray-50 p-4">
             <p className="text-xs uppercase tracking-wide text-gray-400">Lifecycle Status</p>
             <p className="mt-1 font-semibold text-gray-900 capitalize">{retailerLifecycleStatus.replace(/_/g, ' ')}</p>
@@ -1640,6 +1768,101 @@ export default function AdminRetailerDetailPage() {
           )}
         </div>
       </div>
+
+      {showPipedriveLinkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4">
+          <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b border-gray-100 p-5">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Link Pipedrive deal</h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  Search Pipedrive and choose the deal that belongs to {retailer.company_name}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPipedriveLinkModal(false)}
+                className="rounded-lg p-2 text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    value={pipedriveDealQuery}
+                    onChange={(event) => setPipedriveDealQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') searchPipedriveDeals();
+                    }}
+                    placeholder="Search by retailer or deal name..."
+                    className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={searchPipedriveDeals}
+                  disabled={isSearchingPipedriveDeals}
+                  className="inline-flex items-center justify-center rounded-lg bg-bark-500 px-4 py-2 text-sm font-medium text-white hover:bg-bark-600 disabled:opacity-50"
+                >
+                  {isSearchingPipedriveDeals ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
+                </button>
+              </div>
+
+              {pipedriveLinkError && (
+                <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {pipedriveLinkError}
+                </div>
+              )}
+
+              <div className="max-h-80 overflow-y-auto rounded-lg border border-gray-100">
+                {pipedriveDealResults.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-sm text-gray-500">
+                    Search results will appear here.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    {pipedriveDealResults.map((deal) => (
+                      <div key={deal.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="font-medium text-gray-900">{deal.title}</p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            Deal #{deal.id}
+                            {deal.stageName ? ` - ${deal.stageName}` : ''}
+                            {deal.ownerName ? ` - ${deal.ownerName}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={getPipedriveDealUrl(deal.id)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm font-medium text-gray-500 hover:text-bark-600"
+                          >
+                            Preview
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => linkPipedriveDeal(deal)}
+                            disabled={isLinkingPipedriveDeal}
+                            className="rounded-lg border border-bark-200 px-3 py-2 text-sm font-medium text-bark-700 hover:bg-bark-50 disabled:opacity-50"
+                          >
+                            {isLinkingPipedriveDeal ? 'Linking...' : 'Link deal'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

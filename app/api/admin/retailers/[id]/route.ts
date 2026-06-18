@@ -17,12 +17,21 @@ export async function GET(_request: Request, { params }: RouteContext) {
       return NextResponse.json({ error: 'Missing retailerId' }, { status: 400 });
     }
 
-    const [{ data: retailer, error: retailerError }, { data: retailerUser, error: userError }] = await Promise.all([
+    const [
+      { data: retailer, error: retailerError },
+      { data: onboarding },
+      { data: retailerUser, error: userError },
+    ] = await Promise.all([
       adminClient
         .from('retailers')
         .select('id, company_name, business_address, phone, account_number, status, created_at')
         .eq('id', retailerId)
         .single(),
+      adminClient
+        .from('retailer_onboarding')
+        .select('pipedrive_deal_id, pipedrive_stage_name')
+        .eq('retailer_id', retailerId)
+        .maybeSingle(),
       adminClient.auth.admin.getUserById(retailerId),
     ]);
 
@@ -38,6 +47,8 @@ export async function GET(_request: Request, { params }: RouteContext) {
       retailer: {
         ...retailer,
         email: retailerUser.user.email || '',
+        pipedrive_deal_id: onboarding?.pipedrive_deal_id || null,
+        pipedrive_stage_name: onboarding?.pipedrive_stage_name || null,
       },
     });
   } catch (error) {

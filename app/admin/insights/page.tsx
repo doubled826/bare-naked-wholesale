@@ -138,6 +138,7 @@ type RetailerSuccessRow = NonNullable<RetailerSuccessInsights>['retailerRows'][n
 type OutreachRow = {
   retailerId: string;
   retailerName: string;
+  pipedriveDealId: number | null;
   priority: OutreachPriority;
   issue: string;
   issueCount: number;
@@ -228,6 +229,8 @@ const getTimeRangeStart = (range: InsightsTimeRange, today = new Date()) => {
 const getTimeRangeLabel = (range: InsightsTimeRange) =>
   timeRangeOptions.find((option) => option.id === range)?.description || 'Selected range';
 
+const getPipedriveDealUrl = (dealId: number) => `https://app.pipedrive.com/deal/${dealId}`;
+
 const getPreviousTimeRange = (range: InsightsTimeRange, today = new Date()) => {
   if (range === 'all') return null;
 
@@ -284,6 +287,7 @@ export default function AdminInsightsPage() {
   const [storeSkuSnapshots, setStoreSkuSnapshots] = useState<StoreSkuSnapshot[]>([]);
   const [selectedSkuIds, setSelectedSkuIds] = useState<string[]>([]);
   const [skuSearchQuery, setSkuSearchQuery] = useState('');
+  const [pipedriveDealByRetailer, setPipedriveDealByRetailer] = useState<Record<string, number>>({});
   const [comparisonDivisorWeeks, setComparisonDivisorWeeks] = useState(MIN_RUNNING_WEEKS);
   const [velocityWindowLabel, setVelocityWindowLabel] = useState('Running average since first order');
   const [successInsights, setSuccessInsights] = useState<RetailerSuccessInsights | null>(null);
@@ -323,6 +327,19 @@ export default function AdminInsightsPage() {
         .select('*')
         .eq('id', 'current')
         .maybeSingle();
+
+      const { data: onboardingRows } = await supabase
+        .from('retailer_onboarding')
+        .select('retailer_id, pipedrive_deal_id');
+
+      const nextPipedriveDealByRetailer = ((onboardingRows as Array<{ retailer_id: string | null; pipedrive_deal_id: number | null }> | null) || [])
+        .reduce<Record<string, number>>((acc, row) => {
+          if (row.retailer_id && row.pipedrive_deal_id) {
+            acc[row.retailer_id] = row.pipedrive_deal_id;
+          }
+          return acc;
+        }, {});
+      setPipedriveDealByRetailer(nextPipedriveDealByRetailer);
 
       const today = new Date();
       const rangeStart = getTimeRangeStart(timeRange, today);
@@ -1015,6 +1032,7 @@ export default function AdminInsightsPage() {
         return {
           retailerId: row.retailer.id,
           retailerName: row.retailer.company_name || 'Unnamed retailer',
+          pipedriveDealId: pipedriveDealByRetailer[row.retailer.id] || null,
           priority: primaryIssue.priority,
           issue: primaryIssue.label,
           issueCount: issues.length,
@@ -1029,7 +1047,7 @@ export default function AdminInsightsPage() {
         b.issueCount - a.issueCount ||
         a.retailerName.localeCompare(b.retailerName)
       ));
-  }, [currentPromo.promoVisible, successInsights]);
+  }, [currentPromo.promoVisible, pipedriveDealByRetailer, successInsights]);
 
   const toggleSkuSelection = (skuId: string) => {
     setSelectedSkuIds((current) => (
@@ -1958,12 +1976,26 @@ function OutreachQueueTable({ rows }: { rows: OutreachRow[] }) {
                     </div>
                   </td>
                   <td className="px-4 py-4">
-                    <Link
-                      href={`/admin/retailers/${row.retailerId}`}
-                      className="text-sm font-medium text-bark-600 hover:text-bark-700"
-                    >
-                      View retailer
-                    </Link>
+                    <div className="space-y-1">
+                      {row.pipedriveDealId ? (
+                        <a
+                          href={getPipedriveDealUrl(row.pipedriveDealId)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block text-sm font-medium text-bark-600 hover:text-bark-700"
+                        >
+                          Open Pipedrive
+                        </a>
+                      ) : (
+                        <span className="block text-xs text-gray-400">No Pipedrive deal</span>
+                      )}
+                      <Link
+                        href={`/admin/retailers/${row.retailerId}`}
+                        className="block text-xs font-medium text-gray-500 hover:text-bark-600"
+                      >
+                        View retailer
+                      </Link>
+                    </div>
                   </td>
                 </tr>
           ))
