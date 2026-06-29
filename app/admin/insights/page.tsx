@@ -285,6 +285,7 @@ export default function AdminInsightsPage() {
   });
   const [activeRetailers, setActiveRetailers] = useState(0);
   const [retailersWithoutOrders, setRetailersWithoutOrders] = useState<RetailerRecord[]>([]);
+  const [locationsAffiliatedWithOrderingAccounts, setLocationsAffiliatedWithOrderingAccounts] = useState(0);
   const [servedRetailerLocations, setServedRetailerLocations] = useState(0);
   const [newLocationsThisMonth, setNewLocationsThisMonth] = useState(0);
   const [reorderRate, setReorderRate] = useState(0);
@@ -384,6 +385,10 @@ export default function AdminInsightsPage() {
         .filter((retailer) => !retailerIdsWithOrders.has(retailer.id))
         .sort((a, b) => a.company_name.localeCompare(b.company_name));
       setRetailersWithoutOrders(nextRetailersWithoutOrders);
+      const affiliatedShipToLocationCount = (retailerLocations as RetailerLocationRecord[] | null || [])
+        .filter((location) => retailerIdsWithOrders.has(location.retailer_id))
+        .length;
+      setLocationsAffiliatedWithOrderingAccounts(retailerIdsWithOrders.size + affiliatedShipToLocationCount);
 
       const fulfilledDestinationKeys = new Set<string>();
       validOrders.forEach((order) => {
@@ -1438,7 +1443,7 @@ export default function AdminInsightsPage() {
 
       {activeView === 'health' && activeHealthPanel === 'summary' && successInsights && (
         <section id="retailer-health-summary" role="tabpanel" className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
               <p className="text-sm text-gray-500">Active Retailers in Range</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{activeRetailers}</p>
@@ -1452,6 +1457,13 @@ export default function AdminInsightsPage() {
               <button type="button" onClick={() => setActiveHealthPanel('needs_first_order')} className="text-xs font-medium text-bark-600 mt-2 hover:text-bark-700">
                 View accounts →
               </button>
+            </div>
+            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <MetricLabel tooltip="Every main account location plus its saved ship-to locations when that retailer has at least one non-canceled order. Accounts whose only orders are canceled are excluded.">
+                Locations Affiliated with Ordering Accounts
+              </MetricLabel>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{locationsAffiliatedWithOrderingAccounts}</p>
+              <p className="text-xs text-gray-400 mt-2">All time</p>
             </div>
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
               <MetricLabel tooltip="Unique destinations on shipped or delivered orders. A ship-to location is counted when present; otherwise the retailer's main account location is counted. Canceled, pending, and processing orders are excluded.">
