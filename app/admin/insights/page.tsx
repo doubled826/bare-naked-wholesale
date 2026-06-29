@@ -25,6 +25,7 @@ import {
 type OrderRecord = {
   id: string;
   retailer_id: string | null;
+  location_id: string | null;
   total: number | string | null;
   status: string | null;
   created_at: string;
@@ -158,6 +159,7 @@ type ComparisonMetrics = {
 };
 
 const MS_IN_DAY = 1000 * 60 * 60 * 24;
+const SUPABASE_PAGE_SIZE = 1000;
 const UPSPW_TRAILING_WEEKS = 52;
 const MIN_RUNNING_WEEKS = 1;
 
@@ -273,6 +275,8 @@ export default function AdminInsightsPage() {
     activeStates: null,
   });
   const [activeRetailers, setActiveRetailers] = useState(0);
+  const [retailersWithoutOrders, setRetailersWithoutOrders] = useState<RetailerRecord[]>([]);
+  const [servedRetailerLocations, setServedRetailerLocations] = useState(0);
   const [newLocationsThisMonth, setNewLocationsThisMonth] = useState(0);
   const [reorderRate, setReorderRate] = useState(0);
   const [atRiskRetailers, setAtRiskRetailers] = useState<AtRiskRetailer[]>([]);
@@ -302,17 +306,35 @@ export default function AdminInsightsPage() {
   const fetchInsights = async () => {
     setIsLoading(true);
     try {
-      const { data: orders } = await supabase
-        .from('orders')
-        .select('id, retailer_id, total, status, created_at, retailer:retailers(id, company_name, business_address, created_at)');
+      const orders: OrderRecord[] = [];
+      for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+        const { data: orderPage, error: ordersError } = await supabase
+          .from('orders')
+          .select('id, retailer_id, location_id, total, status, created_at, retailer:retailers(id, company_name, business_address, created_at)')
+          .range(from, from + SUPABASE_PAGE_SIZE - 1);
+
+        if (ordersError) throw ordersError;
+        const typedOrderPage = (orderPage || []) as unknown as OrderRecord[];
+        orders.push(...typedOrderPage);
+        if (typedOrderPage.length < SUPABASE_PAGE_SIZE) break;
+      }
 
       const { data: orderItems } = await supabase
         .from('order_items')
         .select('order_id, quantity, product_id, product:products(id, name, size, category), order:orders(status, retailer_id, location_id, created_at)');
 
-      const { data: retailers } = await supabase
-        .from('retailers')
-        .select('id, company_name, business_address, created_at');
+      const retailers: RetailerRecord[] = [];
+      for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+        const { data: retailerPage, error: retailersError } = await supabase
+          .from('retailers')
+          .select('id, company_name, business_address, created_at')
+          .range(from, from + SUPABASE_PAGE_SIZE - 1);
+
+        if (retailersError) throw retailersError;
+        const typedRetailerPage = (retailerPage || []) as RetailerRecord[];
+        retailers.push(...typedRetailerPage);
+        if (typedRetailerPage.length < SUPABASE_PAGE_SIZE) break;
+      }
 
       const { data: retailerLocations } = await supabase
         .from('retailer_locations')
@@ -345,6 +367,22 @@ export default function AdminInsightsPage() {
       const rangeStart = getTimeRangeStart(timeRange, today);
       const previousRange = getPreviousTimeRange(timeRange, today);
       const validOrders = (orders as OrderRecord[] | null || []).filter(order => order.status !== 'canceled');
+      const retailerIdsWithOrders = new Set(
+        validOrders.flatMap((order) => order.retailer_id ? [order.retailer_id] : []),
+      );
+      const nextRetailersWithoutOrders = (retailers as RetailerRecord[] | null || [])
+        .filter((retailer) => !retailerIdsWithOrders.has(retailer.id))
+        .sort((a, b) => a.company_name.localeCompare(b.company_name));
+      setRetailersWithoutOrders(nextRetailersWithoutOrders);
+
+      const fulfilledDestinationKeys = new Set<string>();
+      validOrders.forEach((order) => {
+        if (!order.retailer_id || (order.status !== 'shipped' && order.status !== 'delivered')) return;
+        fulfilledDestinationKeys.add(
+          order.location_id ? `location:${order.location_id}` : `retailer:${order.retailer_id}`,
+        );
+      });
+      setServedRetailerLocations(fulfilledDestinationKeys.size);
       const reportingOrders = rangeStart
         ? validOrders.filter((order) => new Date(order.created_at) >= rangeStart)
         : validOrders;
@@ -1648,11 +1686,25 @@ export default function AdminInsightsPage() {
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">Retailer Health</h3>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
             <p className="text-sm text-gray-500">Active Retailers in Range</p>
             <p className="text-2xl font-bold text-gray-900 mt-1">{activeRetailers}</p>
             <TrendDelta current={activeRetailers} previous={comparisonMetrics.activeRetailers} label={comparisonMetrics.label} />
+          </div>
+          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+            <MetricLabel tooltip="All retailer accounts that have never placed a non-canceled order. This is an all-time metric and does not change with the date range.">
+              Accounts Without an Order
+            </MetricLabel>
+            <p className="text-2xl font-bold text-gray-900 mt-1">{retailersWithoutOrders.length}</p>
+            <p className="text-xs text-gray-400 mt-2">All time</p>
+          </div>
+          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+            <MetricLabel tooltip="Unique destinations on shipped or delivered orders. A ship-to location is counted when present; otherwise the retailer's main account location is counted. Canceled, pending, and processing orders are excluded.">
+              Retail Locations Served
+            </MetricLabel>
+            <p className="text-2xl font-bold text-gray-900 mt-1">{servedRetailerLocations}</p>
+            <p className="text-xs text-gray-400 mt-2">All time</p>
           </div>
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
             <p className="text-sm text-gray-500">New Retail Locations This Month</p>
@@ -1670,6 +1722,54 @@ export default function AdminInsightsPage() {
               At-Risk Retailers
             </MetricLabel>
             <p className="text-2xl font-bold text-gray-900 mt-1">{atRiskRetailers.length}</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-6 border-b border-gray-100">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h4 className="text-md font-semibold text-gray-900">Retailers Without an Order</h4>
+                <p className="text-sm text-gray-500 mt-1">
+                  Accounts that have never placed a non-canceled order, regardless of the selected date range.
+                </p>
+              </div>
+              <span className="shrink-0 text-xs font-semibold text-gray-500 bg-gray-100 rounded-full px-2 py-1">
+                {retailersWithoutOrders.length} retailers
+              </span>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Retailer</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Account Created</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Business Address</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {retailersWithoutOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="px-6 py-8 text-center text-gray-500">
+                      Every retailer account has placed an order.
+                    </td>
+                  </tr>
+                ) : (
+                  retailersWithoutOrders.map((retailer) => (
+                    <tr key={retailer.id} className="hover:bg-gray-50 align-top">
+                      <td className="px-6 py-4">
+                        <Link href={`/admin/retailers/${retailer.id}`} className="font-medium text-gray-900 hover:text-bark-600">
+                          {retailer.company_name}
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-600">{formatDate(retailer.created_at)}</td>
+                      <td className="px-6 py-4 text-gray-600">{retailer.business_address || 'No address on file'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
 
