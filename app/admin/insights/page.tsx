@@ -132,6 +132,7 @@ type SelectedSkuMetric = {
 };
 
 type InsightsView = 'overview' | 'health' | 'skus' | 'markets';
+type RetailerHealthPanel = 'summary' | 'needs_first_order' | 'at_risk' | 'outreach' | 'leaderboards';
 type InsightsTimeRange = 'mtd' | '90d' | '12m' | 'all';
 type OutreachPriority = 'High' | 'Medium' | 'Low';
 type RetailerSuccessRow = NonNullable<RetailerSuccessInsights>['retailerRows'][number];
@@ -168,6 +169,14 @@ const insightsViews: Array<{ id: InsightsView; label: string; description: strin
   { id: 'health', label: 'Retailer Health', description: 'Adoption, risk, and top accounts' },
   { id: 'skus', label: 'SKU Performance', description: 'Same-store SKU matchups' },
   { id: 'markets', label: 'Markets', description: 'Geography and state revenue' },
+];
+
+const retailerHealthPanels: Array<{ id: RetailerHealthPanel; label: string; description: string }> = [
+  { id: 'summary', label: 'Summary', description: 'Key health and adoption metrics' },
+  { id: 'needs_first_order', label: 'Needs First Order', description: 'Accounts that have not ordered' },
+  { id: 'at_risk', label: 'At Risk', description: 'Retailers due for follow-up' },
+  { id: 'outreach', label: 'Outreach', description: 'Prioritized action queue' },
+  { id: 'leaderboards', label: 'Leaderboards', description: 'Top retailer performance' },
 ];
 
 const timeRangeOptions: Array<{ id: InsightsTimeRange; label: string; description: string }> = [
@@ -297,6 +306,7 @@ export default function AdminInsightsPage() {
   const [successInsights, setSuccessInsights] = useState<RetailerSuccessInsights | null>(null);
   const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
   const [activeView, setActiveView] = useState<InsightsView>('overview');
+  const [activeHealthPanel, setActiveHealthPanel] = useState<RetailerHealthPanel>('summary');
   const [timeRange, setTimeRange] = useState<InsightsTimeRange>('90d');
 
   useEffect(() => {
@@ -1160,6 +1170,53 @@ export default function AdminInsightsPage() {
         </div>
       </div>
 
+      {activeView === 'health' && (
+        <section className="sticky top-3 z-20 rounded-xl border border-gray-200 bg-gray-50/95 p-3 shadow-sm backdrop-blur">
+          <div className="mb-3 flex items-center justify-between gap-4 px-1">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Retailer Health</h3>
+              <p className="text-xs text-gray-500">Choose a focused view instead of scrolling through every report.</p>
+            </div>
+          </div>
+          <div className="flex gap-2 overflow-x-auto" role="tablist" aria-label="Retailer Health views">
+            {retailerHealthPanels.map((panel) => {
+              const isActive = activeHealthPanel === panel.id;
+              const count = panel.id === 'needs_first_order'
+                ? retailersWithoutOrders.length
+                : panel.id === 'at_risk'
+                  ? atRiskRetailers.length
+                  : panel.id === 'outreach'
+                    ? outreachRows.length
+                    : null;
+
+              return (
+                <button
+                  key={panel.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls={`retailer-health-${panel.id}`}
+                  onClick={() => setActiveHealthPanel(panel.id)}
+                  title={panel.description}
+                  className={`flex shrink-0 items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors ${
+                    isActive
+                      ? 'border-bark-500 bg-bark-500 text-white shadow-sm'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-bark-200 hover:text-bark-700'
+                  }`}
+                >
+                  <span>{panel.label}</span>
+                  {count !== null && (
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {activeView === 'overview' && (
         <>
       <section className="space-y-4">
@@ -1379,8 +1436,52 @@ export default function AdminInsightsPage() {
         </>
       )}
 
-      {activeView === 'health' && successInsights && (
-        <section className="space-y-4">
+      {activeView === 'health' && activeHealthPanel === 'summary' && successInsights && (
+        <section id="retailer-health-summary" role="tabpanel" className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <p className="text-sm text-gray-500">Active Retailers in Range</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{activeRetailers}</p>
+              <TrendDelta current={activeRetailers} previous={comparisonMetrics.activeRetailers} label={comparisonMetrics.label} />
+            </div>
+            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <MetricLabel tooltip="All retailer accounts that have never placed a non-canceled order. This is an all-time metric and does not change with the date range.">
+                Accounts Without an Order
+              </MetricLabel>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{retailersWithoutOrders.length}</p>
+              <button type="button" onClick={() => setActiveHealthPanel('needs_first_order')} className="text-xs font-medium text-bark-600 mt-2 hover:text-bark-700">
+                View accounts →
+              </button>
+            </div>
+            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <MetricLabel tooltip="Unique destinations on shipped or delivered orders. A ship-to location is counted when present; otherwise the retailer's main account location is counted. Canceled, pending, and processing orders are excluded.">
+                Retail Locations Served
+              </MetricLabel>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{servedRetailerLocations}</p>
+              <p className="text-xs text-gray-400 mt-2">All time</p>
+            </div>
+            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <p className="text-sm text-gray-500">New Retail Locations This Month</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{newLocationsThisMonth}</p>
+            </div>
+            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <MetricLabel tooltip="Percentage of retailers with two or more non-canceled orders inside the selected range.">
+                Reorder Rate
+              </MetricLabel>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{reorderRate.toFixed(1)}%</p>
+              <TrendDelta current={reorderRate} previous={comparisonMetrics.reorderRate} label={comparisonMetrics.label} mode="points" />
+            </div>
+            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <MetricLabel tooltip="Retailers whose last non-canceled order is at least 90 days old.">
+                At-Risk Retailers
+              </MetricLabel>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{atRiskRetailers.length}</p>
+              <button type="button" onClick={() => setActiveHealthPanel('at_risk')} className="text-xs font-medium text-bark-600 mt-2 hover:text-bark-700">
+                Review retailers →
+              </button>
+            </div>
+          </div>
+
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h3 className="text-lg font-semibold text-gray-900">Retailer Success Adoption</h3>
@@ -1409,10 +1510,9 @@ export default function AdminInsightsPage() {
             <SuccessMetricCard label="High-performing stores" value={successInsights.byLifecycle.high_performer} />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
               <h4 className="text-md font-semibold text-gray-900">Success Tool Adoption</h4>
-              <div className="mt-5 space-y-4">
+              <div className="mt-5 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                 <AdoptionProgress label="Samples acknowledged" value={successInsights.samplesAcknowledgedPercent} />
                 <AdoptionProgress label="Astro enrolled" value={successInsights.astroEnrolledPercent} />
                 <AdoptionProgress label="Marketing materials checked/requested" value={successInsights.marketingMaterialsPercent} />
@@ -1427,21 +1527,22 @@ export default function AdminInsightsPage() {
                   {successInsights.currentPromoNotRespondedCount} retailers have not responded to the current promo.
                 </p>
               )}
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 lg:col-span-2">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h4 className="text-md font-semibold text-gray-900">Outreach Queue</h4>
-                  <p className="text-sm text-gray-500 mt-1">One prioritized row per retailer that needs follow-up.</p>
-                </div>
-                <span className="text-xs font-semibold text-gray-500 bg-gray-100 rounded-full px-2 py-1">
-                  {outreachRows.length} retailers
-                </span>
-              </div>
-              <OutreachQueueTable rows={outreachRows} />
-            </div>
           </div>
+        </section>
+      )}
+
+      {activeView === 'health' && activeHealthPanel === 'outreach' && (
+        <section id="retailer-health-outreach" role="tabpanel" className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Outreach Queue</h3>
+              <p className="text-sm text-gray-500 mt-1">One prioritized row per retailer that needs follow-up.</p>
+            </div>
+            <span className="shrink-0 text-xs font-semibold text-gray-500 bg-gray-100 rounded-full px-2 py-1">
+              {outreachRows.length} retailers
+            </span>
+          </div>
+          <OutreachQueueTable rows={outreachRows} />
         </section>
       )}
 
@@ -1681,50 +1782,10 @@ export default function AdminInsightsPage() {
       )}
 
       {activeView === 'health' && (
-      <>
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Retailer Health</h3>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <p className="text-sm text-gray-500">Active Retailers in Range</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{activeRetailers}</p>
-            <TrendDelta current={activeRetailers} previous={comparisonMetrics.activeRetailers} label={comparisonMetrics.label} />
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <MetricLabel tooltip="All retailer accounts that have never placed a non-canceled order. This is an all-time metric and does not change with the date range.">
-              Accounts Without an Order
-            </MetricLabel>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{retailersWithoutOrders.length}</p>
-            <p className="text-xs text-gray-400 mt-2">All time</p>
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <MetricLabel tooltip="Unique destinations on shipped or delivered orders. A ship-to location is counted when present; otherwise the retailer's main account location is counted. Canceled, pending, and processing orders are excluded.">
-              Retail Locations Served
-            </MetricLabel>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{servedRetailerLocations}</p>
-            <p className="text-xs text-gray-400 mt-2">All time</p>
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <p className="text-sm text-gray-500">New Retail Locations This Month</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{newLocationsThisMonth}</p>
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <MetricLabel tooltip="Percentage of retailers with two or more non-canceled orders inside the selected range.">
-              Reorder Rate
-            </MetricLabel>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{reorderRate.toFixed(1)}%</p>
-            <TrendDelta current={reorderRate} previous={comparisonMetrics.reorderRate} label={comparisonMetrics.label} mode="points" />
-          </div>
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-            <MetricLabel tooltip="Retailers whose last non-canceled order is old enough to suggest follow-up. The table below uses 90+ days without an order.">
-              At-Risk Retailers
-            </MetricLabel>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{atRiskRetailers.length}</p>
-          </div>
-        </div>
-
+        activeHealthPanel === 'needs_first_order' || activeHealthPanel === 'at_risk'
+      ) && (
+      <section id={`retailer-health-${activeHealthPanel}`} role="tabpanel" className="space-y-4">
+        {activeHealthPanel === 'needs_first_order' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="p-6 border-b border-gray-100">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1772,7 +1833,9 @@ export default function AdminInsightsPage() {
             </table>
           </div>
         </div>
+        )}
 
+        {activeHealthPanel === 'at_risk' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="p-6 border-b border-gray-100">
             <div className="flex items-center gap-2">
@@ -1817,8 +1880,8 @@ export default function AdminInsightsPage() {
             </table>
           </div>
         </div>
+        )}
       </section>
-      </>
       )}
 
       {activeView === 'markets' && (
@@ -1847,8 +1910,8 @@ export default function AdminInsightsPage() {
       </section>
       )}
 
-      {activeView === 'health' && (
-      <section className="space-y-4">
+      {activeView === 'health' && activeHealthPanel === 'leaderboards' && (
+      <section id="retailer-health-leaderboards" role="tabpanel" className="space-y-4">
         <h3 className="text-lg font-semibold text-gray-900">Top 10 Retailers Leaderboard</h3>
         <p className="text-sm text-gray-500 -mt-2">{getTimeRangeLabel(timeRange)} performance</p>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
