@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target, Search, X, Unlink } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
@@ -236,6 +236,7 @@ const OrdersLineChart = ({ points }: { points: QuarterPoint[] }) => {
 export default function AdminRetailerDetailPage() {
   const supabase = createClientComponentClient();
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const retailerId = params?.id;
 
   const [retailer, setRetailer] = useState<Retailer | null>(null);
@@ -278,11 +279,13 @@ export default function AdminRetailerDetailPage() {
   const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
   const [successNotice, setSuccessNotice] = useState('');
   const [isSavingSuccess, setIsSavingSuccess] = useState(false);
+  const [isDeletingRetailer, setIsDeletingRetailer] = useState(false);
   const [showPipedriveLinkModal, setShowPipedriveLinkModal] = useState(false);
   const [pipedriveDealQuery, setPipedriveDealQuery] = useState('');
   const [pipedriveDealResults, setPipedriveDealResults] = useState<DealOption[]>([]);
   const [isSearchingPipedriveDeals, setIsSearchingPipedriveDeals] = useState(false);
   const [isLinkingPipedriveDeal, setIsLinkingPipedriveDeal] = useState(false);
+  const [isUnlinkingPipedriveDeal, setIsUnlinkingPipedriveDeal] = useState(false);
   const [pipedriveLinkError, setPipedriveLinkError] = useState('');
   const [newCredit, setNewCredit] = useState({
     mode: 'sku' as 'sku' | 'custom',
@@ -367,6 +370,69 @@ export default function AdminRetailerDetailPage() {
       setPipedriveLinkError(error instanceof Error ? error.message : 'Unable to link Pipedrive deal.');
     } finally {
       setIsLinkingPipedriveDeal(false);
+    }
+  };
+
+  const unlinkPipedriveDeal = async () => {
+    if (!retailerId || !retailer?.pipedrive_deal_id) return;
+
+    const confirmed = window.confirm(
+      `Unlink Pipedrive deal #${retailer.pipedrive_deal_id} from ${retailer.company_name}? This only removes the portal link.`,
+    );
+
+    if (!confirmed) return;
+
+    setIsUnlinkingPipedriveDeal(true);
+    try {
+      const response = await fetch(`/api/admin/retailers/${retailerId}/pipedrive-deal`, {
+        method: 'DELETE',
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Unable to unlink Pipedrive deal.');
+      }
+
+      setRetailer((current) => current ? ({
+        ...current,
+        pipedrive_deal_id: null,
+        pipedrive_stage_name: null,
+      }) : current);
+      showSuccessNotice('Pipedrive deal unlinked.');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Unable to unlink Pipedrive deal.');
+    } finally {
+      setIsUnlinkingPipedriveDeal(false);
+    }
+  };
+
+  const deleteRetailer = async () => {
+    if (!retailerId || !retailer) return;
+
+    if (orders.length > 0) {
+      window.alert('Retailers with order history cannot be deleted.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete ${retailer.company_name}? This removes the retailer login and portal profile. This cannot be undone.`,
+    );
+
+    if (!confirmed) return;
+
+    setIsDeletingRetailer(true);
+    try {
+      const response = await fetch(`/api/admin/retailers/${retailerId}`, {
+        method: 'DELETE',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || 'Unable to delete retailer.');
+      }
+
+      router.push('/admin/retailers');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Unable to delete retailer.');
+      setIsDeletingRetailer(false);
     }
   };
 
@@ -924,16 +990,28 @@ export default function AdminRetailerDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           {retailer.pipedrive_deal_id ? (
-            <a
-              href={getPipedriveDealUrl(retailer.pipedrive_deal_id)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-bark-200 text-bark-700 bg-white hover:bg-bark-50"
-              title={retailer.pipedrive_stage_name ? `Pipedrive stage: ${retailer.pipedrive_stage_name}` : 'Open linked Pipedrive deal'}
-            >
-              Open Pipedrive
-              <ArrowUpRight className="w-4 h-4" />
-            </a>
+            <>
+              <a
+                href={getPipedriveDealUrl(retailer.pipedrive_deal_id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-bark-200 text-bark-700 bg-white hover:bg-bark-50"
+                title={retailer.pipedrive_stage_name ? `Pipedrive stage: ${retailer.pipedrive_stage_name}` : 'Open linked Pipedrive deal'}
+              >
+                Open Pipedrive
+                <ArrowUpRight className="w-4 h-4" />
+              </a>
+              <button
+                type="button"
+                onClick={unlinkPipedriveDeal}
+                disabled={isUnlinkingPipedriveDeal}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                title="Remove this portal's linked Pipedrive deal"
+              >
+                {isUnlinkingPipedriveDeal ? <Loader2 className="w-4 h-4 animate-spin" /> : <Unlink className="w-4 h-4" />}
+                Unlink
+              </button>
+            </>
           ) : (
             <button
               type="button"
@@ -948,6 +1026,16 @@ export default function AdminRetailerDetailPage() {
             View all orders
             <ArrowUpRight className="w-4 h-4" />
           </Link>
+          <button
+            type="button"
+            onClick={deleteRetailer}
+            disabled={isDeletingRetailer || orders.length > 0}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-transparent"
+            title={orders.length > 0 ? 'Retailers with order history cannot be deleted' : 'Delete this retailer account'}
+          >
+            {isDeletingRetailer ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            Delete
+          </button>
         </div>
       </div>
 
@@ -1043,6 +1131,16 @@ export default function AdminRetailerDetailPage() {
                 {retailer.pipedrive_stage_name && (
                   <p className="mt-1 text-xs text-gray-500">{retailer.pipedrive_stage_name}</p>
                 )}
+                <button
+                  type="button"
+                  onClick={unlinkPipedriveDeal}
+                  disabled={isUnlinkingPipedriveDeal}
+                  className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-red-600 disabled:opacity-50"
+                  title="Remove this portal's linked Pipedrive deal"
+                >
+                  {isUnlinkingPipedriveDeal ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlink className="h-3.5 w-3.5" />}
+                  Unlink deal
+                </button>
               </>
             ) : (
               <button

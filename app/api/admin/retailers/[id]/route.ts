@@ -143,3 +143,55 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     return NextResponse.json({ error: 'An error occurred while updating the retailer' }, { status: 500 });
   }
 }
+
+export async function DELETE(_request: Request, { params }: RouteContext) {
+  try {
+    const { adminClient } = await requireAdminAccess();
+    const retailerId = params.id;
+
+    if (!retailerId) {
+      return NextResponse.json({ error: 'Missing retailerId' }, { status: 400 });
+    }
+
+    const { data: retailer, error: retailerError } = await adminClient
+      .from('retailers')
+      .select('id, company_name')
+      .eq('id', retailerId)
+      .single();
+
+    if (retailerError || !retailer) {
+      return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
+    }
+
+    const { count: orderCount, error: orderCountError } = await adminClient
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('retailer_id', retailerId);
+
+    if (orderCountError) {
+      throw orderCountError;
+    }
+
+    if ((orderCount || 0) > 0) {
+      return NextResponse.json(
+        { error: 'Retailers with order history cannot be deleted.' },
+        { status: 409 },
+      );
+    }
+
+    const { error: deleteUserError } = await adminClient.auth.admin.deleteUser(retailerId);
+
+    if (deleteUserError) {
+      return NextResponse.json({ error: deleteUserError.message || 'Failed to delete retailer auth account' }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    if (error instanceof AdminAuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
+    console.error('Delete retailer error:', error);
+    return NextResponse.json({ error: 'An error occurred while deleting the retailer' }, { status: 500 });
+  }
+}

@@ -81,3 +81,57 @@ export async function POST(request: Request, { params }: RouteContext) {
     );
   }
 }
+
+export async function DELETE(_request: Request, { params }: RouteContext) {
+  try {
+    const { adminClient } = await requireAdminAccess();
+    const retailerId = params.id;
+
+    if (!retailerId) {
+      return NextResponse.json({ error: 'retailerId is required.' }, { status: 400 });
+    }
+
+    const { data: existing, error: existingError } = await adminClient
+      .from('retailer_onboarding')
+      .select('id')
+      .eq('retailer_id', retailerId)
+      .maybeSingle();
+
+    if (existingError) {
+      throw existingError;
+    }
+
+    if (!existing) {
+      return NextResponse.json({ onboarding: null });
+    }
+
+    const now = new Date().toISOString();
+    const { data, error } = await adminClient
+      .from('retailer_onboarding')
+      .update({
+        pipedrive_deal_id: null,
+        pipedrive_stage_name: null,
+        last_synced_at: null,
+        updated_at: now,
+      })
+      .eq('id', existing.id)
+      .select('*')
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json({ onboarding: data });
+  } catch (error) {
+    if (error instanceof AdminAuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
+    console.error('Retailer Pipedrive unlink error:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Unable to unlink Pipedrive deal.' },
+      { status: 500 },
+    );
+  }
+}
