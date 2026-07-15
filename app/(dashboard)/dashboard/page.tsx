@@ -59,7 +59,7 @@ const getLocalSuccessProfileKey = (retailerId?: string) =>
   retailerId ? `retailer-success-profile:${retailerId}` : null;
 
 const getBareLaunchOfferDismissedKey = (retailerId?: string) =>
-  retailerId ? `bare-launch-offer-dismissed:${retailerId}` : null;
+  retailerId ? `bare-launch-offer-session-dismissed:${retailerId}` : null;
 
 export default function DashboardPage() {
   const { retailer, orders, products, addNotification } = useAppStore();
@@ -177,14 +177,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const dismissedKey = getBareLaunchOfferDismissedKey(retailer?.id);
-    const isDismissed = dismissedKey ? window.localStorage.getItem(dismissedKey) === 'true' : false;
+    const isDismissed = dismissedKey ? window.sessionStorage.getItem(dismissedKey) === 'true' : false;
     setBareLaunchOfferDismissed(isDismissed);
     setShowBareLaunchOfferModal(Boolean(bareLaunchOffer.eligible && !isDismissed));
   }, [bareLaunchOffer.eligible, retailer?.id]);
 
   const dismissBareLaunchOffer = () => {
     const dismissedKey = getBareLaunchOfferDismissedKey(retailer?.id);
-    if (dismissedKey) window.localStorage.setItem(dismissedKey, 'true');
+    if (dismissedKey) window.sessionStorage.setItem(dismissedKey, 'true');
     setBareLaunchOfferDismissed(true);
     setShowBareLaunchOfferModal(false);
   };
@@ -700,7 +700,7 @@ function BareLaunchOfferModal({
           type="button"
           onClick={onClose}
           className="absolute right-4 top-4 z-10 rounded-lg p-2 text-bark-500/60 hover:bg-cream-200 hover:text-bark-500"
-          aria-label="Dismiss Bare Launch Offer"
+          aria-label="Close Bare Launch Offer for now"
         >
           <X className="h-5 w-5" />
         </button>
@@ -737,7 +737,7 @@ function BareLaunchOfferModal({
                 onClick={onClose}
                 className="rounded-xl border border-bark-500/20 px-5 py-3 font-semibold text-bark-500 hover:bg-cream-200"
               >
-                Browse Later
+                Later Today
               </button>
             </div>
             <p className="mt-3 text-xs text-bark-500/60">
