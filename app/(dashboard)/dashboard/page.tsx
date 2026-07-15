@@ -715,21 +715,21 @@ function BareLaunchOfferModal({
               Welcome{businessName ? `, ${businessName}` : ''}.
             </p>
             <h2 className="mt-2 text-3xl font-bold leading-tight text-bark-500 sm:text-4xl" style={{ fontFamily: 'var(--font-poppins)' }}>
-              Your {BARE_LAUNCH_OFFER_NAME} is live.
+              Your Bare Launch Offer is live.
             </h2>
             <p className="mt-4 max-w-xl text-bark-500/75">
               Place your first wholesale order in the next 14 days and we will help you launch Bare with a little extra momentum.
             </p>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <OfferPill icon={Gift} label="10% off" description="Auto-applied to your first order" highlight />
-              <OfferPill icon={Package} label="Free samples" description="A sampling campaign for your customers" />
-              <OfferPill icon={Megaphone} label="Private promo" description="Supported by the Bare team" />
+              <OfferPill icon={Gift} label="10% off first order" description="Auto-applied at checkout" highlight />
+              <OfferPill icon={Package} label="Free samples" description="Ready for your launch order" />
+              <OfferPill icon={Megaphone} label="Private promo support" description="Backed by the Bare team" />
             </div>
 
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
               <button type="button" onClick={onOrder} className="btn-primary">
-                Order Now
+                Claim 10% Off
                 <ArrowRight className="ml-2 h-4 w-4" />
               </button>
               <button
@@ -754,8 +754,22 @@ function BareLaunchOfferModal({
                 <span className="pb-3 text-lg font-semibold text-cream-200">off</span>
               </div>
               <p className="mt-5 text-sm leading-6 text-cream-100/85">
-                Plus samples and promo support so your team has something fun to put in front of customers right away.
+                Your first order discount comes with free samples and private promo support, so your team has something fun to put in front of customers right away.
               </p>
+            </div>
+            <div className="mt-8 space-y-3 rounded-xl bg-white/10 p-4">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-4 w-4 shrink-0 text-amber-200" />
+                <span className="text-sm font-semibold">First-order discount</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-4 w-4 shrink-0 text-amber-200" />
+                <span className="text-sm font-semibold">Sampling campaign</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-4 w-4 shrink-0 text-amber-200" />
+                <span className="text-sm font-semibold">Promo support</span>
+              </div>
             </div>
             <div className="mt-8 rounded-xl bg-white/10 p-4">
               <p className="text-xs uppercase tracking-wide text-cream-200/80">Always included</p>
