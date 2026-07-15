@@ -158,6 +158,15 @@
   .perks-marquee:focus-within {
     animation-play-state: paused;
   }
+
+  .bare-launch-backdrop {
+    animation: bare-launch-backdrop-in 180ms ease-out both;
+  }
+
+  .bare-launch-modal {
+    animation: bare-launch-modal-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    transform-origin: center;
+  }
 }
 
 /* Custom scrollbar */
@@ -204,8 +213,35 @@
   }
 }
 
+@keyframes bare-launch-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes bare-launch-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .perks-marquee {
+    animation: none;
+  }
+
+  .bare-launch-backdrop,
+  .bare-launch-modal {
     animation: none;
   }
 }
