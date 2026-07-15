@@ -113,10 +113,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       {/* Sidebar */}
       <aside className={cn(
-        "fixed top-0 left-0 z-50 h-full w-64 bg-bark-500 transform transition-transform duration-200 ease-in-out lg:translate-x-0",
+        "fixed top-0 left-0 z-50 h-dvh w-64 bg-bark-500 transform transition-transform duration-200 ease-in-out lg:translate-x-0",
         sidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
-        <div className="flex flex-col h-full">
+        <div className="flex h-full min-h-0 flex-col">
           {/* Logo */}
           <div className="p-6 border-b border-bark-400">
             <div className="flex items-center justify-between">
@@ -136,7 +136,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 p-4 space-y-1">
+          <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-4">
             {navigation.map((item) => {
               const isActive = pathname === item.href;
               return (
@@ -160,7 +160,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </nav>
 
           {/* User section */}
-          <div className="p-4 border-t border-bark-400">
+          <div className="shrink-0 border-t border-bark-400 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
             <div className="flex items-center gap-3 px-4 py-3">
               <div className="w-10 h-10 rounded-full bg-cream-100 flex items-center justify-center">
                 <span className="text-bark-500 font-bold">
