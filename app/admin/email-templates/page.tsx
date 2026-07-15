@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 type EmailTemplate = {
   key: string;
   name: string;
+  group: EmailTemplateGroup;
   audience: 'retailer' | 'team';
   description: string;
   subject: string;
@@ -14,10 +15,25 @@ type EmailTemplate = {
   html: string;
 };
 
+type EmailTemplateGroup = 'transactional' | 'launch_offer';
 type PreviewMode = 'html' | 'text';
+
+const GROUP_META: Record<EmailTemplateGroup, { label: string; description: string }> = {
+  transactional: {
+    label: 'Transactional',
+    description: 'Operational emails tied to orders, account activity, invoices, samples, and portal messages.',
+  },
+  launch_offer: {
+    label: 'Launch Offer',
+    description: 'Automated reminders for the first-order Bare Launch Offer sequence.',
+  },
+};
+
+const GROUP_ORDER: EmailTemplateGroup[] = ['transactional', 'launch_offer'];
 
 export default function AdminEmailTemplatesPage() {
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [activeGroup, setActiveGroup] = useState<EmailTemplateGroup>('transactional');
   const [selectedKey, setSelectedKey] = useState('');
   const [previewMode, setPreviewMode] = useState<PreviewMode>('html');
   const [testEmail, setTestEmail] = useState('');
@@ -25,10 +41,28 @@ export default function AdminEmailTemplatesPage() {
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const selectedTemplate = useMemo(
-    () => templates.find((template) => template.key === selectedKey) || templates[0] || null,
-    [templates, selectedKey],
+  const groups = useMemo(
+    () =>
+      GROUP_ORDER
+        .map((group) => ({
+          group,
+          ...GROUP_META[group],
+          templates: templates.filter((template) => template.group === group),
+        }))
+        .filter((group) => group.templates.length > 0),
+    [templates],
   );
+
+  const activeTemplates = useMemo(
+    () => templates.filter((template) => template.group === activeGroup),
+    [templates, activeGroup],
+  );
+
+  const selectedTemplate = useMemo(() => {
+    const selected = templates.find((template) => template.key === selectedKey);
+    if (selected && selected.group === activeGroup) return selected;
+    return activeTemplates[0] || templates[0] || null;
+  }, [activeGroup, activeTemplates, selectedKey, templates]);
 
   useEffect(() => {
     loadTemplates();
@@ -45,7 +79,9 @@ export default function AdminEmailTemplatesPage() {
 
       const nextTemplates = (payload.templates || []) as EmailTemplate[];
       setTemplates(nextTemplates);
-      setSelectedKey((current) => current || nextTemplates[0]?.key || '');
+      const firstGroup = GROUP_ORDER.find((group) => nextTemplates.some((template) => template.group === group));
+      if (firstGroup) setActiveGroup(firstGroup);
+      setSelectedKey((current) => current || nextTemplates.find((template) => template.group === firstGroup)?.key || nextTemplates[0]?.key || '');
     } catch (error) {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to load email templates.' });
     } finally {
@@ -93,7 +129,7 @@ export default function AdminEmailTemplatesPage() {
               Email Templates
             </h1>
             <p className="text-sm text-bark-500/60 mt-1">
-              Preview code-owned transactional emails and send internal test copies.
+              Preview code-owned email templates by category and send internal test copies.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-3 sm:min-w-[360px]">
@@ -122,10 +158,41 @@ export default function AdminEmailTemplatesPage() {
         <aside className="bg-white rounded-xl border border-cream-200 p-4 space-y-3 h-fit">
           <div className="flex items-center gap-2 text-bark-500">
             <FileText className="w-5 h-5" />
-            <h2 className="font-semibold">Transactional templates</h2>
+            <h2 className="font-semibold">Template groups</h2>
           </div>
-          <div className="space-y-2">
-            {templates.map((template) => (
+          <div className="grid grid-cols-1 gap-2">
+            {groups.map((group) => (
+              <button
+                key={group.group}
+                onClick={() => {
+                  setActiveGroup(group.group);
+                  setSelectedKey(group.templates[0]?.key || '');
+                  setPreviewMode('html');
+                }}
+                className={cn(
+                  'w-full rounded-lg border p-3 text-left transition-colors',
+                  activeGroup === group.group
+                    ? 'border-bark-500 bg-cream-100'
+                    : 'border-cream-200 hover:bg-cream-50',
+                )}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-bark-500">{group.label}</p>
+                  <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-bark-500">
+                    {group.templates.length}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-bark-500/60">{group.description}</p>
+              </button>
+            ))}
+          </div>
+
+          <div className="border-t border-cream-200 pt-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-bark-500/50">
+              {GROUP_META[activeGroup].label} templates
+            </p>
+            <div className="space-y-2">
+              {activeTemplates.map((template) => (
               <button
                 key={template.key}
                 onClick={() => {
@@ -154,7 +221,8 @@ export default function AdminEmailTemplatesPage() {
                 </div>
                 <p className="text-xs text-bark-500/60 mt-2 leading-relaxed">{template.description}</p>
               </button>
-            ))}
+              ))}
+            </div>
           </div>
         </aside>
 

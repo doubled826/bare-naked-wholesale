@@ -4,6 +4,7 @@ import {
 } from '@/lib/bareLaunchOffer';
 
 export type EmailTemplateAudience = 'retailer' | 'team';
+export type EmailTemplateGroup = 'transactional' | 'launch_offer';
 
 export type EmailTemplateKey =
   | 'order_confirmation'
@@ -21,6 +22,7 @@ export type EmailTemplateKey =
 export type RenderedEmailTemplate = {
   key: EmailTemplateKey;
   name: string;
+  group: EmailTemplateGroup;
   audience: EmailTemplateAudience;
   description: string;
   subject: string;
@@ -31,6 +33,7 @@ export type RenderedEmailTemplate = {
 type EmailTemplateDefinition = {
   key: EmailTemplateKey;
   name: string;
+  group: EmailTemplateGroup;
   audience: EmailTemplateAudience;
   description: string;
   render: (context: EmailTemplateContext) => {
@@ -192,6 +195,7 @@ const definitions: EmailTemplateDefinition[] = [
   {
     key: 'order_confirmation',
     name: 'Order confirmation',
+    group: 'transactional',
     audience: 'retailer',
     description: 'Sent to a retailer after an order is placed or created by an admin.',
     render: ({ sampleItems }) => {
@@ -231,6 +235,7 @@ Thank you for choosing Bare Naked Pet Co.!`;
   {
     key: 'new_order_team',
     name: 'New order team notification',
+    group: 'transactional',
     audience: 'team',
     description: 'Sent internally when a wholesale order is submitted.',
     render: ({ sampleItems }) => {
@@ -277,6 +282,7 @@ This order was placed through the Bare Naked Pet Co. Wholesale Portal.`;
   {
     key: 'shipping_notification',
     name: 'Shipping notification',
+    group: 'transactional',
     audience: 'retailer',
     description: 'Sent to a retailer when an admin sends tracking details.',
     render: () => {
@@ -307,6 +313,7 @@ Bare Naked Pet Co.`;
   {
     key: 'invoice_reminder',
     name: 'Invoice reminder',
+    group: 'transactional',
     audience: 'retailer',
     description: 'Sent to a retailer with a QuickBooks invoice link.',
     render: () => {
@@ -335,6 +342,7 @@ Bare Naked Pet Co.`;
   {
     key: 'sample_request_confirmation',
     name: 'Sample request confirmation',
+    group: 'transactional',
     audience: 'retailer',
     description: 'Sent to a retailer after they request samples.',
     render: () => {
@@ -355,6 +363,7 @@ Bare Naked Pet Co.`;
   {
     key: 'bare_launch_offer_day_1',
     name: 'Bare Launch Offer - Day 1',
+    group: 'launch_offer',
     audience: 'retailer',
     description: 'Sent shortly after signup to make sure new retailers know their launch offer is active.',
     render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
@@ -375,6 +384,7 @@ Bare Naked Pet Co.`;
   {
     key: 'bare_launch_offer_day_4',
     name: 'Bare Launch Offer - Sampling',
+    group: 'launch_offer',
     audience: 'retailer',
     description: 'Sent a few days into the offer window with emphasis on free customer samples.',
     render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
@@ -395,6 +405,7 @@ Bare Naked Pet Co.`;
   {
     key: 'bare_launch_offer_day_9',
     name: 'Bare Launch Offer - Promo support',
+    group: 'launch_offer',
     audience: 'retailer',
     description: 'Sent mid-window to remind new retailers that promo support is included.',
     render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
@@ -415,6 +426,7 @@ Bare Naked Pet Co.`;
   {
     key: 'bare_launch_offer_final',
     name: 'Bare Launch Offer - Final reminder',
+    group: 'launch_offer',
     audience: 'retailer',
     description: 'Sent near the end of the 14-day window before the launch offer expires.',
     render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
@@ -435,6 +447,7 @@ Bare Naked Pet Co.`;
   {
     key: 'signup_team_notification',
     name: 'Signup team notification',
+    group: 'transactional',
     audience: 'team',
     description: 'Sent internally when a new retailer creates an account.',
     render: () => {
@@ -462,6 +475,7 @@ Tax ID: 12-3456789`;
   {
     key: 'message_team_notification',
     name: 'Message team notification',
+    group: 'transactional',
     audience: 'team',
     description: 'Sent internally when a retailer sends a portal message.',
     render: () => {
@@ -492,6 +506,7 @@ Conversation ID: preview-conversation-id`;
 export const emailTemplateSummaries = definitions.map((template) => ({
   key: template.key,
   name: template.name,
+  group: template.group,
   audience: template.audience,
   description: template.description,
 }));
@@ -512,6 +527,7 @@ export function renderEmailTemplate(
   return {
     key: template.key,
     name: template.name,
+    group: template.group,
     audience: template.audience,
     description: template.description,
     subject: rendered.subject,
