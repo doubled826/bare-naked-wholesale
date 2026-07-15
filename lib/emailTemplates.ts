@@ -152,6 +152,7 @@ function renderBareLaunchOfferTemplate({
   bullets,
   closing,
   daysRemaining,
+  expiresAtLabel,
   catalogUrl,
 }: {
   subject: string;
@@ -161,18 +162,23 @@ function renderBareLaunchOfferTemplate({
   bullets: string[];
   closing: string;
   daysRemaining: number;
+  expiresAtLabel: string;
   catalogUrl: string;
 }) {
   const urgencyLine = daysRemaining <= 1
     ? 'Your Bare Launch Offer ends today.'
-    : `Your Bare Launch Offer is available for ${daysRemaining} more days.`;
+    : `Your Bare Launch Offer is available for ${daysRemaining} more days, through ${expiresAtLabel}.`;
+  const offerLine = 'Your launch package: 10% off your first wholesale order, free samples, and private promo support from our team.';
   const text = `${intro}
+
+${offerLine}
 
 ${urgencyLine}
 
+What is included:
 ${bullets.map((bullet) => `- ${bullet}`).join('\n')}
 
-Start your first order here:
+Claim it here:
 ${catalogUrl}
 
 ${closing}
@@ -182,13 +188,104 @@ Bare Naked Pet Co.`;
   return {
     subject,
     text,
-    html: renderShell({
+    html: renderBareLaunchOfferShell({
       title,
       preheader,
-      text,
-      cta: { href: catalogUrl, label: 'Claim Launch Offer' },
+      intro,
+      offerLine,
+      urgencyLine,
+      bullets,
+      closing,
+      catalogUrl,
     }),
   };
+}
+
+function renderBareLaunchOfferShell({
+  title,
+  preheader,
+  intro,
+  offerLine,
+  urgencyLine,
+  bullets,
+  closing,
+  catalogUrl,
+}: {
+  title: string;
+  preheader: string;
+  intro: string;
+  offerLine: string;
+  urgencyLine: string;
+  bullets: string[];
+  closing: string;
+  catalogUrl: string;
+}) {
+  const benefitCards = bullets
+    .map((bullet) => `
+      <tr>
+        <td style="padding:0 0 10px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fff8ea;border:1px solid #eadfce;border-radius:10px;">
+            <tr>
+              <td width="34" valign="top" style="padding:13px 0 13px 14px;">
+                <div style="width:20px;height:20px;border-radius:50%;background:#7a4f2a;color:#ffffff;text-align:center;font-size:13px;line-height:20px;font-weight:700;">&#10003;</div>
+              </td>
+              <td style="padding:13px 16px 13px 8px;color:#3b2a1e;font-size:15px;line-height:1.45;">${escapeHtml(bullet)}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>`)
+    .join('');
+
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f8f4ec;font-family:Arial,Helvetica,sans-serif;color:#3b2a1e;">
+    <div style="display:none;max-height:0;overflow:hidden;">${escapeHtml(preheader)}</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8f4ec;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px;background:#ffffff;border:1px solid #eadfce;border-radius:14px;overflow:hidden;">
+            <tr>
+              <td style="background:#3d2314;padding:22px 26px;">
+                <p style="margin:0;color:#ffffff;font-size:21px;font-weight:800;letter-spacing:.01em;">Bare Naked Pet Co.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#7a4f2a;padding:22px 26px 24px;">
+                <p style="display:inline-block;margin:0 0 14px;padding:6px 10px;border-radius:999px;background:#fff8ea;color:#5b351f;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;">First-order launch package</p>
+                <h1 style="margin:0;color:#ffffff;font-size:34px;line-height:1.15;font-weight:800;">${escapeHtml(title)}</h1>
+                <p style="margin:14px 0 0;color:#fff2dc;font-size:17px;line-height:1.55;">${escapeHtml(intro)}</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8f4ec;border:1px solid #eadfce;border-radius:12px;">
+                  <tr>
+                    <td style="padding:18px 18px 16px;">
+                      <p style="margin:0 0 6px;color:#7a4f2a;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;">Included with your launch</p>
+                      <p style="margin:0;color:#3b2a1e;font-size:21px;line-height:1.35;font-weight:800;">10% off + free samples + private promo support</p>
+                      <p style="margin:10px 0 0;color:#6b5f55;font-size:14px;line-height:1.55;">${escapeHtml(offerLine)}</p>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:22px 0 18px;color:#3b2a1e;font-size:18px;line-height:1.55;font-weight:700;">${escapeHtml(urgencyLine)}</p>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                  ${benefitCards}
+                </table>
+
+                <p style="margin:18px 0 0;color:#4c3a2f;font-size:16px;line-height:1.6;">${escapeHtml(closing)}</p>
+                <p style="margin:24px 0 0;">${button(catalogUrl, 'Claim Launch Offer')}</p>
+                <p style="margin:18px 0 0;color:#9a8e82;font-size:12px;line-height:1.45;">The offer applies automatically when eligible. Reply to this email if you want help planning the launch.</p>
+              </td>
+            </tr>
+          </table>
+          <p style="max-width:660px;margin:14px auto 0;color:#9a8e82;font-size:11px;line-height:1.45;">Bare Naked Pet Co. wholesale portal email preview.</p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 }
 
 const definitions: EmailTemplateDefinition[] = [
@@ -367,17 +464,18 @@ Bare Naked Pet Co.`;
     audience: 'retailer',
     description: 'Sent shortly after signup to make sure new retailers know their launch offer is active.',
     render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
-      subject: `${BARE_LAUNCH_OFFER_NAME} is ready for ${launchOffer.storeName}`,
-      title: 'Your Bare Launch Offer is ready',
-      preheader: `Your first-order launch support is available for ${BARE_LAUNCH_OFFER_DAYS} days.`,
-      intro: `Welcome to Bare, ${launchOffer.storeName}. Your Bare Launch Offer is live and ready whenever you are ready to place your first wholesale order.`,
+      subject: `${launchOffer.storeName}, your Bare Launch Offer is live`,
+      title: 'Your Bare Launch Offer is live',
+      preheader: `Start strong with 10% off, free samples, and private promo support for ${BARE_LAUNCH_OFFER_DAYS} days.`,
+      intro: `Welcome to Bare, ${launchOffer.storeName}. We set aside a first-order launch package to help your team bring Bare in with momentum, not guesswork.`,
       bullets: [
-        '10% off your first wholesale order, applied automatically at checkout',
-        'Free samples included to help customers try Bare in-store',
-        'Private promo support from our team to help launch Bare well',
+        '10% off your first wholesale order, applied automatically at checkout.',
+        'Free customer samples so shoppers can try Bare right away.',
+        'Private promo support from our team to help you introduce Bare with confidence.',
       ],
-      closing: 'This is meant to help your first order feel simple, supported, and easy to put in front of customers.',
+      closing: 'This is the best window to stock the shelf, sample the product, and give customers a reason to notice Bare from day one.',
       daysRemaining: launchOffer.daysRemaining,
+      expiresAtLabel: launchOffer.expiresAtLabel,
       catalogUrl: launchOffer.catalogUrl,
     }),
   },
@@ -388,17 +486,18 @@ Bare Naked Pet Co.`;
     audience: 'retailer',
     description: 'Sent a few days into the offer window with emphasis on free customer samples.',
     render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
-      subject: `Free samples are included with your Bare launch`,
-      title: 'Samples make the first order easier',
-      preheader: `Your Bare Launch Offer is still active for ${launchOffer.daysRemaining} more days.`,
-      intro: `Hi ${launchOffer.storeName}, just a quick reminder that your Bare Launch Offer includes free samples with your first order.`,
+      subject: `Free samples are waiting in your Bare launch package`,
+      title: 'Launch with samples in hand',
+      preheader: `Your Bare Launch Offer is still active, including free samples for customers and staff.`,
+      intro: `Hi ${launchOffer.storeName}, your launch package includes free samples because the easiest way to build confidence in Bare is to let people try it.`,
       bullets: [
-        'Use samples to introduce Bare to curious customers',
-        'Give your team an easy way to start conversations at the shelf',
-        'Pair samples with 10% off your first wholesale order and private promo support',
+        'Give customers a low-friction first taste of Bare in-store.',
+        'Help your staff start better shelf conversations with something tangible.',
+        'Pair sampling with 10% off your first wholesale order and promo support from Bare.',
       ],
-      closing: 'The goal is simple: help your store launch Bare with confidence, not guesswork.',
+      closing: 'If Bare is a fit for your assortment, this launch package gives your first order more energy the moment it arrives.',
       daysRemaining: launchOffer.daysRemaining,
+      expiresAtLabel: launchOffer.expiresAtLabel,
       catalogUrl: launchOffer.catalogUrl,
     }),
   },
@@ -409,17 +508,18 @@ Bare Naked Pet Co.`;
     audience: 'retailer',
     description: 'Sent mid-window to remind new retailers that promo support is included.',
     render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
-      subject: `Your Bare launch promo support is still available`,
-      title: 'We can help support your Bare launch',
-      preheader: `Your Bare Launch Offer is still active for ${launchOffer.daysRemaining} more days.`,
-      intro: `Hi ${launchOffer.storeName}, your first-order launch support is still available. Along with 10% off and free samples, our team can help support a private promo for your store.`,
+      subject: `We will help you make your Bare launch stand out`,
+      title: 'Promo support is part of your launch',
+      preheader: `Your Bare Launch Offer includes support beyond the discount.`,
+      intro: `Hi ${launchOffer.storeName}, the offer is not just a discount. It is a launch plan: savings on the first order, samples for customers, and promo support from our team.`,
       bullets: [
-        'Launch Bare with a clear customer-facing offer',
-        'Use samples to help shoppers try before they commit',
-        'Start with no minimums and free shipping on your wholesale order',
+        'Create a clear customer-facing reason to try Bare.',
+        'Use samples to turn curiosity into an easier first purchase.',
+        'Start with no minimums, free shipping, and a stronger first shelf moment.',
       ],
-      closing: 'If Bare is on your list to bring in, this is the easiest window to get started.',
+      closing: 'If Bare is on your list to bring in, this is the moment where the most support is attached to that first order.',
       daysRemaining: launchOffer.daysRemaining,
+      expiresAtLabel: launchOffer.expiresAtLabel,
       catalogUrl: launchOffer.catalogUrl,
     }),
   },
@@ -430,17 +530,18 @@ Bare Naked Pet Co.`;
     audience: 'retailer',
     description: 'Sent near the end of the 14-day window before the launch offer expires.',
     render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
-      subject: `Last call: your Bare Launch Offer is ending soon`,
-      title: 'Your Bare Launch Offer is almost up',
-      preheader: `Do not miss your first-order launch support.`,
-      intro: `Hi ${launchOffer.storeName}, a quick final reminder that your Bare Launch Offer is almost up.`,
+      subject: `Last call for your Bare Launch Offer`,
+      title: 'Last chance to claim your launch package',
+      preheader: `Your first-order discount, samples, and promo support are almost gone.`,
+      intro: `Hi ${launchOffer.storeName}, this is the final reminder before your Bare Launch Offer closes.`,
       bullets: [
-        '10% off your first wholesale order',
-        'Free samples for your launch order',
-        'Private promo support from the Bare team',
+        '10% off your first wholesale order.',
+        'Free samples for your launch order.',
+        'Private promo support from the Bare team.',
       ],
-      closing: 'If you want to use the launch offer, place your first order before the window closes.',
-      daysRemaining: launchOffer.daysRemaining,
+      closing: 'If you want the full launch package attached to your first order, now is the time to use it.',
+      daysRemaining: Math.min(launchOffer.daysRemaining, 1),
+      expiresAtLabel: launchOffer.expiresAtLabel,
       catalogUrl: launchOffer.catalogUrl,
     }),
   },
