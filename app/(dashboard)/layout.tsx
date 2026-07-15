@@ -126,11 +126,11 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-cream-200">
+    <div className="flex min-h-screen w-full min-w-0 overflow-x-hidden bg-cream-200">
       <Sidebar />
       <MobileHeader />
       
-      <main className="flex-1 lg:ml-0 pt-16 lg:pt-0">
+      <main className="min-w-0 flex-1 overflow-x-hidden pt-16 lg:ml-0 lg:pt-0">
         {children}
       </main>
     </div>

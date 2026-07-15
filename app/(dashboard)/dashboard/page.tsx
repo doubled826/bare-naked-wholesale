@@ -370,7 +370,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-5 sm:p-6 lg:p-8">
+    <div className="mx-auto w-full min-w-0 max-w-7xl overflow-x-hidden px-4 py-5 sm:p-6 lg:p-8">
       {showBareLaunchOfferModal && (
         <BareLaunchOfferModal
           offer={bareLaunchOffer}
@@ -382,7 +382,7 @@ export default function DashboardPage() {
 
       {/* Header */}
       <div className="mb-5 sm:mb-8">
-        <h1 className="page-title">
+        <h1 className="page-title break-words">
           Welcome back{businessName ? `, ${businessName}` : ''}! 👋
         </h1>
         <p className="mt-1 text-sm text-bark-500/70 sm:text-base">
@@ -411,7 +411,7 @@ export default function DashboardPage() {
       )}
 
       {/* Stats Grid */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:mb-8 lg:grid-cols-4 lg:gap-6">
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:mb-8 lg:grid-cols-4 lg:gap-6">
         <StatCard
           icon={Package}
           label="Total Orders"
@@ -813,12 +813,12 @@ function BareLaunchOfferCard({
 }) {
   return (
     <div className="mb-6 overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 shadow-sm lg:mb-8">
-      <div className="flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-start gap-3 sm:gap-4">
+      <div className="flex min-w-0 flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3 sm:gap-4">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 sm:h-12 sm:w-12">
             <Gift className="h-6 w-6" />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-bold text-bark-500 sm:text-xl" style={{ fontFamily: 'var(--font-poppins)' }}>
                 {BARE_LAUNCH_OFFER_NAME}
@@ -827,7 +827,7 @@ function BareLaunchOfferCard({
                 {offer.daysRemaining} {offer.daysRemaining === 1 ? 'day' : 'days'} left
               </span>
             </div>
-            <p className="mt-1 text-sm text-bark-500/75">
+            <p className="mt-1 text-sm leading-6 text-bark-500/75">
               Claim 10% off your first order, a free sampling campaign, and private promo support.
             </p>
           </div>
@@ -865,14 +865,14 @@ function WholesalePerksBanner() {
   return (
     <div className="mb-6 rounded-2xl border border-cream-200 bg-cream-100 p-3 shadow-sm sm:mb-8 sm:p-4">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-        <p className="text-xs font-semibold uppercase tracking-wide text-bark-500 sm:text-sm sm:normal-case sm:tracking-normal">
+        <p className="text-xs font-semibold uppercase leading-5 tracking-wide text-bark-500 sm:text-sm sm:normal-case sm:tracking-normal">
           Wholesale perks included with every account
         </p>
-        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:hidden">
+        <div className="flex flex-wrap gap-2 sm:hidden">
           {perkItems.map((perk) => (
             <div
               key={perk}
-              className="flex shrink-0 items-center gap-2 rounded-full bg-cream-200 px-3 py-2 text-xs font-medium text-bark-500"
+              className="flex min-w-0 items-center gap-2 rounded-full bg-cream-200 px-3 py-2 text-xs font-medium text-bark-500"
             >
               <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" />
               <span>{perk}</span>
@@ -921,15 +921,15 @@ function CurrentPromoCard({
         'mb-6 rounded-2xl border p-4 shadow-sm sm:p-6 lg:mb-8',
         isOptedIn ? 'border-emerald-200 bg-emerald-50' : 'border-cream-300 bg-cream-100',
       )}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-start gap-4">
+        <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-start gap-3 sm:gap-4">
             <div className={cn(
               'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl sm:h-11 sm:w-11',
               isOptedIn ? 'bg-emerald-100 text-emerald-700' : 'bg-cream-200 text-bark-500',
             )}>
               {isOptedIn ? <CheckCircle className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-xs uppercase tracking-wide text-bark-500/60 font-semibold">
                 {isOptedIn ? "You're opted in" : 'Promo marked not this time'}
               </p>
@@ -971,12 +971,12 @@ function CurrentPromoCard({
 
   return (
     <div className="mb-6 rounded-2xl border border-amber-200 bg-cream-100 p-4 shadow-sm sm:p-6 lg:mb-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-start gap-3 sm:gap-4">
+      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3 sm:gap-4">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 sm:h-11 sm:w-11">
             <Megaphone className="w-5 h-5" />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs uppercase tracking-wide text-bark-500/60 font-semibold">Astro Seasonal Promo Available</p>
             <h2 className="mt-1 text-lg font-bold leading-tight text-bark-500 sm:text-xl">Opt into {currentPromo.promoName || 'the current promo'}</h2>
             <p className="text-sm text-bark-500/70 mt-2 max-w-3xl">
