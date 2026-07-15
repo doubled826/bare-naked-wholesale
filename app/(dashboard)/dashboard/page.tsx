@@ -637,12 +637,8 @@ export default function DashboardPage() {
 }
 
 const perkItems = [
-  'Free shipping',
-  'No minimums',
-  'Free customer samples',
-  'Astro promos + loyalty rewards',
-  'In-store marketing support',
-  'Sell-through support',
+  'Free Shipping',
+  'No Minimums',
 ];
 
 const actionLabels: Partial<Record<RetailerSuccessAction, string>> = {
@@ -860,40 +856,28 @@ function OfferPill({
 }
 
 function WholesalePerksBanner() {
-  const marqueeItems = [...perkItems, ...perkItems];
+  const marqueeSet = Array.from({ length: 6 }, (_, index) => perkItems[index % perkItems.length]);
+  const marqueeItems = [...marqueeSet, ...marqueeSet];
 
   return (
-    <div className="mb-6 rounded-2xl border border-cream-200 bg-cream-100 p-3 shadow-sm sm:mb-8 sm:p-4">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-        <p className="text-xs font-semibold uppercase leading-5 tracking-wide text-bark-500 sm:text-sm sm:normal-case sm:tracking-normal">
-          Wholesale perks included with every account
-        </p>
-        <div className="flex flex-wrap gap-2 sm:hidden">
-          {perkItems.map((perk) => (
+    <div
+      className="mb-6 overflow-hidden rounded-full border border-cream-200 bg-cream-100 py-2 shadow-sm sm:mb-8"
+      aria-label="Wholesale perks: Free Shipping and No Minimums"
+    >
+      <div className="relative min-w-0 overflow-hidden">
+        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-cream-100 to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-cream-100 to-transparent" />
+        <div className="flex w-max gap-3 perks-marquee">
+          {marqueeItems.map((perk, index) => (
             <div
-              key={perk}
-              className="flex min-w-0 items-center gap-2 rounded-full bg-cream-200 px-3 py-2 text-xs font-medium text-bark-500"
+              key={`${perk}-${index}`}
+              className="flex shrink-0 items-center gap-2 rounded-full bg-cream-200 px-4 py-2 text-sm font-semibold text-bark-500"
+              aria-hidden={index >= marqueeSet.length}
             >
-              <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" />
+              <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
               <span>{perk}</span>
             </div>
           ))}
-        </div>
-        <div className="relative hidden min-w-0 overflow-hidden sm:block">
-          <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-cream-100 to-transparent" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-cream-100 to-transparent" />
-          <div className="flex w-max gap-5 overflow-x-auto pb-1 perks-marquee">
-            {marqueeItems.map((perk, index) => (
-              <div
-                key={`${perk}-${index}`}
-                className="flex shrink-0 items-center gap-2 rounded-full bg-cream-200 px-4 py-2 text-sm text-bark-500"
-                aria-hidden={index >= perkItems.length}
-              >
-                <CheckCircle className="h-4 w-4 text-emerald-600" />
-                <span>{perk}</span>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
     </div>
