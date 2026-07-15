@@ -1,13 +1,29 @@
 import nodemailer from 'nodemailer';
 
-const getTeamEmailTo = () =>
+type EmailRecipient = string | string[];
+
+type EmailOptions = {
+  from: string;
+  to: EmailRecipient;
+  subject: string;
+  text: string;
+  html?: string;
+  cc?: EmailRecipient;
+  replyTo?: string;
+  tags?: Array<{ name: string; value: string }>;
+};
+
+export const getTeamEmailTo = () =>
   process.env.ORDER_EMAIL_TO || process.env.SMTP_USER || 'info@barenakedpet.com';
 
 const getRetailerEmailFrom = () =>
   process.env.ORDER_EMAIL_FROM || process.env.SMTP_USER || getTeamEmailTo();
 
 const getTeamEmailFrom = () =>
-  process.env.ORDER_EMAIL_TO || getRetailerEmailFrom();
+  process.env.PORTAL_EMAIL_FROM || process.env.ORDER_EMAIL_FROM || process.env.SMTP_USER || getTeamEmailTo();
+
+const getReplyToEmail = () =>
+  process.env.REPLY_TO_EMAIL || getTeamEmailTo();
 
 const getTransporter = () =>
   nodemailer.createTransport({
@@ -20,6 +36,62 @@ const getTransporter = () =>
     },
   });
 
+const sendResendEmail = async (options: EmailOptions) => {
+  const apiKey = process.env.RESEND_API_KEY;
+
+  if (!apiKey) {
+    return false;
+  }
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: `"Bare Naked Pet Co." <${options.from}>`,
+      to: Array.isArray(options.to) ? options.to : [options.to],
+      ...(options.cc ? { cc: Array.isArray(options.cc) ? options.cc : [options.cc] } : {}),
+      reply_to: options.replyTo,
+      subject: options.subject,
+      text: options.text,
+      html: options.html,
+      ...(options.tags ? { tags: options.tags } : {}),
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload?.message || payload?.error || 'Resend request failed.');
+  }
+
+  return true;
+};
+
+const sendSmtpEmail = async (options: EmailOptions) => {
+  const transporter = getTransporter();
+
+  await transporter.sendMail({
+    from: `"Bare Naked Pet Co." <${options.from}>`,
+    to: options.to,
+    ...(options.cc ? { cc: options.cc } : {}),
+    ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+    subject: options.subject,
+    text: options.text,
+    html: options.html,
+  });
+};
+
+export const sendEmail = async (options: EmailOptions) => {
+  const sentWithResend = await sendResendEmail(options);
+
+  if (!sentWithResend) {
+    await sendSmtpEmail(options);
+  }
+};
+
 export const sendTeamEmail = async (options: {
   subject: string;
   text: string;
@@ -27,18 +99,19 @@ export const sendTeamEmail = async (options: {
   to?: string;
   cc?: string;
 }) => {
-  const transporter = getTransporter();
   const to = options.to || getTeamEmailTo();
   const from = getTeamEmailFrom();
   const cc = options.cc ?? 'jack@barenakedpet.com';
 
-  await transporter.sendMail({
-    from: `"Bare Naked Pet Co." <${from}>`,
+  await sendEmail({
+    from,
     to,
-    ...(cc ? { cc } : {}),
+    cc,
+    replyTo: getReplyToEmail(),
     subject: options.subject,
     text: options.text,
     html: options.html,
+    tags: [{ name: 'feature', value: 'transactional' }],
   });
 };
 
@@ -48,15 +121,16 @@ export const sendRetailerEmail = async (options: {
   text: string;
   html?: string;
 }) => {
-  const transporter = getTransporter();
   const from = getRetailerEmailFrom();
 
-  await transporter.sendMail({
-    from: `"Bare Naked Pet Co." <${from}>`,
+  await sendEmail({
+    from,
     to: options.to,
+    replyTo: getReplyToEmail(),
     subject: options.subject,
     text: options.text,
     html: options.html,
+    tags: [{ name: 'feature', value: 'transactional' }],
   });
 };
 

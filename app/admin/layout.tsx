@@ -13,6 +13,7 @@ import {
   BarChart2,
   MessageSquare,
   Mail,
+  FileText,
   Megaphone,
   User,
   LogOut,
@@ -33,6 +34,7 @@ const navigation = [
   { name: 'Products', href: '/admin/products', icon: Package },
   { name: 'Resources', href: '/admin/resources', icon: FolderOpen },
   { name: 'Message', href: '/admin/messages', icon: Mail },
+  { name: 'Email', href: '/admin/email-templates', icon: FileText },
   { name: 'Insights', href: '/admin/insights', icon: BarChart2 },
   { name: 'Account', href: '/admin/account', icon: User },
 ];

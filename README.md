@@ -99,6 +99,10 @@ A modern wholesale portal for Bare Naked Pet Co. retailers, featuring a responsi
 | `SMTP_USER` | SMTP username |
 | `SMTP_PASSWORD` | SMTP password |
 | `ORDER_EMAIL_TO` | Email for order notifications |
+| `ORDER_EMAIL_FROM` | Sender for order-related transactional emails |
+| `PORTAL_EMAIL_FROM` | Sender for general portal/system emails |
+| `REPLY_TO_EMAIL` | Reply-to address for outbound emails |
+| `RESEND_API_KEY` | Resend API key for outbound emails |
 | `NEXT_PUBLIC_LOGO_URL` | Optional logo URL |
 
 ## Deployment
