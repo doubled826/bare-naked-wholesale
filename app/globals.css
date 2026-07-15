@@ -15,12 +15,14 @@
 
   html {
     scroll-behavior: smooth;
+    overflow-x: hidden;
   }
 
   body {
     @apply bg-cream-200 text-bark-500 antialiased;
     font-family: var(--font-inter);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    overflow-x: hidden;
   }
 
   ::selection {
