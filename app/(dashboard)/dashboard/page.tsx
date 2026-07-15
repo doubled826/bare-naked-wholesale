@@ -737,14 +737,14 @@ function BareLaunchOfferModal({
               Welcome{businessName ? `, ${businessName}` : ''}.
             </p>
             <h2 className="mt-2 pr-8 text-[2rem] font-bold leading-tight text-bark-500 sm:pr-0 sm:text-4xl" style={{ fontFamily: 'var(--font-poppins)' }}>
-              Your Bare Launch Offer is live!
+              Your Bare Launch Offer 🚀 is live!
             </h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-bark-500/75 sm:mt-4 sm:text-base">
               Place your first wholesale order in the next 14 days and we will help you launch Bare with a little extra momentum.
             </p>
 
             <div className="mt-5 grid gap-3 sm:mt-6 sm:grid-cols-3">
-              <OfferPill icon={Gift} label="10% off first order" description="Auto-applied at checkout" />
+              <OfferPill icon={Gift} label="10% ISO" description="Auto-applied at checkout" />
               <OfferPill icon={Package} label="Free samples" description="Ready for your launch order" />
               <OfferPill icon={Megaphone} label="Private promo support" description="Backed by the Bare team" />
             </div>
@@ -763,7 +763,7 @@ function BareLaunchOfferModal({
               </button>
             </div>
             <p className="mt-3 text-xs text-bark-500/60">
-              No code needed. The 10% discount applies automatically at checkout while the offer is active.
+              No code needed. The 10% ISO applies automatically at checkout while the offer is active.
             </p>
           </div>
 
@@ -773,16 +773,16 @@ function BareLaunchOfferModal({
               <div className="mt-4 flex items-end gap-2 sm:mt-5">
                 <span className="text-6xl font-bold leading-none sm:text-7xl" style={{ fontFamily: 'var(--font-poppins)' }}>10</span>
                 <span className="pb-1.5 text-3xl font-bold sm:pb-2">%</span>
-                <span className="pb-2 text-base font-semibold text-cream-200 sm:pb-3 sm:text-lg">off</span>
+                <span className="pb-2 text-base font-semibold text-cream-200 sm:pb-3 sm:text-lg">ISO</span>
               </div>
               <p className="mt-4 text-sm leading-6 text-cream-100/85 sm:mt-5">
-                A full launch offer for your first Bare order: discount support, customer samples, and a private promo plan for your store.
+                A full launch offer for your first Bare order: ISO support, customer samples, and a private promo plan for your store.
               </p>
             </div>
             <div className="mt-5 space-y-3 rounded-xl bg-white/10 p-4 sm:mt-8">
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-4 w-4 shrink-0 text-amber-200" />
-                <span className="text-sm font-semibold">First-order discount</span>
+                <span className="text-sm font-semibold">10% ISO</span>
               </div>
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-4 w-4 shrink-0 text-amber-200" />
@@ -828,7 +828,7 @@ function BareLaunchOfferCard({
               </span>
             </div>
             <p className="mt-1 text-sm leading-6 text-bark-500/75">
-              Claim 10% off your first order, a free sampling campaign, and private promo support.
+              Claim your 10% ISO, a free sampling campaign, and private promo support.
             </p>
           </div>
         </div>

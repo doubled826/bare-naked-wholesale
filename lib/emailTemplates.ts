@@ -168,7 +168,7 @@ function renderBareLaunchOfferTemplate({
   const urgencyLine = daysRemaining <= 1
     ? 'Your Bare Launch Offer ends today.'
     : `Your Bare Launch Offer is available for ${daysRemaining} more days, through ${expiresAtLabel}.`;
-  const offerLine = 'Your launch package: 10% off your first wholesale order, free samples, and private promo support from our team.';
+  const offerLine = 'Your launch package: 10% ISO, free samples, and private promo support from our team.';
   const text = `${intro}
 
 ${offerLine}
@@ -262,7 +262,7 @@ function renderBareLaunchOfferShell({
                   <tr>
                     <td style="padding:18px 18px 16px;">
                       <p style="margin:0 0 6px;color:#7a4f2a;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;">Included with your launch</p>
-                      <p style="margin:0;color:#3b2a1e;font-size:21px;line-height:1.35;font-weight:800;">10% off + free samples + private promo support</p>
+                      <p style="margin:0;color:#3b2a1e;font-size:21px;line-height:1.35;font-weight:800;">10% ISO + free samples + private promo support</p>
                       <p style="margin:10px 0 0;color:#6b5f55;font-size:14px;line-height:1.55;">${escapeHtml(offerLine)}</p>
                     </td>
                   </tr>
@@ -465,11 +465,11 @@ Bare Naked Pet Co.`;
     description: 'Sent shortly after signup to make sure new retailers know their launch offer is active.',
     render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
       subject: `${launchOffer.storeName}, your Bare Launch Offer is live`,
-      title: 'Your Bare Launch Offer is live',
-      preheader: `Start strong with 10% off, free samples, and private promo support for ${BARE_LAUNCH_OFFER_DAYS} days.`,
+      title: 'Your Bare Launch Offer 🚀 is live',
+      preheader: `Start strong with 10% ISO, free samples, and private promo support for ${BARE_LAUNCH_OFFER_DAYS} days.`,
       intro: `Welcome to Bare, ${launchOffer.storeName}. We set aside a first-order launch package to help your team bring Bare in with momentum, not guesswork.`,
       bullets: [
-        '10% off your first wholesale order, applied automatically at checkout.',
+        '10% ISO, applied automatically at checkout.',
         'Free customer samples so shoppers can try Bare right away.',
         'Private promo support from our team to help you introduce Bare with confidence.',
       ],
@@ -493,7 +493,7 @@ Bare Naked Pet Co.`;
       bullets: [
         'Give customers a low-friction first taste of Bare in-store.',
         'Help your staff start better shelf conversations with something tangible.',
-        'Pair sampling with 10% off your first wholesale order and promo support from Bare.',
+        'Pair sampling with 10% ISO and promo support from Bare.',
       ],
       closing: 'If Bare is a fit for your assortment, this launch package gives your first order more energy the moment it arrives.',
       daysRemaining: launchOffer.daysRemaining,
@@ -510,8 +510,8 @@ Bare Naked Pet Co.`;
     render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
       subject: `We will help you make your Bare launch stand out`,
       title: 'Promo support is part of your launch',
-      preheader: `Your Bare Launch Offer includes support beyond the discount.`,
-      intro: `Hi ${launchOffer.storeName}, the offer is not just a discount. It is a launch plan: savings on the first order, samples for customers, and promo support from our team.`,
+      preheader: `Your Bare Launch Offer includes support beyond the ISO.`,
+      intro: `Hi ${launchOffer.storeName}, the offer is not just an ISO. It is a launch plan: savings on the first order, samples for customers, and promo support from our team.`,
       bullets: [
         'Create a clear customer-facing reason to try Bare.',
         'Use samples to turn curiosity into an easier first purchase.',
@@ -532,10 +532,10 @@ Bare Naked Pet Co.`;
     render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
       subject: `Last call for your Bare Launch Offer`,
       title: 'Last chance to claim your launch package',
-      preheader: `Your first-order discount, samples, and promo support are almost gone.`,
+      preheader: `Your 10% ISO, samples, and promo support are almost gone.`,
       intro: `Hi ${launchOffer.storeName}, this is the final reminder before your Bare Launch Offer closes.`,
       bullets: [
-        '10% off your first wholesale order.',
+        '10% ISO.',
         'Free samples for your launch order.',
         'Private promo support from the Bare team.',
       ],
