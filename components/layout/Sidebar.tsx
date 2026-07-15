@@ -330,18 +330,19 @@ export function MobileHeader() {
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <header className="lg:hidden fixed top-0 left-0 right-0 z-30 bg-cream-100 border-b border-cream-200 px-4 h-16 flex items-center justify-between">
+    <header className="fixed left-0 right-0 top-0 z-30 flex h-16 items-center justify-between border-b border-cream-200 bg-cream-100 px-3 lg:hidden sm:px-4">
       <button
         onClick={() => setSidebarOpen(true)}
-        className="p-2 text-bark-500 hover:text-bark-600 rounded-lg hover:bg-cream-200 transition-colors"
+        className="rounded-lg p-2 text-bark-500 transition-colors hover:bg-cream-200 hover:text-bark-600"
+        aria-label="Open navigation"
       >
         <Menu className="w-6 h-6" />
       </button>
-      <Link href="/dashboard" className="font-bold text-lg" style={{ fontFamily: 'var(--font-poppins)' }}>
+      <Link href="/dashboard" className="min-w-0 truncate px-2 text-center text-sm font-bold sm:text-lg" style={{ fontFamily: 'var(--font-poppins)' }}>
         <span className="text-bark-500">Bare Naked</span>
         <span className="text-bark-500/60"> Pet Co.</span>
       </Link>
-      <Link href="/catalog" className="relative p-2">
+      <Link href="/catalog" className="relative rounded-lg p-2" aria-label="Open product catalog">
         <ShoppingBag className="w-6 h-6 text-bark-500" />
         {cartCount > 0 && (
           <span className="absolute -top-1 -right-1 bg-bark-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">

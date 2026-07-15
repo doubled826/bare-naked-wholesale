@@ -370,7 +370,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+    <div className="mx-auto max-w-7xl px-4 py-5 sm:p-6 lg:p-8">
       {showBareLaunchOfferModal && (
         <BareLaunchOfferModal
           offer={bareLaunchOffer}
@@ -381,11 +381,11 @@ export default function DashboardPage() {
       )}
 
       {/* Header */}
-      <div className="mb-8">
+      <div className="mb-5 sm:mb-8">
         <h1 className="page-title">
           Welcome back{businessName ? `, ${businessName}` : ''}! 👋
         </h1>
-        <p className="text-bark-500/70 mt-1">
+        <p className="mt-1 text-sm text-bark-500/70 sm:text-base">
           Here&apos;s what&apos;s happening with your account
         </p>
       </div>
@@ -411,7 +411,7 @@ export default function DashboardPage() {
       )}
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-8">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:mb-8 lg:grid-cols-4 lg:gap-6">
         <StatCard
           icon={Package}
           label="Total Orders"
@@ -737,7 +737,7 @@ function BareLaunchOfferModal({
               Welcome{businessName ? `, ${businessName}` : ''}.
             </p>
             <h2 className="mt-2 pr-8 text-[2rem] font-bold leading-tight text-bark-500 sm:pr-0 sm:text-4xl" style={{ fontFamily: 'var(--font-poppins)' }}>
-              Your Bare Launch Offer is live.
+              Your Bare Launch Offer is live!
             </h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-bark-500/75 sm:mt-4 sm:text-base">
               Place your first wholesale order in the next 14 days and we will help you launch Bare with a little extra momentum.
@@ -812,15 +812,15 @@ function BareLaunchOfferCard({
   onOrder: () => void;
 }) {
   return (
-    <div className="mb-8 overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 shadow-sm">
-      <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+    <div className="mb-6 overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 shadow-sm lg:mb-8">
+      <div className="flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-3 sm:gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 sm:h-12 sm:w-12">
             <Gift className="h-6 w-6" />
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-bold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
+              <h2 className="text-lg font-bold text-bark-500 sm:text-xl" style={{ fontFamily: 'var(--font-poppins)' }}>
                 {BARE_LAUNCH_OFFER_NAME}
               </h2>
               <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-amber-800">
@@ -832,7 +832,7 @@ function BareLaunchOfferCard({
             </p>
           </div>
         </div>
-        <button type="button" onClick={onOrder} className="btn-primary shrink-0">
+        <button type="button" onClick={onOrder} className="btn-primary w-full shrink-0 sm:w-auto">
           Order Now
           <ArrowRight className="ml-2 h-4 w-4" />
         </button>
@@ -863,12 +863,23 @@ function WholesalePerksBanner() {
   const marqueeItems = [...perkItems, ...perkItems];
 
   return (
-    <div className="mb-8 card p-4">
+    <div className="mb-6 rounded-2xl border border-cream-200 bg-cream-100 p-3 shadow-sm sm:mb-8 sm:p-4">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-        <p className="text-sm font-semibold text-bark-500 whitespace-nowrap">
+        <p className="text-xs font-semibold uppercase tracking-wide text-bark-500 sm:text-sm sm:normal-case sm:tracking-normal">
           Wholesale perks included with every account
         </p>
-        <div className="relative min-w-0 overflow-hidden">
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:hidden">
+          {perkItems.map((perk) => (
+            <div
+              key={perk}
+              className="flex shrink-0 items-center gap-2 rounded-full bg-cream-200 px-3 py-2 text-xs font-medium text-bark-500"
+            >
+              <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{perk}</span>
+            </div>
+          ))}
+        </div>
+        <div className="relative hidden min-w-0 overflow-hidden sm:block">
           <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-cream-100 to-transparent" />
           <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-cream-100 to-transparent" />
           <div className="flex w-max gap-5 overflow-x-auto pb-1 perks-marquee">
@@ -907,13 +918,13 @@ function CurrentPromoCard({
   if (hasResponded) {
     return (
       <div className={cn(
-        'card p-6 mb-8 border',
+        'mb-6 rounded-2xl border p-4 shadow-sm sm:p-6 lg:mb-8',
         isOptedIn ? 'border-emerald-200 bg-emerald-50' : 'border-cream-300 bg-cream-100',
       )}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-4">
             <div className={cn(
-              'w-11 h-11 rounded-xl flex items-center justify-center',
+              'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl sm:h-11 sm:w-11',
               isOptedIn ? 'bg-emerald-100 text-emerald-700' : 'bg-cream-200 text-bark-500',
             )}>
               {isOptedIn ? <CheckCircle className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
@@ -922,7 +933,7 @@ function CurrentPromoCard({
               <p className="text-xs uppercase tracking-wide text-bark-500/60 font-semibold">
                 {isOptedIn ? "You're opted in" : 'Promo marked not this time'}
               </p>
-              <h2 className="text-xl font-bold text-bark-500 mt-1">
+              <h2 className="mt-1 text-lg font-bold leading-tight text-bark-500 sm:text-xl">
                 {isOptedIn
                   ? `Nice, your store is set for ${currentPromo.promoName || 'the current Astro promo'}.`
                   : `No problem, we marked ${currentPromo.promoName || 'this promo'} as not this time.`}
@@ -934,7 +945,7 @@ function CurrentPromoCard({
               </p>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row lg:shrink-0">
             <button onClick={() => onAction('promo_link')} className={cn(
               'inline-flex items-center justify-center rounded-xl px-4 py-2 font-semibold',
               isOptedIn
@@ -945,11 +956,11 @@ function CurrentPromoCard({
               <ExternalLink className="w-4 h-4 ml-2" />
             </button>
             {isNotThisTime && (
-              <button disabled={isSaving} onClick={() => onAction('promo_opted_in')} className="px-4 py-2 rounded-xl border border-bark-500/20 text-bark-500 font-semibold hover:bg-cream-200 disabled:opacity-50">
+              <button disabled={isSaving} onClick={() => onAction('promo_opted_in')} className="rounded-xl border border-bark-500/20 px-4 py-2 font-semibold text-bark-500 hover:bg-cream-200 disabled:opacity-50">
                 Mark as Opted In
               </button>
             )}
-            <button disabled={isSaving} onClick={() => onAction(isOptedIn ? 'promo_not_this_time' : 'promo_opted_in')} className="px-4 py-2 rounded-xl text-bark-500/70 font-semibold hover:bg-cream-200 disabled:opacity-50">
+            <button disabled={isSaving} onClick={() => onAction(isOptedIn ? 'promo_not_this_time' : 'promo_opted_in')} className="rounded-xl px-4 py-2 font-semibold text-bark-500/70 hover:bg-cream-200 disabled:opacity-50">
               {isOptedIn ? 'Not This Time' : 'Change to Opted In'}
             </button>
           </div>
@@ -959,29 +970,29 @@ function CurrentPromoCard({
   }
 
   return (
-    <div className="card p-6 mb-8 border border-amber-200 bg-cream-100">
+    <div className="mb-6 rounded-2xl border border-amber-200 bg-cream-100 p-4 shadow-sm sm:p-6 lg:mb-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-start gap-4">
-          <div className="w-11 h-11 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+        <div className="flex items-start gap-3 sm:gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 sm:h-11 sm:w-11">
             <Megaphone className="w-5 h-5" />
           </div>
           <div>
             <p className="text-xs uppercase tracking-wide text-bark-500/60 font-semibold">Astro Seasonal Promo Available</p>
-            <h2 className="text-xl font-bold text-bark-500 mt-1">Opt into {currentPromo.promoName || 'the current promo'}</h2>
+            <h2 className="mt-1 text-lg font-bold leading-tight text-bark-500 sm:text-xl">Opt into {currentPromo.promoName || 'the current promo'}</h2>
             <p className="text-sm text-bark-500/70 mt-2 max-w-3xl">
               {currentPromo.promoDescription || 'This promotion is managed through Astro. Visit Astro to opt in, then mark it complete here so our team knows your store is participating.'}
             </p>
           </div>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row lg:shrink-0">
           <button onClick={() => onAction('promo_link')} className="btn-primary inline-flex items-center justify-center">
             Opt In Through Astro
             <ExternalLink className="w-4 h-4 ml-2" />
           </button>
-          <button disabled={isSaving} onClick={() => onAction('promo_opted_in')} className="px-4 py-2 rounded-xl border border-bark-500/20 text-bark-500 font-semibold hover:bg-cream-200 disabled:opacity-50">
+          <button disabled={isSaving} onClick={() => onAction('promo_opted_in')} className="rounded-xl border border-bark-500/20 px-4 py-2 font-semibold text-bark-500 hover:bg-cream-200 disabled:opacity-50">
             Mark as Opted In
           </button>
-          <button disabled={isSaving} onClick={() => onAction('promo_not_this_time')} className="px-4 py-2 rounded-xl text-bark-500/70 font-semibold hover:bg-cream-200 disabled:opacity-50">
+          <button disabled={isSaving} onClick={() => onAction('promo_not_this_time')} className="rounded-xl px-4 py-2 font-semibold text-bark-500/70 hover:bg-cream-200 disabled:opacity-50">
             Not This Time
           </button>
         </div>
@@ -1000,25 +1011,25 @@ function RecommendedNextStepCard({
   isSaving: boolean;
 }) {
   return (
-    <div className="card p-7 border border-bark-500/10 shadow-md">
-      <div className="flex items-center gap-2 mb-4">
-        <Sparkles className="w-5 h-5 text-amber-600" />
-        <p className="text-sm font-semibold uppercase tracking-wide text-bark-500/60">Recommended Next Step</p>
+    <div className="rounded-2xl border border-bark-500/10 bg-cream-100 p-5 shadow-md sm:p-7">
+      <div className="mb-4 flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-amber-600 sm:h-5 sm:w-5" />
+        <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/60 sm:text-sm">Recommended Next Step</p>
       </div>
-      <h2 className="text-2xl lg:text-3xl font-bold text-bark-500">{step.headline}</h2>
-      <p className="text-bark-500/70 mt-3 max-w-2xl">{step.body}</p>
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-6">
+      <h2 className="text-xl font-bold leading-tight text-bark-500 sm:text-2xl lg:text-3xl">{step.headline}</h2>
+      <p className="mt-3 max-w-2xl text-sm leading-6 text-bark-500/70 sm:text-base">{step.body}</p>
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
         <button disabled={isSaving} onClick={() => onAction(step.primaryAction)} className="btn-primary inline-flex items-center justify-center">
           {step.primaryLabel}
           {['astro_link', 'promo_link'].includes(step.primaryAction) ? <ExternalLink className="w-4 h-4 ml-2" /> : <ArrowRight className="w-4 h-4 ml-2" />}
         </button>
         {step.secondaryAction && step.secondaryLabel && (
-          <button disabled={isSaving} onClick={() => onAction(step.secondaryAction!)} className="px-4 py-2 rounded-xl border border-bark-500/20 text-bark-500 font-semibold hover:bg-cream-200 disabled:opacity-50">
+          <button disabled={isSaving} onClick={() => onAction(step.secondaryAction!)} className="rounded-xl border border-bark-500/20 px-4 py-2 font-semibold text-bark-500 hover:bg-cream-200 disabled:opacity-50">
             {step.secondaryLabel}
           </button>
         )}
         {step.tertiaryAction && step.tertiaryLabel && (
-          <button disabled={isSaving} onClick={() => onAction(step.tertiaryAction!)} className="px-4 py-2 rounded-xl text-bark-500/70 font-semibold hover:bg-cream-200 disabled:opacity-50">
+          <button disabled={isSaving} onClick={() => onAction(step.tertiaryAction!)} className="rounded-xl px-4 py-2 font-semibold text-bark-500/70 hover:bg-cream-200 disabled:opacity-50">
             {step.tertiaryLabel}
           </button>
         )}
@@ -1045,7 +1056,7 @@ function RetailSuccessPlanCard({
   isSaving: boolean;
 }) {
   return (
-    <div className="card p-6">
+    <div className="rounded-2xl border border-cream-200 bg-cream-100 p-4 shadow-sm sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="section-title">The Bare Retail Roadmap</h2>
@@ -1073,7 +1084,7 @@ function RetailSuccessPlanCard({
           );
 
           return (
-            <div key={item.id} className="py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div key={item.id} className="flex flex-col gap-3 py-4 md:flex-row md:items-center md:justify-between">
               <div className="flex items-start gap-3">
                 {canUndo ? (
                   <button
@@ -1100,17 +1111,17 @@ function RetailSuccessPlanCard({
                 </div>
               </div>
               {!item.complete && item.primaryAction && (
-                <div className="flex flex-wrap gap-2 md:justify-end">
-                  <button disabled={isSaving} onClick={() => onAction(item.primaryAction!)} className="px-3 py-2 rounded-lg bg-bark-500 text-white text-sm font-semibold hover:bg-bark-600 disabled:opacity-50">
+                <div className="grid gap-2 sm:flex sm:flex-wrap md:justify-end">
+                  <button disabled={isSaving} onClick={() => onAction(item.primaryAction!)} className="rounded-lg bg-bark-500 px-3 py-2 text-sm font-semibold text-white hover:bg-bark-600 disabled:opacity-50">
                     {actionLabels[item.primaryAction] || 'Start'}
                   </button>
                   {item.secondaryAction && (
-                    <button disabled={isSaving} onClick={() => onAction(item.secondaryAction!)} className="px-3 py-2 rounded-lg border border-bark-500/20 text-bark-500 text-sm font-semibold hover:bg-cream-200 disabled:opacity-50">
+                    <button disabled={isSaving} onClick={() => onAction(item.secondaryAction!)} className="rounded-lg border border-bark-500/20 px-3 py-2 text-sm font-semibold text-bark-500 hover:bg-cream-200 disabled:opacity-50">
                       {actionLabels[item.secondaryAction]}
                     </button>
                   )}
                   {item.tertiaryAction && (
-                    <button disabled={isSaving} onClick={() => onAction(item.tertiaryAction!)} className="px-3 py-2 rounded-lg text-bark-500/70 text-sm font-semibold hover:bg-cream-200 disabled:opacity-50">
+                    <button disabled={isSaving} onClick={() => onAction(item.tertiaryAction!)} className="rounded-lg px-3 py-2 text-sm font-semibold text-bark-500/70 hover:bg-cream-200 disabled:opacity-50">
                       {actionLabels[item.tertiaryAction]}
                     </button>
                   )}
@@ -1446,12 +1457,12 @@ function StatCard({
   };
 
   return (
-    <div className="card p-4 lg:p-6">
-      <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center mb-3', colorClasses[color])}>
-        <Icon className="w-5 h-5" />
+    <div className="rounded-2xl border border-cream-200 bg-cream-100 p-3 shadow-sm sm:p-4 lg:p-6">
+      <div className={cn('mb-3 flex h-9 w-9 items-center justify-center rounded-xl sm:h-10 sm:w-10', colorClasses[color])}>
+        <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
       </div>
-      <p className="stat-value text-2xl lg:text-3xl">{value}</p>
-      <p className="stat-label">{label}</p>
+      <p className="stat-value break-words text-xl sm:text-2xl lg:text-3xl">{value}</p>
+      <p className="stat-label text-xs sm:text-sm">{label}</p>
     </div>
   );
 }
