@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { AdminAuthorizationError, requireAdminAccess } from '@/lib/admin';
 import { getTeamEmailTo, sendEmail } from '@/lib/email';
-import { emailTemplateSummaries, isEmailTemplateKey, renderEmailTemplate } from '@/lib/emailTemplates';
+import {
+  type EmailTemplateSampleProduct,
+  emailTemplateSummaries,
+  isEmailTemplateKey,
+  renderEmailTemplate,
+} from '@/lib/emailTemplates';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,12 +22,30 @@ const getReplyToEmail = () => process.env.REPLY_TO_EMAIL || getTeamEmailTo();
 
 const isLikelyEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
+async function loadSampleProducts(adminClient: Awaited<ReturnType<typeof requireAdminAccess>>['adminClient']) {
+  const { data, error } = await adminClient
+    .from('products')
+    .select('name, size, price')
+    .eq('is_active', true)
+    .order('name')
+    .order('size')
+    .limit(3);
+
+  if (error) {
+    console.error('Email template sample product load error:', error);
+    return [];
+  }
+
+  return (data || []) as EmailTemplateSampleProduct[];
+}
+
 export async function GET() {
   try {
-    await requireAdminAccess();
+    const { adminClient } = await requireAdminAccess();
+    const sampleProducts = await loadSampleProducts(adminClient);
 
     const templates = emailTemplateSummaries
-      .map((template) => renderEmailTemplate(template.key))
+      .map((template) => renderEmailTemplate(template.key, sampleProducts))
       .filter(Boolean);
 
     return NextResponse.json({ templates });
@@ -38,7 +61,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    await requireAdminAccess();
+    const { adminClient } = await requireAdminAccess();
     const body = await request.json();
     const templateKey = body?.templateKey;
     const testEmail = typeof body?.testEmail === 'string' ? body.testEmail.trim().toLowerCase() : '';
@@ -51,7 +74,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Enter a valid test recipient email.' }, { status: 400 });
     }
 
-    const template = renderEmailTemplate(templateKey);
+    const sampleProducts = await loadSampleProducts(adminClient);
+    const template = renderEmailTemplate(templateKey, sampleProducts);
 
     if (!template) {
       return NextResponse.json({ error: 'Email template not found.' }, { status: 404 });

@@ -24,11 +24,22 @@ type EmailTemplateDefinition = {
   name: string;
   audience: EmailTemplateAudience;
   description: string;
-  render: () => {
+  render: (context: EmailTemplateContext) => {
     subject: string;
     text: string;
     html?: string;
   };
+};
+
+export type EmailTemplateSampleProduct = {
+  name: string;
+  size?: string | null;
+  price?: number | string | null;
+  quantity?: number;
+};
+
+type EmailTemplateContext = {
+  sampleItems: string;
 };
 
 const appUrl = () => process.env.NEXT_PUBLIC_APP_URL || 'https://wholesale.barenakedpet.com';
@@ -89,9 +100,24 @@ const renderShell = (options: {
 </html>`;
 };
 
-const sampleItems = `Chicken Jerky (6oz) x12 - $119.88
-Salmon Jerky (6oz) x8 - $87.92
-Chicken Jerky (12oz) x6 - $95.94`;
+const fallbackSampleProducts: EmailTemplateSampleProduct[] = [
+  { name: 'Chicken Meal Mixer', size: '6 oz', price: 16.67, quantity: 12 },
+  { name: 'Salmon Meal Mixer', size: '6 oz', price: 16.67, quantity: 8 },
+  { name: 'Chicken Meal Mixer', size: '12 oz', price: 30, quantity: 6 },
+];
+
+function formatSampleItems(products: EmailTemplateSampleProduct[]) {
+  return products
+    .slice(0, 3)
+    .map((product, index) => {
+      const quantity = product.quantity || [12, 8, 6][index] || 6;
+      const price = Number(product.price || 0);
+      const lineTotal = price > 0 ? ` - $${(price * quantity).toFixed(2)}` : '';
+      const size = product.size ? ` (${product.size})` : '';
+      return `${product.name}${size} x${quantity}${lineTotal}`;
+    })
+    .join('\n');
+}
 
 const definitions: EmailTemplateDefinition[] = [
   {
@@ -99,7 +125,7 @@ const definitions: EmailTemplateDefinition[] = [
     name: 'Order confirmation',
     audience: 'retailer',
     description: 'Sent to a retailer after an order is placed or created by an admin.',
-    render: () => {
+    render: ({ sampleItems }) => {
       const subject = 'Order Confirmation: BNP-1042';
       const text = `Thank you for your order!
 
@@ -138,7 +164,7 @@ Thank you for choosing Bare Naked Pet Co.!`;
     name: 'New order team notification',
     audience: 'team',
     description: 'Sent internally when a wholesale order is submitted.',
-    render: () => {
+    render: ({ sampleItems }) => {
       const subject = 'New Wholesale Order: BNP-1042';
       const text = `New Wholesale Order Received!
 
@@ -321,11 +347,14 @@ export const emailTemplateSummaries = definitions.map((template) => ({
   description: template.description,
 }));
 
-export function renderEmailTemplate(key: EmailTemplateKey): RenderedEmailTemplate | null {
+export function renderEmailTemplate(
+  key: EmailTemplateKey,
+  sampleProducts: EmailTemplateSampleProduct[] = fallbackSampleProducts,
+): RenderedEmailTemplate | null {
   const template = definitions.find((definition) => definition.key === key);
   if (!template) return null;
 
-  const rendered = template.render();
+  const rendered = template.render({ sampleItems: formatSampleItems(sampleProducts.length ? sampleProducts : fallbackSampleProducts) });
 
   return {
     key: template.key,
