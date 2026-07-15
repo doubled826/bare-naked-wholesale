@@ -5,6 +5,12 @@ import { formatOrderItemsText, formatTeamOrderItemsText, sendRetailerEmail, send
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import { applyRetailerCredits } from '@/lib/retailerCredits';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
+import {
+  BARE_LAUNCH_OFFER_CODE,
+  BARE_LAUNCH_OFFER_NAME,
+  calculateBareLaunchOfferDiscount,
+  getBareLaunchOfferStatus,
+} from '@/lib/bareLaunchOffer';
 
 export async function POST(request: Request) {
   try {
@@ -37,7 +43,30 @@ export async function POST(request: Request) {
 
     // Calculate totals
     const subtotal = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
-    const total = subtotal; // Add tax/shipping logic if needed
+    const { data: retailerForOffer } = await supabase
+      .from('retailers')
+      .select('created_at')
+      .eq('id', user.id)
+      .single();
+
+    const { count: activeOrderCount, error: orderCountError } = await supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('retailer_id', user.id)
+      .neq('status', 'canceled');
+
+    if (orderCountError) {
+      console.error('Launch offer order count error:', orderCountError);
+    }
+
+    const launchOfferStatus = getBareLaunchOfferStatus({
+      accountCreatedAt: retailerForOffer?.created_at,
+      activeOrderCount: activeOrderCount || 0,
+    });
+    const launchOfferDiscount = launchOfferStatus.eligible
+      ? calculateBareLaunchOfferDiscount(subtotal)
+      : 0;
+    const total = Math.max(0, subtotal - launchOfferDiscount); // Add tax/shipping logic if needed
 
     // Generate order number (avoid collisions with unique constraint)
     const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
@@ -58,11 +87,14 @@ export async function POST(request: Request) {
       .limit(1)
       .maybeSingle();
 
-    const shouldIncludeSamples = Boolean(includeSamples) || Boolean(sampleRequest?.id);
+    const shouldIncludeSamples = Boolean(includeSamples) || Boolean(sampleRequest?.id) || launchOfferDiscount > 0;
     const shouldIncludeMarketingMaterials = Boolean(marketingMaterialsRequest?.id);
     const marketingMaterialsType = shouldIncludeMarketingMaterials
       ? marketingMaterialsRequest?.materials_type || 'both'
       : null;
+    const orderPromotionCode = launchOfferDiscount > 0
+      ? [promotionCode, BARE_LAUNCH_OFFER_CODE].filter(Boolean).join(', ')
+      : promotionCode || null;
 
     // Create the order
     const { data: order, error: orderError } = await supabase
@@ -73,13 +105,13 @@ export async function POST(request: Request) {
         location_id: shipToLocation?.id ?? null,
         status: 'pending',
         delivery_date: deliveryDate || null,
-        promotion_code: promotionCode || null,
+        promotion_code: orderPromotionCode,
         subtotal,
         total,
         include_samples: shouldIncludeSamples,
         include_marketing_materials: shouldIncludeMarketingMaterials,
         marketing_materials_type: marketingMaterialsType,
-        credit_applied: 0,
+        credit_applied: launchOfferDiscount,
       })
       .select()
       .single();
@@ -121,6 +153,8 @@ export async function POST(request: Request) {
       retailerId: user.id,
       orderId: order.id,
       subtotal,
+      currentCreditApplied: launchOfferDiscount,
+      maxApplyAmount: Math.max(0, subtotal - launchOfferDiscount),
     });
 
     if (sampleRequest?.id) {
@@ -207,11 +241,26 @@ export async function POST(request: Request) {
       const retailerMaterialsNote = order.include_marketing_materials
         ? `Marketing Materials Added: ${materialsLabel}\n`
         : '';
+      const launchOfferTeamNote = launchOfferDiscount > 0
+        ? `\nBare Launch Offer: CLAIMED
+- 10% first-order discount applied: $${launchOfferDiscount.toFixed(2)}
+- Samples: INCLUDE SAMPLES
+- Private promo support: FOLLOW UP WITH RETAILER\n`
+        : '';
+      const launchOfferRetailerNote = launchOfferDiscount > 0
+        ? `${BARE_LAUNCH_OFFER_NAME}: -$${launchOfferDiscount.toFixed(2)}
+Samples Added: Yes
+Private Promo Support: Our team will follow up with next steps.
+`
+        : '';
 
       const creditSummary = creditResult.creditApplied > 0
-        ? `Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
+        ? `Discounts/Credits Applied: -$${(launchOfferDiscount + creditResult.creditApplied).toFixed(2)}
 Total: $${creditResult.totalAfterCredit.toFixed(2)}`
-        : `Total: $${total.toFixed(2)}`;
+        : launchOfferDiscount > 0
+          ? `Discounts/Credits Applied: -$${launchOfferDiscount.toFixed(2)}
+Total: $${total.toFixed(2)}`
+          : `Total: $${total.toFixed(2)}`;
 
       const emailText = `
 New Wholesale Order Received!
@@ -219,6 +268,7 @@ New Wholesale Order Received!
 Order Number: ${orderNumber}
 ${samplesNote}
 ${materialsNote}
+${launchOfferTeamNote}
 
 Customer Information:
 - Business Name: ${companyName}
@@ -266,9 +316,11 @@ ${itemsList}
 
 ${retailerSamplesNote}
 ${retailerMaterialsNote}
+${launchOfferRetailerNote}
 Subtotal: $${subtotal.toFixed(2)}
-${creditResult.creditApplied > 0 ? `Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
-Total: $${creditResult.totalAfterCredit.toFixed(2)}` : `Total: $${total.toFixed(2)}`}
+${launchOfferDiscount > 0 ? `${BARE_LAUNCH_OFFER_NAME}: -$${launchOfferDiscount.toFixed(2)}
+` : ''}${creditResult.creditApplied > 0 ? `Account Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
+` : ''}Total: $${creditResult.totalAfterCredit.toFixed(2)}
 
 Ship-To Location:
 - Name: ${shipToName}
@@ -294,6 +346,7 @@ Thank you for choosing Bare Naked Pet Co.!
       includeSamples: shouldIncludeSamples,
       includeMarketingMaterials: shouldIncludeMarketingMaterials,
       creditApplied: creditResult.creditApplied,
+      launchOfferDiscountApplied: launchOfferDiscount,
       total: creditResult.totalAfterCredit,
     });
 

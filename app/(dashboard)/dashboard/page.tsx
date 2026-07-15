@@ -17,11 +17,17 @@ import {
   MessageCircle,
   MapPin,
   ExternalLink,
+  X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import {
+  BARE_LAUNCH_OFFER_NAME,
+  getBareLaunchOfferStatus,
+  type BareLaunchOfferStatus,
+} from '@/lib/bareLaunchOffer';
 import type { Announcement } from '@/types';
 import {
   DEFAULT_ASTRO_URL,
@@ -52,6 +58,9 @@ const statusConfig: Record<string, { icon: React.ElementType; color: string; bg:
 const getLocalSuccessProfileKey = (retailerId?: string) =>
   retailerId ? `retailer-success-profile:${retailerId}` : null;
 
+const getBareLaunchOfferDismissedKey = (retailerId?: string) =>
+  retailerId ? `bare-launch-offer-dismissed:${retailerId}` : null;
+
 export default function DashboardPage() {
   const { retailer, orders, products, addNotification } = useAppStore();
   const supabase = createClientComponentClient();
@@ -64,6 +73,8 @@ export default function DashboardPage() {
   const [isRequestingMaterials, setIsRequestingMaterials] = useState(false);
   const [isRequestingLaunchPromo, setIsRequestingLaunchPromo] = useState(false);
   const [isConfirmingLaunchPromoCancel, setIsConfirmingLaunchPromoCancel] = useState(false);
+  const [showBareLaunchOfferModal, setShowBareLaunchOfferModal] = useState(false);
+  const [bareLaunchOfferDismissed, setBareLaunchOfferDismissed] = useState(false);
   const [successNotice, setSuccessNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const pendingSuccessSaveRef = useRef(false);
 
@@ -72,6 +83,10 @@ export default function DashboardPage() {
 
   // Calculate analytics
   const activeOrders = orders.filter(order => order.status !== 'canceled');
+  const bareLaunchOffer = getBareLaunchOfferStatus({
+    accountCreatedAt: retailer?.created_at,
+    activeOrderCount: activeOrders.length,
+  });
   const totalOrders = activeOrders.length;
   const totalItems = activeOrders.reduce((sum, order) => {
     const orderItems = order.order_items as Array<{ quantity: number }> | undefined;
@@ -160,6 +175,25 @@ export default function DashboardPage() {
     loadRetailerSuccess();
   }, [retailer?.id]);
 
+  useEffect(() => {
+    const dismissedKey = getBareLaunchOfferDismissedKey(retailer?.id);
+    const isDismissed = dismissedKey ? window.localStorage.getItem(dismissedKey) === 'true' : false;
+    setBareLaunchOfferDismissed(isDismissed);
+    setShowBareLaunchOfferModal(Boolean(bareLaunchOffer.eligible && !isDismissed));
+  }, [bareLaunchOffer.eligible, retailer?.id]);
+
+  const dismissBareLaunchOffer = () => {
+    const dismissedKey = getBareLaunchOfferDismissedKey(retailer?.id);
+    if (dismissedKey) window.localStorage.setItem(dismissedKey, 'true');
+    setBareLaunchOfferDismissed(true);
+    setShowBareLaunchOfferModal(false);
+  };
+
+  const handleBareLaunchOfferOrder = () => {
+    dismissBareLaunchOffer();
+    window.location.href = '/catalog?offer=bare-launch';
+  };
+
   const showSuccessNotice = (notice: { type: 'success' | 'error'; message: string }) => {
     setSuccessNotice(notice);
     setTimeout(() => setSuccessNotice(null), 3500);
@@ -200,6 +234,11 @@ export default function DashboardPage() {
       setSuccessProfileRow(data.profile);
       const localProfileKey = getLocalSuccessProfileKey(retailer?.id);
       if (localProfileKey) window.localStorage.removeItem(localProfileKey);
+      if (data?.notificationWarning) {
+        addNotification({ type: 'error', message: data.notificationWarning });
+        showSuccessNotice({ type: 'error', message: data.notificationWarning });
+        return;
+      }
       if (message) {
         addNotification({ type: 'success', message });
         showSuccessNotice({ type: 'success', message });
@@ -310,6 +349,15 @@ export default function DashboardPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+      {showBareLaunchOfferModal && (
+        <BareLaunchOfferModal
+          offer={bareLaunchOffer}
+          businessName={businessName}
+          onClose={dismissBareLaunchOffer}
+          onOrder={handleBareLaunchOfferOrder}
+        />
+      )}
+
       {/* Header */}
       <div className="mb-8">
         <h1 className="page-title">
@@ -321,6 +369,13 @@ export default function DashboardPage() {
       </div>
 
       <WholesalePerksBanner />
+
+      {bareLaunchOffer.eligible && bareLaunchOfferDismissed && (
+        <BareLaunchOfferCard
+          offer={bareLaunchOffer}
+          onOrder={handleBareLaunchOfferOrder}
+        />
+      )}
 
       {successNotice && (
         <div className={cn(
@@ -624,6 +679,154 @@ const undoableChecklistItems: Partial<Record<string, {
     message: 'Current promo response reset.',
   },
 };
+
+function BareLaunchOfferModal({
+  offer,
+  businessName,
+  onClose,
+  onOrder,
+}: {
+  offer: BareLaunchOfferStatus;
+  businessName: string;
+  onClose: () => void;
+  onOrder: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-bark-500/45 p-4 backdrop-blur-sm">
+      <div className="relative w-full max-w-3xl overflow-hidden rounded-2xl border border-amber-200 bg-cream-100 shadow-2xl">
+        <div className="absolute right-6 top-6 hidden h-24 w-24 rounded-full border border-amber-200/70 bg-amber-100/60 sm:block" />
+        <div className="absolute -left-8 -top-8 h-32 w-32 rounded-full border border-cream-300 bg-white/50" />
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 z-10 rounded-lg p-2 text-bark-500/60 hover:bg-cream-200 hover:text-bark-500"
+          aria-label="Dismiss Bare Launch Offer"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
+        <div className="relative grid gap-0 lg:grid-cols-[1fr_0.82fr]">
+          <div className="p-6 sm:p-8">
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-800">
+              <Sparkles className="h-4 w-4" />
+              {offer.daysRemaining} {offer.daysRemaining === 1 ? 'day' : 'days'} left
+            </div>
+            <p className="text-sm font-semibold text-bark-500/70">
+              Welcome{businessName ? `, ${businessName}` : ''}.
+            </p>
+            <h2 className="mt-2 text-3xl font-bold leading-tight text-bark-500 sm:text-4xl" style={{ fontFamily: 'var(--font-poppins)' }}>
+              Your {BARE_LAUNCH_OFFER_NAME} is live.
+            </h2>
+            <p className="mt-4 max-w-xl text-bark-500/75">
+              Place your first wholesale order in the next 14 days and we will help you launch Bare with a little extra momentum.
+            </p>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <OfferPill icon={Gift} label="10% off" description="Auto-applied to your first order" highlight />
+              <OfferPill icon={Package} label="Free samples" description="A sampling campaign for your customers" />
+              <OfferPill icon={Megaphone} label="Private promo" description="Supported by the Bare team" />
+            </div>
+
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <button type="button" onClick={onOrder} className="btn-primary">
+                Order Now
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-xl border border-bark-500/20 px-5 py-3 font-semibold text-bark-500 hover:bg-cream-200"
+              >
+                Browse Later
+              </button>
+            </div>
+            <p className="mt-3 text-xs text-bark-500/60">
+              No code needed. The 10% discount applies automatically at checkout while the offer is active.
+            </p>
+          </div>
+
+          <div className="flex min-h-[260px] flex-col justify-between bg-bark-500 p-6 text-white sm:p-8">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-wide text-cream-200/80">First order boost</p>
+              <div className="mt-5 flex items-end gap-2">
+                <span className="text-7xl font-bold leading-none" style={{ fontFamily: 'var(--font-poppins)' }}>10</span>
+                <span className="pb-2 text-3xl font-bold">%</span>
+                <span className="pb-3 text-lg font-semibold text-cream-200">off</span>
+              </div>
+              <p className="mt-5 text-sm leading-6 text-cream-100/85">
+                Plus samples and promo support so your team has something fun to put in front of customers right away.
+              </p>
+            </div>
+            <div className="mt-8 rounded-xl bg-white/10 p-4">
+              <p className="text-xs uppercase tracking-wide text-cream-200/80">Always included</p>
+              <p className="mt-1 text-sm font-semibold">Free shipping, no minimums, Astro Rewards, and private promotions.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BareLaunchOfferCard({
+  offer,
+  onOrder,
+}: {
+  offer: BareLaunchOfferStatus;
+  onOrder: () => void;
+}) {
+  return (
+    <div className="mb-8 overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 shadow-sm">
+      <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+            <Gift className="h-6 w-6" />
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-xl font-bold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
+                {BARE_LAUNCH_OFFER_NAME}
+              </h2>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-amber-800">
+                {offer.daysRemaining} {offer.daysRemaining === 1 ? 'day' : 'days'} left
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-bark-500/75">
+              Claim 10% off your first order, a free sampling campaign, and private promo support.
+            </p>
+          </div>
+        </div>
+        <button type="button" onClick={onOrder} className="btn-primary shrink-0">
+          Order Now
+          <ArrowRight className="ml-2 h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function OfferPill({
+  icon: Icon,
+  label,
+  description,
+  highlight,
+}: {
+  icon: React.ElementType;
+  label: string;
+  description: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className={cn(
+      'rounded-xl border p-4',
+      highlight ? 'border-amber-200 bg-amber-50' : 'border-cream-200 bg-cream-200/70',
+    )}>
+      <Icon className={cn('mb-3 h-5 w-5', highlight ? 'text-amber-700' : 'text-bark-500')} />
+      <p className="font-bold text-bark-500">{label}</p>
+      <p className="mt-1 text-xs leading-5 text-bark-500/70">{description}</p>
+    </div>
+  );
+}
 
 function WholesalePerksBanner() {
   const marqueeItems = [...perkItems, ...perkItems];

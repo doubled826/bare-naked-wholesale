@@ -10,17 +10,23 @@ import {
   Calendar,
   X,
   CheckCircle,
-  Loader2
+  Loader2,
+  Sparkles,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import type { Product, RetailerLocation } from '@/types';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
+import {
+  BARE_LAUNCH_OFFER_NAME,
+  calculateBareLaunchOfferDiscount,
+  getBareLaunchOfferStatus,
+} from '@/lib/bareLaunchOffer';
 
 export default function CatalogPage() {
   const supabase = createClientComponentClient();
-  const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart, setOrders, retailer } = useAppStore();
+  const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart, orders, setOrders, retailer } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
@@ -131,6 +137,12 @@ export default function CatalogPage() {
     return matchesSearch;
   });
 
+  const activeOrderCount = orders.filter((order) => order.status !== 'canceled').length;
+  const bareLaunchOffer = getBareLaunchOfferStatus({
+    accountCreatedAt: retailer?.created_at,
+    activeOrderCount,
+  });
+
   const toppers = filteredProducts.filter((product) => product.category === 'Toppers');
   const treats = filteredProducts.filter((product) => product.category === 'Treats');
   const otherProducts = filteredProducts.filter(
@@ -203,6 +215,8 @@ export default function CatalogPage() {
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const launchOfferDiscount = bareLaunchOffer.eligible ? calculateBareLaunchOfferDiscount(cartTotal) : 0;
+  const launchOfferTotal = Math.max(0, cartTotal - launchOfferDiscount);
 
   const showNotificationMessage = (message: string) => {
     setNotification(message);
@@ -261,7 +275,9 @@ export default function CatalogPage() {
         }
         setOrderSuccess(true);
         setOrderSuccessMessage(
-          Number(data.creditApplied || 0) > 0
+          Number(data.launchOfferDiscountApplied || 0) > 0
+            ? `Check your email for confirmation. ${BARE_LAUNCH_OFFER_NAME} saved you ${formatCurrency(Number(data.launchOfferDiscountApplied || 0))}.`
+            : Number(data.creditApplied || 0) > 0
             ? `Check your email for confirmation. ${formatCurrency(Number(data.creditApplied || 0))} in credit was applied to this order.`
             : 'Check your email for confirmation.'
         );
@@ -327,6 +343,27 @@ export default function CatalogPage() {
           )}
         </button>
       </div>
+
+      {bareLaunchOffer.eligible && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="font-bold text-bark-500">{BARE_LAUNCH_OFFER_NAME} is active</p>
+                <p className="text-sm text-bark-500/70">
+                  10% off your first order, free samples, and private promo support. {bareLaunchOffer.daysRemaining} {bareLaunchOffer.daysRemaining === 1 ? 'day' : 'days'} left.
+                </p>
+              </div>
+            </div>
+            <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-amber-800">
+              10% auto-applies
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="card p-4 mb-6">
         <div className="flex flex-col lg:flex-row gap-4">
@@ -497,6 +534,19 @@ export default function CatalogPage() {
                         </span>
                       </div>
                     </label>
+                    {bareLaunchOffer.eligible && (
+                      <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                        <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                        <div>
+                          <span className="block text-sm font-medium text-bark-500">
+                            {BARE_LAUNCH_OFFER_NAME} will apply
+                          </span>
+                          <span className="block text-xs text-bark-500/70">
+                            Your first-order 10% discount is calculated automatically. Samples are included with this launch order.
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     {pendingMarketingMaterialsType && (
                       <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
                         <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
@@ -537,9 +587,21 @@ export default function CatalogPage() {
                     )}
                     
                     <div className="pt-4 border-t border-cream-200">
-                      <div className="flex justify-between text-lg font-bold text-bark-500 mb-4">
-                        <span>Total</span>
-                        <span>{formatCurrency(cartTotal)}</span>
+                      <div className="space-y-2 mb-4">
+                        <div className="flex justify-between text-sm text-bark-500/70">
+                          <span>Subtotal</span>
+                          <span>{formatCurrency(cartTotal)}</span>
+                        </div>
+                        {launchOfferDiscount > 0 && (
+                          <div className="flex justify-between text-sm font-semibold text-emerald-700">
+                            <span>{BARE_LAUNCH_OFFER_NAME}</span>
+                            <span>-{formatCurrency(launchOfferDiscount)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-lg font-bold text-bark-500 pt-2 border-t border-cream-200">
+                          <span>Total</span>
+                          <span>{formatCurrency(launchOfferTotal)}</span>
+                        </div>
                       </div>
                     <button
                       onClick={handleSubmitOrder}
