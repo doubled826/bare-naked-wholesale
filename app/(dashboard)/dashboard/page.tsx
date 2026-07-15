@@ -714,8 +714,8 @@ function BareLaunchOfferModal({
   onOrder: () => void;
 }) {
   return (
-    <div className="bare-launch-backdrop fixed inset-0 z-[70] flex items-center justify-center bg-bark-500/45 p-4 backdrop-blur-sm">
-      <div className="bare-launch-modal relative w-full max-w-3xl overflow-hidden rounded-2xl border border-amber-200 bg-cream-100 shadow-2xl">
+    <div className="bare-launch-backdrop fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-bark-500/45 p-3 py-4 backdrop-blur-sm sm:items-center sm:p-4">
+      <div className="bare-launch-modal relative my-auto w-full max-w-3xl overflow-hidden rounded-2xl border border-amber-200 bg-cream-100 shadow-2xl">
         <div className="absolute right-6 top-6 hidden h-24 w-24 rounded-full border border-amber-200/70 bg-amber-100/60 sm:block" />
         <div className="absolute -left-8 -top-8 h-32 w-32 rounded-full border border-cream-300 bg-white/50" />
         <button
@@ -727,29 +727,29 @@ function BareLaunchOfferModal({
           <X className="h-5 w-5" />
         </button>
 
-        <div className="relative grid gap-0 lg:grid-cols-[1fr_0.82fr]">
-          <div className="p-6 sm:p-8">
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-800">
+        <div className="relative grid max-h-[calc(100vh-2rem)] gap-0 overflow-y-auto lg:grid-cols-[1fr_0.82fr]">
+          <div className="p-5 sm:p-8">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-800 sm:mb-5">
               <Sparkles className="h-4 w-4" />
               {offer.daysRemaining} {offer.daysRemaining === 1 ? 'day' : 'days'} left
             </div>
             <p className="text-sm font-semibold text-bark-500/70">
               Welcome{businessName ? `, ${businessName}` : ''}.
             </p>
-            <h2 className="mt-2 text-3xl font-bold leading-tight text-bark-500 sm:text-4xl" style={{ fontFamily: 'var(--font-poppins)' }}>
+            <h2 className="mt-2 pr-8 text-[2rem] font-bold leading-tight text-bark-500 sm:pr-0 sm:text-4xl" style={{ fontFamily: 'var(--font-poppins)' }}>
               Your Bare Launch Offer is live.
             </h2>
-            <p className="mt-4 max-w-xl text-bark-500/75">
+            <p className="mt-3 max-w-xl text-sm leading-6 text-bark-500/75 sm:mt-4 sm:text-base">
               Place your first wholesale order in the next 14 days and we will help you launch Bare with a little extra momentum.
             </p>
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="mt-5 grid gap-3 sm:mt-6 sm:grid-cols-3">
               <OfferPill icon={Gift} label="10% off first order" description="Auto-applied at checkout" />
               <OfferPill icon={Package} label="Free samples" description="Ready for your launch order" />
               <OfferPill icon={Megaphone} label="Private promo support" description="Backed by the Bare team" />
             </div>
 
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="mt-6 flex flex-col gap-3 sm:mt-7 sm:flex-row sm:items-center">
               <button type="button" onClick={onOrder} className="btn-primary">
                 Claim Launch Offer
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -767,19 +767,19 @@ function BareLaunchOfferModal({
             </p>
           </div>
 
-          <div className="flex min-h-[260px] flex-col justify-between bg-bark-500 p-6 text-white sm:p-8">
+          <div className="flex min-h-[260px] flex-col justify-between bg-bark-500 p-5 text-white sm:p-8">
             <div>
               <p className="text-sm font-semibold uppercase tracking-wide text-cream-200/80">Bare launch support</p>
-              <div className="mt-5 flex items-end gap-2">
-                <span className="text-7xl font-bold leading-none" style={{ fontFamily: 'var(--font-poppins)' }}>10</span>
-                <span className="pb-2 text-3xl font-bold">%</span>
-                <span className="pb-3 text-lg font-semibold text-cream-200">off</span>
+              <div className="mt-4 flex items-end gap-2 sm:mt-5">
+                <span className="text-6xl font-bold leading-none sm:text-7xl" style={{ fontFamily: 'var(--font-poppins)' }}>10</span>
+                <span className="pb-1.5 text-3xl font-bold sm:pb-2">%</span>
+                <span className="pb-2 text-base font-semibold text-cream-200 sm:pb-3 sm:text-lg">off</span>
               </div>
-              <p className="mt-5 text-sm leading-6 text-cream-100/85">
+              <p className="mt-4 text-sm leading-6 text-cream-100/85 sm:mt-5">
                 A full launch offer for your first Bare order: discount support, customer samples, and a private promo plan for your store.
               </p>
             </div>
-            <div className="mt-8 space-y-3 rounded-xl bg-white/10 p-4">
+            <div className="mt-5 space-y-3 rounded-xl bg-white/10 p-4 sm:mt-8">
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-4 w-4 shrink-0 text-amber-200" />
                 <span className="text-sm font-semibold">First-order discount</span>
@@ -793,7 +793,7 @@ function BareLaunchOfferModal({
                 <span className="text-sm font-semibold">Promo support</span>
               </div>
             </div>
-            <div className="mt-8 rounded-xl bg-white/10 p-4">
+            <div className="mt-5 rounded-xl bg-white/10 p-4 sm:mt-8">
               <p className="text-xs uppercase tracking-wide text-cream-200/80">Always included</p>
               <p className="mt-1 text-sm font-semibold">Free shipping, no minimums, Astro Rewards, and private promotions.</p>
             </div>

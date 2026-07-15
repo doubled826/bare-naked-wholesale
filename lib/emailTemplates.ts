@@ -1,3 +1,8 @@
+import {
+  BARE_LAUNCH_OFFER_DAYS,
+  BARE_LAUNCH_OFFER_NAME,
+} from '@/lib/bareLaunchOffer';
+
 export type EmailTemplateAudience = 'retailer' | 'team';
 
 export type EmailTemplateKey =
@@ -6,6 +11,10 @@ export type EmailTemplateKey =
   | 'shipping_notification'
   | 'invoice_reminder'
   | 'sample_request_confirmation'
+  | 'bare_launch_offer_day_1'
+  | 'bare_launch_offer_day_4'
+  | 'bare_launch_offer_day_9'
+  | 'bare_launch_offer_final'
   | 'signup_team_notification'
   | 'message_team_notification';
 
@@ -40,6 +49,12 @@ export type EmailTemplateSampleProduct = {
 
 type EmailTemplateContext = {
   sampleItems: string;
+  launchOffer: {
+    storeName: string;
+    daysRemaining: number;
+    expiresAtLabel: string;
+    catalogUrl: string;
+  };
 };
 
 const appUrl = () => process.env.NEXT_PUBLIC_APP_URL || 'https://wholesale.barenakedpet.com';
@@ -117,6 +132,60 @@ function formatSampleItems(products: EmailTemplateSampleProduct[]) {
       return `${product.name}${size} x${quantity}${lineTotal}`;
     })
     .join('\n');
+}
+
+const defaultLaunchOfferContext = () => ({
+  storeName: 'Happy Paws Market',
+  daysRemaining: 10,
+  expiresAtLabel: 'July 15, 2026',
+  catalogUrl: `${appUrl()}/catalog?offer=bare-launch`,
+});
+
+function renderBareLaunchOfferTemplate({
+  subject,
+  title,
+  preheader,
+  intro,
+  bullets,
+  closing,
+  daysRemaining,
+  catalogUrl,
+}: {
+  subject: string;
+  title: string;
+  preheader: string;
+  intro: string;
+  bullets: string[];
+  closing: string;
+  daysRemaining: number;
+  catalogUrl: string;
+}) {
+  const urgencyLine = daysRemaining <= 1
+    ? 'Your Bare Launch Offer ends today.'
+    : `Your Bare Launch Offer is available for ${daysRemaining} more days.`;
+  const text = `${intro}
+
+${urgencyLine}
+
+${bullets.map((bullet) => `- ${bullet}`).join('\n')}
+
+Start your first order here:
+${catalogUrl}
+
+${closing}
+
+Bare Naked Pet Co.`;
+
+  return {
+    subject,
+    text,
+    html: renderShell({
+      title,
+      preheader,
+      text,
+      cta: { href: catalogUrl, label: 'Claim Launch Offer' },
+    }),
+  };
 }
 
 const definitions: EmailTemplateDefinition[] = [
@@ -284,6 +353,86 @@ Bare Naked Pet Co.`;
     },
   },
   {
+    key: 'bare_launch_offer_day_1',
+    name: 'Bare Launch Offer - Day 1',
+    audience: 'retailer',
+    description: 'Sent shortly after signup to make sure new retailers know their launch offer is active.',
+    render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
+      subject: `${BARE_LAUNCH_OFFER_NAME} is ready for ${launchOffer.storeName}`,
+      title: 'Your Bare Launch Offer is ready',
+      preheader: `Your first-order launch support is available for ${BARE_LAUNCH_OFFER_DAYS} days.`,
+      intro: `Welcome to Bare, ${launchOffer.storeName}. Your Bare Launch Offer is live and ready whenever you are ready to place your first wholesale order.`,
+      bullets: [
+        '10% off your first wholesale order, applied automatically at checkout',
+        'Free samples included to help customers try Bare in-store',
+        'Private promo support from our team to help launch Bare well',
+      ],
+      closing: 'This is meant to help your first order feel simple, supported, and easy to put in front of customers.',
+      daysRemaining: launchOffer.daysRemaining,
+      catalogUrl: launchOffer.catalogUrl,
+    }),
+  },
+  {
+    key: 'bare_launch_offer_day_4',
+    name: 'Bare Launch Offer - Sampling',
+    audience: 'retailer',
+    description: 'Sent a few days into the offer window with emphasis on free customer samples.',
+    render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
+      subject: `Free samples are included with your Bare launch`,
+      title: 'Samples make the first order easier',
+      preheader: `Your Bare Launch Offer is still active for ${launchOffer.daysRemaining} more days.`,
+      intro: `Hi ${launchOffer.storeName}, just a quick reminder that your Bare Launch Offer includes free samples with your first order.`,
+      bullets: [
+        'Use samples to introduce Bare to curious customers',
+        'Give your team an easy way to start conversations at the shelf',
+        'Pair samples with 10% off your first wholesale order and private promo support',
+      ],
+      closing: 'The goal is simple: help your store launch Bare with confidence, not guesswork.',
+      daysRemaining: launchOffer.daysRemaining,
+      catalogUrl: launchOffer.catalogUrl,
+    }),
+  },
+  {
+    key: 'bare_launch_offer_day_9',
+    name: 'Bare Launch Offer - Promo support',
+    audience: 'retailer',
+    description: 'Sent mid-window to remind new retailers that promo support is included.',
+    render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
+      subject: `Your Bare launch promo support is still available`,
+      title: 'We can help support your Bare launch',
+      preheader: `Your Bare Launch Offer is still active for ${launchOffer.daysRemaining} more days.`,
+      intro: `Hi ${launchOffer.storeName}, your first-order launch support is still available. Along with 10% off and free samples, our team can help support a private promo for your store.`,
+      bullets: [
+        'Launch Bare with a clear customer-facing offer',
+        'Use samples to help shoppers try before they commit',
+        'Start with no minimums and free shipping on your wholesale order',
+      ],
+      closing: 'If Bare is on your list to bring in, this is the easiest window to get started.',
+      daysRemaining: launchOffer.daysRemaining,
+      catalogUrl: launchOffer.catalogUrl,
+    }),
+  },
+  {
+    key: 'bare_launch_offer_final',
+    name: 'Bare Launch Offer - Final reminder',
+    audience: 'retailer',
+    description: 'Sent near the end of the 14-day window before the launch offer expires.',
+    render: ({ launchOffer }) => renderBareLaunchOfferTemplate({
+      subject: `Last call: your Bare Launch Offer is ending soon`,
+      title: 'Your Bare Launch Offer is almost up',
+      preheader: `Do not miss your first-order launch support.`,
+      intro: `Hi ${launchOffer.storeName}, a quick final reminder that your Bare Launch Offer is almost up.`,
+      bullets: [
+        '10% off your first wholesale order',
+        'Free samples for your launch order',
+        'Private promo support from the Bare team',
+      ],
+      closing: 'If you want to use the launch offer, place your first order before the window closes.',
+      daysRemaining: launchOffer.daysRemaining,
+      catalogUrl: launchOffer.catalogUrl,
+    }),
+  },
+  {
     key: 'signup_team_notification',
     name: 'Signup team notification',
     audience: 'team',
@@ -350,11 +499,15 @@ export const emailTemplateSummaries = definitions.map((template) => ({
 export function renderEmailTemplate(
   key: EmailTemplateKey,
   sampleProducts: EmailTemplateSampleProduct[] = fallbackSampleProducts,
+  launchOffer = defaultLaunchOfferContext(),
 ): RenderedEmailTemplate | null {
   const template = definitions.find((definition) => definition.key === key);
   if (!template) return null;
 
-  const rendered = template.render({ sampleItems: formatSampleItems(sampleProducts.length ? sampleProducts : fallbackSampleProducts) });
+  const rendered = template.render({
+    sampleItems: formatSampleItems(sampleProducts.length ? sampleProducts : fallbackSampleProducts),
+    launchOffer,
+  });
 
   return {
     key: template.key,

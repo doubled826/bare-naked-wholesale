@@ -121,6 +121,40 @@ INSERT INTO retailer_success_promo_settings (id)
 VALUES ('current')
 ON CONFLICT (id) DO NOTHING;
 
+CREATE TABLE IF NOT EXISTS first_order_followups (
+  retailer_id UUID PRIMARY KEY REFERENCES retailers(id) ON DELETE CASCADE,
+  owner_name TEXT,
+  next_follow_up_at TIMESTAMPTZ,
+  last_contacted_at TIMESTAMPTZ,
+  last_contact_method TEXT,
+  notes TEXT,
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_first_order_followups_next_follow_up
+  ON first_order_followups(next_follow_up_at);
+
+CREATE TABLE IF NOT EXISTS bare_launch_offer_email_reminders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  retailer_id UUID NOT NULL REFERENCES retailers(id) ON DELETE CASCADE,
+  template_key TEXT NOT NULL
+    CHECK (template_key IN (
+      'bare_launch_offer_day_1',
+      'bare_launch_offer_day_4',
+      'bare_launch_offer_day_9',
+      'bare_launch_offer_final'
+    )),
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resend_message_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (retailer_id, template_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bare_launch_offer_email_reminders_retailer
+  ON bare_launch_offer_email_reminders(retailer_id, sent_at);
+
 -- Launch promo requests table
 CREATE TABLE IF NOT EXISTS launch_promo_requests (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -200,6 +234,8 @@ ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE retailer_locations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE retailer_success_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE retailer_success_promo_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE first_order_followups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bare_launch_offer_email_reminders ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for retailers
 CREATE POLICY "Users can view their own retailer profile"
@@ -366,6 +402,36 @@ CREATE POLICY "Authenticated users can view current success promo"
 
 CREATE POLICY "Admins can manage current success promo"
   ON retailer_success_promo_settings FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins can manage first order followups"
+  ON first_order_followups FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins can manage Bare Launch Offer email reminders"
+  ON bare_launch_offer_email_reminders FOR ALL
   USING (
     EXISTS (
       SELECT 1 FROM admin_users
