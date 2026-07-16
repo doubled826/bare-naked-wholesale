@@ -242,7 +242,7 @@ export async function POST(request: Request) {
         ? `Marketing Materials Added: ${materialsLabel}\n`
         : '';
       const launchOfferTeamNote = launchOfferDiscount > 0
-        ? `\nBare Launch Offer 🚀: CLAIMED
+        ? `\nWelcome Offer: CLAIMED
 - 10% ISO applied: $${launchOfferDiscount.toFixed(2)}
 - Samples: INCLUDE SAMPLES
 - Private promo support: FOLLOW UP WITH RETAILER\n`

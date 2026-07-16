@@ -24,8 +24,8 @@ const GROUP_META: Record<EmailTemplateGroup, { label: string; description: strin
     description: 'Operational emails tied to orders, account activity, invoices, samples, and portal messages.',
   },
   launch_offer: {
-    label: 'Launch Offer',
-    description: 'Automated reminders for the first-order Bare Launch Offer sequence.',
+    label: 'Welcome Offer',
+    description: 'Automated reminders for the first-order Welcome Offer sequence.',
   },
 };
 

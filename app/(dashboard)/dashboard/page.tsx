@@ -718,7 +718,7 @@ function BareLaunchOfferModal({
           type="button"
           onClick={onClose}
           className="absolute right-4 top-4 z-10 rounded-lg p-2 text-bark-500/60 hover:bg-cream-200 hover:text-bark-500"
-          aria-label="Close Bare Launch Offer for now"
+          aria-label="Close Welcome Offer for now"
         >
           <X className="h-5 w-5" />
         </button>
@@ -733,21 +733,21 @@ function BareLaunchOfferModal({
               Welcome{businessName ? `, ${businessName}` : ''}.
             </p>
             <h2 className="mt-2 pr-8 text-[2rem] font-bold leading-tight text-bark-500 sm:pr-0 sm:text-4xl" style={{ fontFamily: 'var(--font-poppins)' }}>
-              Your Bare Launch Offer 🚀 is live!
+              Welcome to the Bare family.
             </h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-bark-500/75 sm:mt-4 sm:text-base">
-              Place your first wholesale order in the next 14 days and we will help you launch Bare with a little extra momentum.
+              We are glad to have you here. To help your store get started, your Welcome Offer is ready for the next 14 days.
             </p>
 
             <div className="mt-5 grid gap-3 sm:mt-6 sm:grid-cols-3">
               <OfferPill icon={Gift} label="10% ISO" description="Auto-applied at checkout" />
-              <OfferPill icon={Package} label="Free samples" description="Ready for your launch order" />
+              <OfferPill icon={Package} label="Free samples" description="Ready for your first order" />
               <OfferPill icon={Megaphone} label="Private promo support" description="Backed by the Bare team" />
             </div>
 
             <div className="mt-6 flex flex-col gap-3 sm:mt-7 sm:flex-row sm:items-center">
               <button type="button" onClick={onOrder} className="btn-primary">
-                Claim Launch Offer
+                Order Now
                 <ArrowRight className="ml-2 h-4 w-4" />
               </button>
               <button
@@ -760,19 +760,20 @@ function BareLaunchOfferModal({
             </div>
             <p className="mt-3 text-xs text-bark-500/60">
               No code needed. The 10% ISO applies automatically at checkout while the offer is active.
+              Net-30 terms are included; your invoice is emailed through QuickBooks after you order, with payment due within 30 days.
             </p>
           </div>
 
           <div className="flex min-h-[260px] flex-col justify-between bg-bark-500 p-5 text-white sm:p-8">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-wide text-cream-200/80">Bare launch support</p>
+              <p className="text-sm font-semibold uppercase tracking-wide text-cream-200/80">Welcome offer</p>
               <div className="mt-4 flex items-end gap-2 sm:mt-5">
                 <span className="text-6xl font-bold leading-none sm:text-7xl" style={{ fontFamily: 'var(--font-poppins)' }}>10</span>
                 <span className="pb-1.5 text-3xl font-bold sm:pb-2">%</span>
                 <span className="pb-2 text-base font-semibold text-cream-200 sm:pb-3 sm:text-lg">ISO</span>
               </div>
               <p className="mt-4 text-sm leading-6 text-cream-100/85 sm:mt-5">
-                A full launch offer for your first Bare order: ISO support, customer samples, and a private promo plan for your store.
+                A warm first-order welcome from our team: ISO support, customer samples, and a private promo plan for your store.
               </p>
             </div>
             <div className="mt-5 space-y-3 rounded-xl bg-white/10 p-4 sm:mt-8">
@@ -824,7 +825,7 @@ function BareLaunchOfferCard({
               </span>
             </div>
             <p className="mt-1 text-sm leading-6 text-bark-500/75">
-              Claim your 10% ISO, a free sampling campaign, and private promo support.
+              Your 10% ISO, free sampling campaign, and private promo support are ready when you are.
             </p>
           </div>
         </div>
