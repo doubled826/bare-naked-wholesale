@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ArrowRight, CheckCircle, ExternalLink, Gift, Megaphone, Package, Save, Sparkles, X } from 'lucide-react';
+import { ArrowRight, CheckCircle, Edit2, ExternalLink, Gift, Loader2, Megaphone, Package, Plus, Ruler, Save, Sparkles, Trash2, X } from 'lucide-react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import {
   DEFAULT_ASTRO_URL,
   defaultCurrentAstroPromo,
@@ -18,8 +19,320 @@ type PromoForm = {
   astro_promo_url: string;
 };
 
-type AnnouncementTab = 'dashboard-promos' | 'popup-previews';
+type AnnouncementTab = 'dashboard-announcements' | 'dashboard-promos' | 'popup-previews';
 type PreviewPopup = 'shelf-talkers' | 'welcome-offer' | null;
+
+type DashboardAnnouncement = {
+  id: string;
+  title: string;
+  message: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+const emptyAnnouncementForm = {
+  title: '',
+  message: '',
+  is_active: true,
+};
+
+const shelfTalkerAnnouncementDraft = {
+  title: 'New shelf talkers for trail mix toppers',
+  message:
+    'Stores carrying both 6 oz and 12 oz of Chicken, Salmon, or Beef will automatically receive the matching shelf talker with their next order.',
+  is_active: true,
+};
+
+function DashboardAnnouncementsManager() {
+  const supabase = createClientComponentClient();
+  const [announcements, setAnnouncements] = useState<DashboardAnnouncement[]>([]);
+  const [form, setForm] = useState(emptyAnnouncementForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const loadAnnouncements = async () => {
+    setIsLoading(true);
+    setNotice('');
+    try {
+      const { data, error } = await supabase
+        .from('announcements')
+        .select('id, title, message, is_active, created_at, updated_at')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setAnnouncements((data || []) as DashboardAnnouncement[]);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to load announcements.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAnnouncements();
+  }, []);
+
+  const resetForm = () => {
+    setForm(emptyAnnouncementForm);
+    setEditingId(null);
+  };
+
+  const saveAnnouncement = async () => {
+    const title = form.title.trim();
+    const message = form.message.trim();
+
+    if (!title || !message) {
+      setNotice('Title and message are required.');
+      return;
+    }
+
+    setIsSaving(true);
+    setNotice('');
+    try {
+      const payload = {
+        title,
+        message,
+        is_active: form.is_active,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = editingId
+        ? await supabase.from('announcements').update(payload).eq('id', editingId)
+        : await supabase.from('announcements').insert(payload);
+
+      if (error) throw error;
+
+      setNotice(editingId ? 'Announcement updated.' : 'Announcement created.');
+      resetForm();
+      await loadAnnouncements();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to save announcement.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const editAnnouncement = (announcement: DashboardAnnouncement) => {
+    setEditingId(announcement.id);
+    setForm({
+      title: announcement.title,
+      message: announcement.message,
+      is_active: announcement.is_active,
+    });
+    setNotice('');
+  };
+
+  const toggleAnnouncement = async (announcement: DashboardAnnouncement) => {
+    setNotice('');
+    try {
+      const { error } = await supabase
+        .from('announcements')
+        .update({
+          is_active: !announcement.is_active,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', announcement.id);
+
+      if (error) throw error;
+      await loadAnnouncements();
+      setNotice(!announcement.is_active ? 'Announcement published.' : 'Announcement hidden.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to update announcement.');
+    }
+  };
+
+  const deleteAnnouncement = async (announcement: DashboardAnnouncement) => {
+    const confirmed = window.confirm(`Delete "${announcement.title}"?`);
+    if (!confirmed) return;
+
+    setDeletingId(announcement.id);
+    setNotice('');
+    try {
+      const { error } = await supabase
+        .from('announcements')
+        .delete()
+        .eq('id', announcement.id);
+
+      if (error) throw error;
+      if (editingId === announcement.id) resetForm();
+      await loadAnnouncements();
+      setNotice('Announcement deleted.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to delete announcement.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const activeCount = announcements.filter((announcement) => announcement.is_active).length;
+
+  return (
+    <section className="bg-cream-100 rounded-2xl border border-cream-200 p-5 space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-bark-100 text-bark-700 flex items-center justify-center flex-shrink-0">
+            <Megaphone className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="section-title">Dashboard Announcements</h2>
+              <span className="badge bg-emerald-100 text-emerald-700">{activeCount} active</span>
+            </div>
+            <p className="text-sm text-bark-500/60 mt-1">
+              Create friendly notes that appear on retailer dashboards.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setForm(shelfTalkerAnnouncementDraft);
+            setEditingId(null);
+            setNotice('');
+          }}
+          className="inline-flex items-center gap-2 rounded-xl border border-cream-300 bg-white px-3 py-2 text-sm font-semibold text-bark-500 hover:bg-cream-50"
+        >
+          <Sparkles className="w-4 h-4" />
+          Use shelf talker draft
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-5">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-cream-200 bg-white p-4 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-semibold text-bark-500">{editingId ? 'Edit Announcement' : 'New Announcement'}</h3>
+              {editingId && (
+                <button type="button" onClick={resetForm} className="text-sm font-semibold text-bark-500/60 hover:text-bark-500">
+                  Cancel edit
+                </button>
+              )}
+            </div>
+            <div>
+              <label className="label" htmlFor="announcement-title">Title</label>
+              <input
+                id="announcement-title"
+                type="text"
+                value={form.title}
+                onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+                placeholder="New shelf talkers are here"
+                className="input"
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="announcement-message">Message</label>
+              <textarea
+                id="announcement-message"
+                value={form.message}
+                onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))}
+                placeholder="Keep it short, useful, and retailer-facing."
+                className="input min-h-[120px]"
+                rows={5}
+              />
+            </div>
+            <label className="inline-flex items-center gap-2 text-sm font-semibold text-bark-500">
+              <input
+                type="checkbox"
+                checked={form.is_active}
+                onChange={(event) => setForm((current) => ({ ...current, is_active: event.target.checked }))}
+                className="rounded border-cream-300 text-bark-500 focus:ring-bark-500"
+              />
+              Publish on retailer dashboards
+            </label>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                onClick={saveAnnouncement}
+                disabled={isSaving}
+                className="btn-primary text-sm px-4 py-2 flex items-center gap-2"
+              >
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : editingId ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                {isSaving ? 'Saving...' : editingId ? 'Save Changes' : 'Create Announcement'}
+              </button>
+              {notice && <p className="text-sm text-bark-500/60">{notice}</p>}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-cream-200 bg-white p-4">
+            <h3 className="font-semibold text-bark-500">Existing Announcements</h3>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-5 h-5 animate-spin text-bark-500" />
+              </div>
+            ) : announcements.length === 0 ? (
+              <p className="py-8 text-center text-sm text-bark-500/60">No announcements yet.</p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {announcements.map((announcement) => (
+                  <div key={announcement.id} className="rounded-xl border border-cream-200 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-bark-500">{announcement.title}</p>
+                          <span className={cn('badge', announcement.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-bone-100 text-bone-600')}>
+                            {announcement.is_active ? 'Active' : 'Hidden'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm leading-6 text-bark-500/65">{announcement.message}</p>
+                        <p className="mt-2 text-xs text-bark-500/45">
+                          Created {new Date(announcement.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleAnnouncement(announcement)}
+                          className="rounded-lg border border-cream-300 px-3 py-1.5 text-sm font-semibold text-bark-500 hover:bg-cream-100"
+                        >
+                          {announcement.is_active ? 'Hide' : 'Publish'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => editAnnouncement(announcement)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-cream-300 px-3 py-1.5 text-sm font-semibold text-bark-500 hover:bg-cream-100"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteAnnouncement(announcement)}
+                          disabled={deletingId === announcement.id}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-100 px-3 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {deletingId === announcement.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-cream-200 p-4 self-start">
+          <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50">Retailer dashboard preview</p>
+          <div className="mt-3 rounded-xl bg-cream-200 p-4">
+            <p className="font-semibold text-bark-500">{form.title || 'Announcement title'}</p>
+            <p className="text-sm text-bark-500/70 mt-1">
+              {form.message || 'Your announcement message will appear here.'}
+            </p>
+            <p className="text-xs text-bark-500/50 mt-2">{new Date().toLocaleDateString()}</p>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-bark-500/55">
+            This matches the simple card retailers see in the dashboard Announcements section.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function AstroPromoManager() {
   const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
@@ -244,8 +557,28 @@ function AstroPromoManager() {
 }
 
 export default function AdminAnnouncementsPage() {
-  const [activeTab, setActiveTab] = useState<AnnouncementTab>('dashboard-promos');
+  const [activeTab, setActiveTab] = useState<AnnouncementTab>('dashboard-announcements');
   const [previewPopup, setPreviewPopup] = useState<PreviewPopup>(null);
+
+  useEffect(() => {
+    if (!previewPopup) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setPreviewPopup(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [previewPopup]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -257,7 +590,19 @@ export default function AdminAnnouncementsPage() {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 p-2 shadow-sm">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => setActiveTab('dashboard-announcements')}
+            className={cn(
+              'rounded-xl px-4 py-3 text-sm font-semibold transition-colors',
+              activeTab === 'dashboard-announcements'
+                ? 'bg-bark-500 text-white'
+                : 'text-bark-500 hover:bg-cream-100'
+            )}
+          >
+            Dashboard Announcements
+          </button>
           <button
             type="button"
             onClick={() => setActiveTab('dashboard-promos')}
@@ -268,7 +613,7 @@ export default function AdminAnnouncementsPage() {
                 : 'text-bark-500 hover:bg-cream-100'
             )}
           >
-            Dashboard Promos
+            Astro Promo
           </button>
           <button
             type="button"
@@ -285,7 +630,9 @@ export default function AdminAnnouncementsPage() {
         </div>
       </div>
 
-      {activeTab === 'dashboard-promos' ? (
+      {activeTab === 'dashboard-announcements' ? (
+        <DashboardAnnouncementsManager />
+      ) : activeTab === 'dashboard-promos' ? (
         <AstroPromoManager />
       ) : (
         <PopupPreviewManager onPreview={setPreviewPopup} />
@@ -378,69 +725,81 @@ function ShelfTalkerPreviewModal({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 z-10 rounded-lg bg-white/90 p-2 text-bark-500/70 shadow-sm hover:bg-cream-100 hover:text-bark-500"
+          className="absolute right-4 top-4 z-10 rounded-lg bg-white/90 p-2 text-bark-500/70 shadow-sm hover:bg-cream-100 hover:text-bark-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-bark-500 focus-visible:ring-offset-2"
           aria-label="Close shelf talker preview"
         >
           <X className="h-5 w-5" />
         </button>
 
         <div className="grid max-h-[calc(100vh-2rem)] overflow-y-auto lg:grid-cols-[1.08fr_0.92fr]">
-          <div className="bg-bark-500">
+          <div className="relative flex min-h-[280px] items-center justify-center bg-bark-500 p-2 sm:min-h-[360px] lg:min-h-[560px]">
             <img
               src="/images/shelf-talker-popup.png"
               alt="Bare Naked trail mix topper bags displayed with a salmon shelf talker"
-              className="h-full min-h-[260px] w-full object-cover"
+              className="h-full max-h-[640px] w-full object-contain"
             />
+            <div className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-xs font-bold text-bark-500 shadow-sm">
+              Sized to fit a 6 oz + 12 oz pair
+            </div>
           </div>
 
-          <div className="flex flex-col justify-center p-5 sm:p-8">
-            <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-full bg-orange-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-orange-800">
+          <div className="flex flex-col justify-center p-5 sm:p-7 lg:p-8">
+            <div className="mb-3 inline-flex w-fit items-center gap-2 rounded-full bg-orange-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-orange-800">
               <Sparkles className="h-4 w-4" />
-              New shelf support
+              NEW RETAIL TOOL
             </div>
-            <h2 className="pr-8 text-3xl font-bold leading-tight text-bark-500 sm:pr-0 sm:text-4xl" style={{ fontFamily: 'var(--font-poppins)' }}>
-              New trail mix topper shelf talkers are here.
+            <h2 className="pr-8 text-2xl font-bold leading-tight text-bark-500 sm:pr-0 sm:text-3xl" style={{ fontFamily: 'var(--font-poppins)' }}>
+              Help your Bare Naked products stand out on the shelf.
             </h2>
-            <p className="mt-4 text-sm leading-6 text-bark-500/75 sm:text-base">
-              They help customers quickly understand each flavor at the shelf and they are easy to qualify for.
+            <p className="mt-3 text-sm leading-6 text-bark-500/75 sm:text-base">
+              Our new shelf talkers help your display grab attention and make it easier for shoppers to understand each recipe at a glance.
             </p>
 
-            <div className="mt-6 space-y-3">
-              <div className="flex gap-3 rounded-xl bg-cream-100 p-4">
-                <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+            <div className="mt-5 space-y-2.5 sm:mt-6">
+              <div className="flex gap-3 rounded-xl bg-cream-100 p-3.5">
+                <Ruler className="mt-0.5 h-5 w-5 shrink-0 text-bark-500" />
                 <div>
-                  <p className="font-semibold text-bark-500">Carry both sizes</p>
+                  <p className="font-semibold text-bark-500">Designed to fit your display</p>
                   <p className="mt-1 text-sm leading-5 text-bark-500/70">
-                    Stores carrying both 6 oz and 12 oz of a flavor qualify for that flavor&apos;s shelf talker.
+                    Each shelf talker is the same width as one 6 oz and one 12 oz bag placed side by side, giving your products a clean, intentional shelf presence.
                   </p>
                 </div>
               </div>
-              <div className="flex gap-3 rounded-xl bg-cream-100 p-4">
+              <div className="flex gap-3 rounded-xl bg-cream-100 p-3.5">
+                <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                <div>
+                  <p className="font-semibold text-bark-500">Easy to qualify</p>
+                  <p className="mt-1 text-sm leading-5 text-bark-500/70">
+                    Carry both the <strong>6 oz and 12 oz</strong> size of any flavor to qualify for that flavor&apos;s matching shelf talker.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3 rounded-xl bg-cream-100 p-3.5">
                 <Package className="mt-0.5 h-5 w-5 shrink-0 text-orange-700" />
                 <div>
-                  <p className="font-semibold text-bark-500">We add them automatically</p>
+                  <p className="font-semibold text-bark-500">Automatically included</p>
                   <p className="mt-1 text-sm leading-5 text-bark-500/70">
-                    Once your store qualifies, the matching shelf talker will be added to your next order.
+                    No forms or requests needed. Once your store qualifies, we&apos;ll add the matching shelf talker to your next order.
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
               <span className="btn-primary">
-                Shop Toppers
+                Complete My Display
                 <ArrowRight className="ml-2 h-4 w-4" />
               </span>
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-xl border border-bark-500/20 px-5 py-3 font-semibold text-bark-500 hover:bg-cream-100"
+                className="rounded-xl border border-bark-500/20 px-5 py-3 font-semibold text-bark-500 hover:bg-cream-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-bark-500 focus-visible:ring-offset-2"
               >
                 Got It
               </button>
             </div>
             <p className="mt-3 text-xs text-bark-500/60">
-              No request form needed. Chicken, Salmon, and Beef shelf talkers are matched by flavor.
+              Available for Chicken, Salmon, and Beef. Shelf talkers are matched by flavor.
             </p>
           </div>
         </div>
