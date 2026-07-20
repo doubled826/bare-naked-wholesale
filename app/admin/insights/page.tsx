@@ -33,6 +33,12 @@ type OrderRecord = {
   total: number | string | null;
   status: string | null;
   created_at: string;
+  order_items?: Array<{
+    order_id?: string | null;
+    quantity: number | null;
+    product_id?: string | null;
+    product?: ProductRecord | ProductRecord[];
+  }> | null;
   retailer?: {
     id: string;
     company_name: string;
@@ -738,7 +744,21 @@ export default function AdminInsightsPage() {
       for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
         const { data: orderPage, error: ordersError } = await supabase
           .from('orders')
-          .select('id, retailer_id, location_id, total, status, created_at, retailer:retailers(id, company_name, business_address, created_at)')
+          .select(`
+            id,
+            retailer_id,
+            location_id,
+            total,
+            status,
+            created_at,
+            retailer:retailers(id, company_name, business_address, created_at),
+            order_items(
+              order_id,
+              quantity,
+              product_id,
+              product:products(id, name, size, category)
+            )
+          `)
           .range(from, from + SUPABASE_PAGE_SIZE - 1);
 
         if (ordersError) throw ordersError;
@@ -746,10 +766,6 @@ export default function AdminInsightsPage() {
         orders.push(...typedOrderPage);
         if (typedOrderPage.length < SUPABASE_PAGE_SIZE) break;
       }
-
-      const { data: orderItems } = await supabase
-        .from('order_items')
-        .select('order_id, quantity, product_id, product:products(id, name, size, category), order:orders(status, retailer_id, location_id, created_at)');
 
       const retailers: RetailerRecord[] = [];
       for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
@@ -832,6 +848,20 @@ export default function AdminInsightsPage() {
       const previousTotalOrders = previousOrders.length;
       const normalizedPromo = normalizeCurrentAstroPromo(promoSetting);
       setCurrentPromo(normalizedPromo);
+
+      const orderItems = validOrders.flatMap((order) => (
+        (order.order_items || []).map((item) => ({
+          ...item,
+          order_id: item.order_id || order.id,
+          product: Array.isArray(item.product) ? item.product[0] : item.product,
+          order: {
+            status: order.status,
+            retailer_id: order.retailer_id,
+            location_id: order.location_id,
+            created_at: order.created_at,
+          },
+        }))
+      ));
 
       const orderItemsByOrder = new Map<string, any[]>();
       ((orderItems as any[]) || []).forEach((item) => {
