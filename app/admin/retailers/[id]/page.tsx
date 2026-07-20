@@ -9,6 +9,12 @@ import { cn, formatCurrency } from '@/lib/utils';
 import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 import {
+  formatShelfTalkerFlavor,
+  getQualifiedShelfTalkerFlavors,
+  type ShelfTalkerFlavor,
+  type ShelfTalkerFulfillment,
+} from '@/lib/shelfTalkers';
+import {
   calculateSuccessPlanProgress,
   defaultCurrentAstroPromo,
   getRecommendedNextStep,
@@ -56,6 +62,13 @@ interface Order {
   credit_applied?: number | null;
   created_at: string;
   order_items: OrderItem[];
+  shelf_talker_fulfillments?: ShelfTalkerFulfillment[];
+}
+
+interface ShelfTalkerAdoptionRow {
+  flavor: ShelfTalkerFlavor;
+  qualified: boolean;
+  fulfillment?: ShelfTalkerFulfillment;
 }
 
 interface RetailerLocation {
@@ -279,6 +292,7 @@ export default function AdminRetailerDetailPage() {
   const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
   const [successNotice, setSuccessNotice] = useState('');
   const [isSavingSuccess, setIsSavingSuccess] = useState(false);
+  const [shelfTalkerFulfillments, setShelfTalkerFulfillments] = useState<ShelfTalkerFulfillment[]>([]);
   const [isDeletingRetailer, setIsDeletingRetailer] = useState(false);
   const [showPipedriveLinkModal, setShowPipedriveLinkModal] = useState(false);
   const [pipedriveDealQuery, setPipedriveDealQuery] = useState('');
@@ -447,12 +461,14 @@ export default function AdminRetailerDetailPage() {
           { data: locationsData, error: locationsError },
           { data: successProfileData },
           { data: promoData },
+          { data: shelfTalkerData, error: shelfTalkerError },
         ] = await Promise.all([
           fetch(`/api/admin/retailers/${retailerId}`),
-          supabase.from('orders').select('id, order_number, status, total, subtotal, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category))').eq('retailer_id', retailerId).order('created_at', { ascending: false }),
+          supabase.from('orders').select('id, order_number, status, total, subtotal, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category)), shelf_talker_fulfillments(id, retailer_id, location_id, flavor, status, fulfilled_order_id, qualified_at, fulfilled_at)').eq('retailer_id', retailerId).order('created_at', { ascending: false }),
           supabase.from('retailer_locations').select('id, location_name, business_address, phone, is_default, created_at').eq('retailer_id', retailerId).order('is_default', { ascending: false }).order('created_at', { ascending: true }),
           supabase.from('retailer_success_profiles').select('*').eq('retailer_id', retailerId).maybeSingle(),
           supabase.from('retailer_success_promo_settings').select('*').eq('id', 'current').maybeSingle(),
+          supabase.from('shelf_talker_fulfillments').select('*').eq('retailer_id', retailerId).order('created_at', { ascending: false }),
         ]);
 
         const retailerPayload = await retailerResponse.json();
@@ -461,12 +477,14 @@ export default function AdminRetailerDetailPage() {
         }
         if (ordersError) throw ordersError;
         if (locationsError) throw locationsError;
+        if (shelfTalkerError) throw shelfTalkerError;
 
         const retailerData = retailerPayload.retailer as Retailer;
         setRetailer(retailerData);
         setOrders(normalizeOrders((ordersData || []) as unknown as Order[]));
         setSuccessProfileRow(successProfileData || null);
         setCurrentPromo(normalizeCurrentAstroPromo(promoData));
+        setShelfTalkerFulfillments((shelfTalkerData || []) as ShelfTalkerFulfillment[]);
         const nextLocations = (locationsData || []) as RetailerLocation[];
         setLocations(nextLocations);
 
@@ -948,6 +966,20 @@ export default function AdminRetailerDetailPage() {
     () => getRecommendedNextStep(retailer, retailerSuccessProfile, currentPromo),
     [retailer, retailerSuccessProfile, currentPromo],
   );
+  const shelfTalkerAdoption = useMemo<ShelfTalkerAdoptionRow[]>(() => {
+    const orderedProducts = ordersForStats.flatMap((order) =>
+      (order.order_items || [])
+        .map((item) => item.product)
+        .filter(Boolean)
+    ) as Array<{ name?: string | null; size?: string | null }>;
+    const qualifiedFlavors = new Set(getQualifiedShelfTalkerFlavors(orderedProducts));
+
+    return (['chicken', 'salmon', 'beef'] as ShelfTalkerFlavor[]).map((flavor) => ({
+      flavor,
+      qualified: qualifiedFlavors.has(flavor),
+      fulfillment: shelfTalkerFulfillments.find((talker) => talker.flavor === flavor && talker.status !== 'skipped'),
+    }));
+  }, [ordersForStats, shelfTalkerFulfillments]);
 
   const trend = useMemo(() => {
     if (quarterPoints.length < 2) return null;
@@ -1254,6 +1286,56 @@ export default function AdminRetailerDetailPage() {
               </select>
             </label>
           )}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Shelf Talker Adoption</h2>
+            <p className="text-sm text-gray-500">Auto-tracked from stores carrying both 6 oz and 12 oz toppers.</p>
+          </div>
+          <div className="text-sm text-gray-500">
+            {shelfTalkerAdoption.filter((row) => row.fulfillment?.status === 'sent').length} of 3 sent
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {shelfTalkerAdoption.map((row) => {
+            const status = row.fulfillment?.status;
+            const statusLabel = status === 'sent'
+              ? 'Sent'
+              : status === 'queued'
+                ? 'Queued'
+                : row.qualified
+                  ? 'Qualifies'
+                  : 'Not qualified';
+
+            return (
+              <div key={row.flavor} className="rounded-lg border border-gray-100 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-gray-900">{formatShelfTalkerFlavor(row.flavor)}</p>
+                  <span className={cn(
+                    'px-2.5 py-0.5 rounded-full text-xs font-medium',
+                    status === 'sent' && 'bg-emerald-100 text-emerald-700',
+                    status === 'queued' && 'bg-orange-100 text-orange-700',
+                    !status && row.qualified && 'bg-blue-100 text-blue-700',
+                    !status && !row.qualified && 'bg-gray-100 text-gray-600'
+                  )}>
+                    {statusLabel}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  {status === 'sent' && row.fulfillment?.fulfilled_at
+                    ? `Sent ${new Date(row.fulfillment.fulfilled_at).toLocaleDateString()}`
+                    : status === 'queued'
+                      ? 'Will be included with the queued order.'
+                      : row.qualified
+                        ? 'Will be added automatically to the next order.'
+                        : 'Needs both sizes in order history.'}
+                </p>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -1856,6 +1938,7 @@ export default function AdminRetailerDetailPage() {
                   <div className="flex items-center gap-3">
                     {order.include_samples && <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Samples</span>}
                     {order.include_marketing_materials && <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{formatMarketingMaterialsLabel(order.marketing_materials_type)}</span>}
+                    {Boolean(order.shelf_talker_fulfillments?.length) && <span className="text-xs font-medium text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full">Shelf Talkers</span>}
                     {Number(order.credit_applied || 0) > 0 && <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">Credit</span>}
                     <span className={cn("px-2.5 py-0.5 rounded-full text-xs font-medium capitalize", getStatusColor(order.status))}>{order.status}</span>
                     <span className="font-medium text-gray-900">{formatCurrency(order.total)}</span>

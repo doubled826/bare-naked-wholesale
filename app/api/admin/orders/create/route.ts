@@ -5,6 +5,7 @@ import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import { formatOrderItemsText, formatTeamOrderItemsText, sendRetailerEmail, sendTeamEmail } from '@/lib/email';
 import { applyRetailerCredits } from '@/lib/retailerCredits';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
+import { formatShelfTalkerList, queueShelfTalkersForOrder } from '@/lib/shelfTalkers';
 
 interface CreateOrderItemInput {
   productId: string;
@@ -145,6 +146,20 @@ export async function POST(request: Request) {
       console.error('Order items error:', itemsError);
     }
 
+    let queuedShelfTalkers: Awaited<ReturnType<typeof queueShelfTalkersForOrder>> = [];
+    if (!itemsError) {
+      try {
+        queuedShelfTalkers = await queueShelfTalkersForOrder({
+          adminClient,
+          retailerId,
+          locationId: shipToLocation?.id ?? null,
+          orderId: order.id,
+        });
+      } catch (shelfTalkerError) {
+        console.error('Shelf talker queue error:', shelfTalkerError);
+      }
+    }
+
     const creditResult = await applyRetailerCredits({
       adminClient,
       retailerId,
@@ -223,6 +238,13 @@ export async function POST(request: Request) {
       const retailerMaterialsNote = order.include_marketing_materials
         ? `Marketing Materials Added: ${materialsLabel}\n`
         : '';
+      const shelfTalkerLabel = formatShelfTalkerList(queuedShelfTalkers.map((talker) => talker.flavor));
+      const shelfTalkerTeamNote = queuedShelfTalkers.length > 0
+        ? `\nShelf Talkers: INCLUDE ${shelfTalkerLabel.toUpperCase()}\n`
+        : '';
+      const shelfTalkerRetailerNote = queuedShelfTalkers.length > 0
+        ? `Shelf Talkers Added: ${shelfTalkerLabel}\n`
+        : '';
 
       const shipToName = shipToLocation?.location_name || retailer?.company_name || 'Not provided';
       const shipToAddress = shipToLocation?.business_address || retailer?.business_address || 'Not provided';
@@ -239,6 +261,7 @@ New Wholesale Order Received!
 Order Number: ${orderNumber}
 ${samplesNote}
 ${materialsNote}
+${shelfTalkerTeamNote}
 
 Customer Information:
 - Business Name: ${retailer?.company_name || 'Not provided'}
@@ -283,6 +306,7 @@ ${itemsList}
 
 ${retailerSamplesNote}
 ${retailerMaterialsNote}
+${shelfTalkerRetailerNote}
 Subtotal: $${subtotal.toFixed(2)}
 ${creditResult.creditApplied > 0 ? `Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
 Total: $${creditResult.totalAfterCredit.toFixed(2)}` : `Total: $${total.toFixed(2)}`}
@@ -306,6 +330,7 @@ Thank you for choosing Bare Naked Pet Co.!
       success: true,
       orderId: order.id,
       orderNumber,
+      shelfTalkersAdded: queuedShelfTalkers.map((talker) => talker.flavor),
       creditApplied: creditResult.creditApplied,
       total: creditResult.totalAfterCredit,
     });

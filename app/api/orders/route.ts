@@ -5,6 +5,7 @@ import { formatOrderItemsText, formatTeamOrderItemsText, sendRetailerEmail, send
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import { applyRetailerCredits } from '@/lib/retailerCredits';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
+import { formatShelfTalkerList, queueShelfTalkersForOrder } from '@/lib/shelfTalkers';
 import {
   BARE_LAUNCH_OFFER_CODE,
   BARE_LAUNCH_OFFER_NAME,
@@ -148,6 +149,20 @@ export async function POST(request: Request) {
 
     const adminClient = createSupabaseAdminClient();
 
+    let queuedShelfTalkers: Awaited<ReturnType<typeof queueShelfTalkersForOrder>> = [];
+    if (!itemsError) {
+      try {
+        queuedShelfTalkers = await queueShelfTalkersForOrder({
+          adminClient,
+          retailerId: user.id,
+          locationId: shipToLocation?.id ?? null,
+          orderId: order.id,
+        });
+      } catch (shelfTalkerError) {
+        console.error('Shelf talker queue error:', shelfTalkerError);
+      }
+    }
+
     const creditResult = await applyRetailerCredits({
       adminClient,
       retailerId: user.id,
@@ -241,6 +256,13 @@ export async function POST(request: Request) {
       const retailerMaterialsNote = order.include_marketing_materials
         ? `Marketing Materials Added: ${materialsLabel}\n`
         : '';
+      const shelfTalkerLabel = formatShelfTalkerList(queuedShelfTalkers.map((talker) => talker.flavor));
+      const shelfTalkerTeamNote = queuedShelfTalkers.length > 0
+        ? `\nShelf Talkers: INCLUDE ${shelfTalkerLabel.toUpperCase()}\n`
+        : '';
+      const shelfTalkerRetailerNote = queuedShelfTalkers.length > 0
+        ? `Shelf Talkers Added: ${shelfTalkerLabel}\n`
+        : '';
       const launchOfferTeamNote = launchOfferDiscount > 0
         ? `\nWelcome Offer: CLAIMED
 - 10% off your first order applied: $${launchOfferDiscount.toFixed(2)}
@@ -268,6 +290,7 @@ New Wholesale Order Received!
 Order Number: ${orderNumber}
 ${samplesNote}
 ${materialsNote}
+${shelfTalkerTeamNote}
 ${launchOfferTeamNote}
 
 Customer Information:
@@ -316,6 +339,7 @@ ${itemsList}
 
 ${retailerSamplesNote}
 ${retailerMaterialsNote}
+${shelfTalkerRetailerNote}
 ${launchOfferRetailerNote}
 Subtotal: $${subtotal.toFixed(2)}
 ${launchOfferDiscount > 0 ? `${BARE_LAUNCH_OFFER_NAME}: -$${launchOfferDiscount.toFixed(2)}
@@ -345,6 +369,7 @@ Thank you for choosing Bare Naked Pet Co.!
       orderId: order.id,
       includeSamples: shouldIncludeSamples,
       includeMarketingMaterials: shouldIncludeMarketingMaterials,
+      shelfTalkersAdded: queuedShelfTalkers.map((talker) => talker.flavor),
       creditApplied: creditResult.creditApplied,
       launchOfferDiscountApplied: launchOfferDiscount,
       total: creditResult.totalAfterCredit,

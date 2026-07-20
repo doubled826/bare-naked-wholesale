@@ -6,9 +6,10 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Search, Truck, Package, Download, X, CheckCircle, Eye, Plus, Trash2 } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
+import { formatShelfTalkerList, type ShelfTalkerFulfillment } from '@/lib/shelfTalkers';
 
 interface OrderItem { id: string; quantity: number; unit_price: number; total_price: number; product: { name: string; size: string } }
-interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; credit_applied?: number | null; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; include_samples?: boolean | null; include_marketing_materials?: boolean | null; marketing_materials_type?: string | null; promotion_code: string | null; invoice_url?: string | null; invoice_sent_at?: string | null; invoice_sent_count?: number | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; location?: { id: string; location_name: string; business_address: string; phone: string | null } | null; order_items: OrderItem[] }
+interface Order { id: string; retailer_id: string; order_number: string; status: string; total: number; subtotal: number; credit_applied?: number | null; delivery_date: string | null; tracking_number: string | null; tracking_carrier?: string | null; include_samples?: boolean | null; include_marketing_materials?: boolean | null; marketing_materials_type?: string | null; promotion_code: string | null; invoice_url?: string | null; invoice_sent_at?: string | null; invoice_sent_count?: number | null; created_at: string; shipped_at: string | null; retailer: { id: string; company_name: string; business_address: string; phone: string }; location?: { id: string; location_name: string; business_address: string; phone: string | null } | null; order_items: OrderItem[]; shelf_talker_fulfillments?: ShelfTalkerFulfillment[] }
 interface RetailerOption { id: string; company_name: string }
 interface ProductOption { id: string; name: string; size: string; price: number }
 interface LocationOption { id: string; location_name: string; business_address: string; phone: string | null; is_default: boolean }
@@ -122,7 +123,7 @@ export default function AdminOrdersPage() {
     try {
       const { data, error } = await supabase
         .from('orders')
-        .select('*, retailer:retailers(id, company_name, business_address, phone), location:retailer_locations(id, location_name, business_address, phone), order_items(id, quantity, unit_price, total_price, product:products(name, size))')
+        .select('*, retailer:retailers(id, company_name, business_address, phone), location:retailer_locations(id, location_name, business_address, phone), order_items(id, quantity, unit_price, total_price, product:products(name, size)), shelf_talker_fulfillments(id, retailer_id, location_id, flavor, status, fulfilled_order_id, qualified_at, fulfilled_at)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       setOrders(data || []);
@@ -258,6 +259,18 @@ export default function AdminOrdersPage() {
     try {
       const { error } = await supabase.from('orders').update({ status: 'shipped', tracking_number: trackingNumber || null, tracking_carrier: trackingCarrier || null, shipped_at: new Date().toISOString() }).eq('id', selectedOrder.id);
       if (error) throw error;
+      const queuedShelfTalkerIds = (selectedOrder.shelf_talker_fulfillments || [])
+        .filter((talker) => talker.status === 'queued')
+        .map((talker) => talker.id);
+      if (queuedShelfTalkerIds.length > 0) {
+        const { error: shelfTalkerError } = await supabase
+          .from('shelf_talker_fulfillments')
+          .update({ status: 'sent', fulfilled_at: new Date().toISOString() })
+          .in('id', queuedShelfTalkerIds);
+        if (shelfTalkerError) {
+          console.error('Shelf talker shipment update error:', shelfTalkerError);
+        }
+      }
       await fetch('/api/admin/orders/ship-notification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -343,6 +356,16 @@ export default function AdminOrdersPage() {
     try {
       const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
       if (error) throw error;
+      if (newStatus === 'shipped') {
+        const { error: shelfTalkerError } = await supabase
+          .from('shelf_talker_fulfillments')
+          .update({ status: 'sent', fulfilled_at: new Date().toISOString() })
+          .eq('fulfilled_order_id', orderId)
+          .eq('status', 'queued');
+        if (shelfTalkerError) {
+          console.error('Shelf talker status update error:', shelfTalkerError);
+        }
+      }
       showNotification(`Status updated to ${newStatus}`); fetchOrders();
     } catch (error) { console.error('Error:', error); showNotification('Failed to update status'); }
   };
@@ -405,9 +428,12 @@ export default function AdminOrdersPage() {
       });
       const data = await response.json();
       if (!data.success) throw new Error(data.error || 'Failed to create order');
+      const shelfTalkerFlavors = Array.isArray(data.shelfTalkersAdded) ? data.shelfTalkersAdded : [];
       showNotification(
         Number(data.creditApplied || 0) > 0
           ? `Order created. ${formatCurrency(Number(data.creditApplied || 0))} credit applied.`
+          : shelfTalkerFlavors.length > 0
+            ? `Order created. Shelf talkers added: ${formatShelfTalkerList(shelfTalkerFlavors)}.`
           : 'Order created!'
       );
       setShowCreateModal(false);
@@ -489,6 +515,9 @@ export default function AdminOrdersPage() {
                       )}
                       {order.include_marketing_materials && (
                         <span className="text-xs font-semibold px-2 py-1 rounded-full bg-amber-100 text-amber-700">Materials</span>
+                      )}
+                      {Boolean(order.shelf_talker_fulfillments?.length) && (
+                        <span className="text-xs font-semibold px-2 py-1 rounded-full bg-orange-100 text-orange-700">Shelf Talkers</span>
                       )}
                       {Number(order.credit_applied || 0) > 0 && (
                         <span className="text-xs font-semibold px-2 py-1 rounded-full bg-blue-100 text-blue-700">Credit</span>
@@ -742,6 +771,18 @@ export default function AdminOrdersPage() {
                 {selectedOrder.include_marketing_materials && (
                   <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1">
                     {formatMarketingMaterialsLabel(selectedOrder.marketing_materials_type)} included with this order
+                  </div>
+                )}
+                {Boolean(selectedOrder.shelf_talker_fulfillments?.length) && (
+                  <div className="mb-3 rounded-lg border border-orange-100 bg-orange-50 px-3 py-2">
+                    <p className="text-sm font-semibold text-orange-800">
+                      Shelf talkers: {formatShelfTalkerList((selectedOrder.shelf_talker_fulfillments || []).map((talker) => talker.flavor))}
+                    </p>
+                    <p className="text-xs text-orange-700 mt-1">
+                      {(selectedOrder.shelf_talker_fulfillments || []).some((talker) => talker.status === 'queued')
+                        ? 'Queued to ship with this order.'
+                        : 'Marked sent with this order.'}
+                    </p>
                   </div>
                 )}
                 {Number(selectedOrder.credit_applied || 0) > 0 && (
