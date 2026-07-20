@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import {
   XAxis,
@@ -15,7 +16,7 @@ import {
   Bar,
   Legend,
 } from 'recharts';
-import { AlertTriangle, ArrowUpRight, CheckCircle2, Info, Package, ShoppingCart, Store, Target, TrendingUp, Users } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Calendar, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Info, Package, ShoppingCart, Store, Target, TrendingUp, Users } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   defaultCurrentAstroPromo,
@@ -67,12 +68,6 @@ type AtRiskRetailer = {
   company_name: string;
   last_order_date: Date;
   days_since: number;
-};
-
-type MonthlyRevenuePoint = {
-  month: string;
-  revenue: number;
-  paceRevenue: number;
 };
 
 type PerformanceMetric = 'revenue' | 'orders' | 'units' | 'velocity';
@@ -157,7 +152,34 @@ type RankedSkuMetric = {
 
 type InsightsView = 'overview' | 'health' | 'skus' | 'markets';
 type RetailerHealthPanel = 'summary' | 'needs_first_order' | 'at_risk' | 'outreach' | 'leaderboards';
-type InsightsTimeRange = 'mtd' | '90d' | '12m' | 'all';
+type DatePresetId =
+  | 'today'
+  | 'yesterday'
+  | 'last_7_days'
+  | 'last_30_days'
+  | 'last_90_days'
+  | 'last_365_days'
+  | 'week_to_date'
+  | 'month_to_date'
+  | 'quarter_to_date'
+  | 'year_to_date'
+  | 'last_week'
+  | 'last_month'
+  | 'last_quarter'
+  | 'last_12_months'
+  | 'last_year'
+  | 'custom';
+type ComparisonType = 'previous_period' | 'previous_year' | 'same_period_last_month' | 'custom' | 'none';
+type ChartInterval = 'day' | 'week' | 'month' | 'quarter';
+type DateRangeSelection = {
+  preset: DatePresetId;
+  startDate: string;
+  endDate: string;
+  includeToday: boolean;
+  comparisonType: ComparisonType;
+  comparisonStartDate: string;
+  comparisonEndDate: string;
+};
 type OutreachPriority = 'High' | 'Medium' | 'Low';
 type RetailerSuccessRow = NonNullable<RetailerSuccessInsights>['retailerRows'][number];
 
@@ -185,7 +207,6 @@ type ComparisonMetrics = {
 
 const MS_IN_DAY = 1000 * 60 * 60 * 24;
 const SUPABASE_PAGE_SIZE = 1000;
-const UPSPW_TRAILING_WEEKS = 52;
 const MIN_RUNNING_WEEKS = 1;
 
 const insightsViews: Array<{ id: InsightsView; label: string; description: string }> = [
@@ -203,11 +224,52 @@ const retailerHealthPanels: Array<{ id: RetailerHealthPanel; label: string; desc
   { id: 'leaderboards', label: 'Leaderboards', description: 'Top retailer performance' },
 ];
 
-const timeRangeOptions: Array<{ id: InsightsTimeRange; label: string; description: string }> = [
-  { id: 'mtd', label: 'MTD', description: 'Month to date' },
-  { id: '90d', label: '90 days', description: 'Last 90 days' },
-  { id: '12m', label: '12 months', description: 'Last 12 months' },
-  { id: 'all', label: 'All time', description: 'All available data' },
+const datePresetGroups: Array<{
+  label: string;
+  presets: Array<{ id: DatePresetId; label: string; rolling?: boolean }>;
+}> = [
+  {
+    label: 'Recent',
+    presets: [
+      { id: 'today', label: 'Today' },
+      { id: 'yesterday', label: 'Yesterday' },
+      { id: 'last_7_days', label: 'Last 7 days', rolling: true },
+      { id: 'last_30_days', label: 'Last 30 days', rolling: true },
+      { id: 'last_90_days', label: 'Last 90 days', rolling: true },
+      { id: 'last_365_days', label: 'Last 365 days', rolling: true },
+    ],
+  },
+  {
+    label: 'Period to date',
+    presets: [
+      { id: 'week_to_date', label: 'Week to date' },
+      { id: 'month_to_date', label: 'Month to date' },
+      { id: 'quarter_to_date', label: 'Quarter to date' },
+      { id: 'year_to_date', label: 'Year to date' },
+    ],
+  },
+  {
+    label: 'Previous periods',
+    presets: [
+      { id: 'last_week', label: 'Last week' },
+      { id: 'last_month', label: 'Last month' },
+      { id: 'last_quarter', label: 'Last quarter' },
+      { id: 'last_12_months', label: 'Last 12 months', rolling: true },
+      { id: 'last_year', label: 'Last year' },
+    ],
+  },
+  {
+    label: 'Custom',
+    presets: [{ id: 'custom', label: 'Custom range' }],
+  },
+];
+
+const comparisonOptions: Array<{ id: ComparisonType; label: string }> = [
+  { id: 'previous_period', label: 'Previous period' },
+  { id: 'previous_year', label: 'Previous year' },
+  { id: 'same_period_last_month', label: 'Same period last month' },
+  { id: 'custom', label: 'Custom comparison' },
+  { id: 'none', label: 'No comparison' },
 ];
 
 const performanceMetricOptions: Array<{ id: PerformanceMetric; label: string; color: string; comparisonColor: string }> = [
@@ -251,115 +313,262 @@ const parseStateFromAddress = (address: string | null | undefined) => {
   return fallback?.[1] || null;
 };
 
-const buildTrailingMonths = (count: number) => {
-  const now = new Date();
-  return Array.from({ length: count }, (_, index) => {
-    const date = new Date(now.getFullYear(), now.getMonth() - (count - 1 - index), 1);
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    const label = `${date.toLocaleString('en-US', { month: 'short' })} ${String(date.getFullYear()).slice(-2)}`;
-    return { key, label };
-  });
-};
-
-const getTimeRangeStart = (range: InsightsTimeRange, today = new Date()) => {
-  if (range === 'mtd') return new Date(today.getFullYear(), today.getMonth(), 1);
-  if (range === '90d') return new Date(today.getTime() - 89 * MS_IN_DAY);
-  if (range === '12m') return new Date(today.getTime() - (365 - 1) * MS_IN_DAY);
-  return null;
-};
-
-const getTimeRangeLabel = (range: InsightsTimeRange) =>
-  timeRangeOptions.find((option) => option.id === range)?.description || 'Selected range';
+const getPresetLabel = (preset: DatePresetId) =>
+  datePresetGroups.flatMap((group) => group.presets).find((option) => option.id === preset)?.label || 'Custom range';
 
 const getPipedriveDealUrl = (dealId: number) => `https://app.pipedrive.com/deal/${dealId}`;
 
-const getTrendBucketKey = (date: Date, range: InsightsTimeRange) => {
-  if (range === 'mtd' || range === '90d') {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const addDays = (date: Date, days: number) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+
+const addMonths = (date: Date, months: number) => {
+  const nextDate = new Date(date);
+  nextDate.setMonth(nextDate.getMonth() + months);
+  return nextDate;
+};
+
+const formatDateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const parseDateKey = (dateKey: string) => {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+};
+
+const getInclusiveDays = (startDate: Date, endDate: Date) =>
+  Math.max(1, Math.round((startOfLocalDay(endDate).getTime() - startOfLocalDay(startDate).getTime()) / MS_IN_DAY) + 1);
+
+const formatRangeLabel = (startDateKey: string, endDateKey: string) => {
+  const startDate = parseDateKey(startDateKey);
+  const endDate = parseDateKey(endDateKey);
+  if (!startDate || !endDate) return 'Invalid date range';
+  const sameYear = startDate.getFullYear() === endDate.getFullYear();
+  const startLabel = startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: sameYear ? undefined : 'numeric' });
+  const endLabel = endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${startLabel}-${endLabel}`;
+};
+
+const getDefaultDateSelection = (today = new Date()): DateRangeSelection => {
+  const primary = getPresetRange('last_90_days', today, true);
+  const comparison = getComparisonRange(primary.startDate, primary.endDate, 'previous_period', today);
+  return {
+    preset: 'last_90_days',
+    startDate: primary.startDate,
+    endDate: primary.endDate,
+    includeToday: true,
+    comparisonType: 'previous_period',
+    comparisonStartDate: comparison?.startDate || '',
+    comparisonEndDate: comparison?.endDate || '',
+  };
+};
+
+const isDateSelectionEqual = (first: DateRangeSelection, second: DateRangeSelection) =>
+  first.preset === second.preset &&
+  first.startDate === second.startDate &&
+  first.endDate === second.endDate &&
+  first.includeToday === second.includeToday &&
+  first.comparisonType === second.comparisonType &&
+  first.comparisonStartDate === second.comparisonStartDate &&
+  first.comparisonEndDate === second.comparisonEndDate;
+
+const getDateSelectionFromSearchParams = (params: URLSearchParams, today = new Date()) => {
+  const fallback = getDefaultDateSelection(today);
+  const preset = (params.get('preset') as DatePresetId | null) || fallback.preset;
+  const comparisonType = (params.get('compare') as ComparisonType | null) || fallback.comparisonType;
+  const startDate = params.get('start') || fallback.startDate;
+  const endDate = params.get('end') || fallback.endDate;
+  const includeToday = params.get('today') !== 'false';
+  const computedComparison = getComparisonRange(startDate, endDate, comparisonType, today);
+
+  return {
+    preset: datePresetGroups.flatMap((group) => group.presets).some((option) => option.id === preset) ? preset : fallback.preset,
+    startDate,
+    endDate,
+    includeToday,
+    comparisonType: comparisonOptions.some((option) => option.id === comparisonType) ? comparisonType : fallback.comparisonType,
+    comparisonStartDate: params.get('cstart') || computedComparison?.startDate || fallback.comparisonStartDate,
+    comparisonEndDate: params.get('cend') || computedComparison?.endDate || fallback.comparisonEndDate,
+  };
+};
+
+const getPresetRange = (preset: DatePresetId, todayInput = new Date(), includeToday = true) => {
+  const today = startOfLocalDay(todayInput);
+  const rollingEnd = includeToday ? today : addDays(today, -1);
+  const yesterday = addDays(today, -1);
+  const currentQuarterStartMonth = Math.floor(today.getMonth() / 3) * 3;
+
+  if (preset === 'today') return { startDate: formatDateKey(today), endDate: formatDateKey(today) };
+  if (preset === 'yesterday') return { startDate: formatDateKey(yesterday), endDate: formatDateKey(yesterday) };
+  if (preset === 'last_7_days') return { startDate: formatDateKey(addDays(rollingEnd, -6)), endDate: formatDateKey(rollingEnd) };
+  if (preset === 'last_30_days') return { startDate: formatDateKey(addDays(rollingEnd, -29)), endDate: formatDateKey(rollingEnd) };
+  if (preset === 'last_90_days') return { startDate: formatDateKey(addDays(rollingEnd, -89)), endDate: formatDateKey(rollingEnd) };
+  if (preset === 'last_365_days') return { startDate: formatDateKey(addDays(rollingEnd, -364)), endDate: formatDateKey(rollingEnd) };
+  if (preset === 'week_to_date') return { startDate: formatDateKey(addDays(today, -today.getDay())), endDate: formatDateKey(today) };
+  if (preset === 'month_to_date') return { startDate: formatDateKey(new Date(today.getFullYear(), today.getMonth(), 1)), endDate: formatDateKey(today) };
+  if (preset === 'quarter_to_date') return { startDate: formatDateKey(new Date(today.getFullYear(), currentQuarterStartMonth, 1)), endDate: formatDateKey(today) };
+  if (preset === 'year_to_date') return { startDate: formatDateKey(new Date(today.getFullYear(), 0, 1)), endDate: formatDateKey(today) };
+  if (preset === 'last_week') {
+    const currentWeekStart = addDays(today, -today.getDay());
+    return { startDate: formatDateKey(addDays(currentWeekStart, -7)), endDate: formatDateKey(addDays(currentWeekStart, -1)) };
+  }
+  if (preset === 'last_month') {
+    const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const end = new Date(today.getFullYear(), today.getMonth(), 0);
+    return { startDate: formatDateKey(start), endDate: formatDateKey(end) };
+  }
+  if (preset === 'last_quarter') {
+    const start = new Date(today.getFullYear(), currentQuarterStartMonth - 3, 1);
+    const end = new Date(today.getFullYear(), currentQuarterStartMonth, 0);
+    return { startDate: formatDateKey(start), endDate: formatDateKey(end) };
+  }
+  if (preset === 'last_12_months') return { startDate: formatDateKey(addDays(rollingEnd, -364)), endDate: formatDateKey(rollingEnd) };
+  if (preset === 'last_year') {
+    const start = new Date(today.getFullYear() - 1, 0, 1);
+    const end = new Date(today.getFullYear() - 1, 11, 31);
+    return { startDate: formatDateKey(start), endDate: formatDateKey(end) };
+  }
+
+  return { startDate: formatDateKey(addDays(today, -89)), endDate: formatDateKey(today) };
+};
+
+const getComparisonRange = (startDateKey: string, endDateKey: string, comparisonType: ComparisonType, today = new Date()) => {
+  if (comparisonType === 'none' || comparisonType === 'custom') return null;
+  const startDate = parseDateKey(startDateKey);
+  const endDate = parseDateKey(endDateKey);
+  if (!startDate || !endDate) return null;
+  const days = getInclusiveDays(startDate, endDate);
+
+  if (comparisonType === 'previous_period') {
+    const comparisonEnd = addDays(startDate, -1);
+    return {
+      startDate: formatDateKey(addDays(comparisonEnd, -(days - 1))),
+      endDate: formatDateKey(comparisonEnd),
+    };
+  }
+
+  if (comparisonType === 'same_period_last_month') {
+    return {
+      startDate: formatDateKey(addMonths(startDate, -1)),
+      endDate: formatDateKey(addMonths(endDate, -1)),
+    };
+  }
+
+  const currentYear = startOfLocalDay(today).getFullYear();
+  const previousYearStart = startDate.getFullYear() === currentYear
+    ? new Date(startDate.getFullYear() - 1, startDate.getMonth(), startDate.getDate())
+    : addMonths(startDate, -12);
+  const previousYearEnd = endDate.getFullYear() === currentYear
+    ? new Date(endDate.getFullYear() - 1, endDate.getMonth(), endDate.getDate())
+    : addMonths(endDate, -12);
+  return {
+    startDate: formatDateKey(previousYearStart),
+    endDate: formatDateKey(previousYearEnd),
+  };
+};
+
+const getComparisonLabel = (selection: DateRangeSelection) => {
+  if (selection.comparisonType === 'none') return '';
+  if (!selection.comparisonStartDate || !selection.comparisonEndDate) return '';
+  if (selection.comparisonType === 'previous_period') return `previous ${getInclusiveDays(parseDateKey(selection.startDate) || new Date(), parseDateKey(selection.endDate) || new Date())} days`;
+  if (selection.comparisonType === 'previous_year') return 'same period last year';
+  if (selection.comparisonType === 'same_period_last_month') return 'same period last month';
+  return formatRangeLabel(selection.comparisonStartDate, selection.comparisonEndDate);
+};
+
+const getDateRangeFromSelection = (selection: DateRangeSelection) => {
+  const startDate = parseDateKey(selection.startDate) || startOfLocalDay(new Date());
+  const endDate = parseDateKey(selection.endDate) || startOfLocalDay(new Date());
+  return {
+    start: startOfLocalDay(startDate),
+    endExclusive: addDays(endDate, 1),
+  };
+};
+
+const getComparisonRangeFromSelection = (selection: DateRangeSelection) => {
+  if (selection.comparisonType === 'none' || !selection.comparisonStartDate || !selection.comparisonEndDate) return null;
+  const startDate = parseDateKey(selection.comparisonStartDate);
+  const endDate = parseDateKey(selection.comparisonEndDate);
+  if (!startDate || !endDate) return null;
+  return {
+    start: startOfLocalDay(startDate),
+    endExclusive: addDays(endDate, 1),
+    label: getComparisonLabel(selection),
+  };
+};
+
+const getChartInterval = (startDate: Date, endDate: Date): ChartInterval => {
+  const days = getInclusiveDays(startDate, addDays(endDate, -1));
+  if (days <= 31) return 'day';
+  if (days <= 180) return 'week';
+  if (days <= 730) return 'month';
+  return 'quarter';
+};
+
+const getTrendBucketKey = (date: Date, interval: ChartInterval) => {
+  if (interval === 'day') return formatDateKey(date);
+  if (interval === 'week') {
+    const weekStart = addDays(date, -date.getDay());
+    return formatDateKey(weekStart);
+  }
+  if (interval === 'quarter') {
+    const quarterStartMonth = Math.floor(date.getMonth() / 3) * 3;
+    return `${date.getFullYear()}-Q${Math.floor(quarterStartMonth / 3) + 1}`;
   }
 
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 };
 
-const getTrendBucketLabel = (date: Date, range: InsightsTimeRange) => {
-  if (range === 'mtd' || range === '90d') {
+const getTrendBucketLabel = (date: Date, interval: ChartInterval) => {
+  if (interval === 'day' || interval === 'week') {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  if (interval === 'quarter') {
+    return `Q${Math.floor(date.getMonth() / 3) + 1} ${date.getFullYear()}`;
   }
 
   return `${date.toLocaleString('en-US', { month: 'short' })} ${String(date.getFullYear()).slice(-2)}`;
 };
 
-const buildTrendBuckets = (range: InsightsTimeRange, today: Date, firstOrderDate: Date | null) => {
-  const start = getTimeRangeStart(range, today) || firstOrderDate || new Date(today.getFullYear(), today.getMonth() - 11, 1);
-  return buildTrendBucketsBetween(range, start, today);
-};
-
-const buildTrendBucketsBetween = (range: InsightsTimeRange, startDate: Date, endDate: Date) => {
+const buildTrendBucketsBetween = (startDate: Date, endExclusiveDate: Date, interval: ChartInterval) => {
   const buckets: Array<{ key: string; label: string; start: Date; end: Date }> = [];
+  const cursor = new Date(startDate);
 
-  if (range === 'mtd' || range === '90d') {
-    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-    const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-    while (cursor <= end) {
-      const bucketStart = new Date(cursor);
-      const bucketEnd = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
-      buckets.push({
-        key: getTrendBucketKey(bucketStart, range),
-        label: getTrendBucketLabel(bucketStart, range),
-        start: bucketStart,
-        end: bucketEnd,
-      });
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    return buckets;
-  }
-
-  const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-  const end = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
-  while (cursor <= end) {
+  while (cursor < endExclusiveDate) {
     const bucketStart = new Date(cursor);
-    const bucketEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    let bucketEnd: Date;
+    if (interval === 'day') {
+      cursor.setDate(cursor.getDate() + 1);
+      bucketEnd = new Date(cursor);
+    } else if (interval === 'week') {
+      cursor.setDate(cursor.getDate() + 7);
+      bucketEnd = new Date(cursor);
+    } else if (interval === 'quarter') {
+      cursor.setMonth(cursor.getMonth() + 3);
+      bucketEnd = new Date(cursor);
+    } else {
+      cursor.setMonth(cursor.getMonth() + 1);
+      bucketEnd = new Date(cursor);
+    }
+
     buckets.push({
-      key: getTrendBucketKey(bucketStart, range),
-      label: getTrendBucketLabel(bucketStart, range),
+      key: getTrendBucketKey(bucketStart, interval),
+      label: getTrendBucketLabel(bucketStart, interval),
       start: bucketStart,
-      end: bucketEnd,
+      end: bucketEnd < endExclusiveDate ? bucketEnd : endExclusiveDate,
     });
-    cursor.setMonth(cursor.getMonth() + 1);
   }
 
   return buckets;
 };
 
-const getPreviousTimeRange = (range: InsightsTimeRange, today = new Date()) => {
-  if (range === 'all') return null;
-
-  if (range === 'mtd') {
-    const previousMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    const previousMonthLastDay = new Date(today.getFullYear(), today.getMonth(), 0).getDate();
-    const comparableDay = Math.min(today.getDate(), previousMonthLastDay);
-    const previousMonthEnd = new Date(today.getFullYear(), today.getMonth() - 1, comparableDay + 1);
-    return {
-      start: previousMonthStart,
-      end: previousMonthEnd,
-      label: 'previous month-to-date',
-    };
-  }
-
-  const currentStart = getTimeRangeStart(range, today);
-  if (!currentStart) return null;
-  const windowDays = range === '90d' ? 90 : 365;
-  return {
-    start: new Date(currentStart.getTime() - windowDays * MS_IN_DAY),
-    end: currentStart,
-    label: `previous ${range === '90d' ? '90 days' : '12 months'}`,
-  };
-};
-
 export default function AdminInsightsPage() {
   const supabase = createClientComponentClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const today = useMemo(() => startOfLocalDay(new Date()), []);
   const [isLoading, setIsLoading] = useState(true);
-  const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenuePoint[]>([]);
   const [performanceTrend, setPerformanceTrend] = useState<PerformanceTrendPoint[]>([]);
   const [activePerformanceMetric, setActivePerformanceMetric] = useState<PerformanceMetric>('revenue');
   const [totalRevenue, setTotalRevenue] = useState(0);
@@ -398,13 +607,56 @@ export default function AdminInsightsPage() {
   const [velocityWindowLabel, setVelocityWindowLabel] = useState('Running average since first order');
   const [successInsights, setSuccessInsights] = useState<RetailerSuccessInsights | null>(null);
   const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
-  const [activeView, setActiveView] = useState<InsightsView>('overview');
-  const [activeHealthPanel, setActiveHealthPanel] = useState<RetailerHealthPanel>('summary');
-  const [timeRange, setTimeRange] = useState<InsightsTimeRange>('90d');
+  const [activeView, setActiveView] = useState<InsightsView>(() => {
+    const view = searchParams.get('view') as InsightsView | null;
+    return view && insightsViews.some((option) => option.id === view) ? view : 'overview';
+  });
+  const [activeHealthPanel, setActiveHealthPanel] = useState<RetailerHealthPanel>(() => {
+    const panel = searchParams.get('panel') as RetailerHealthPanel | null;
+    return panel && retailerHealthPanels.some((option) => option.id === panel) ? panel : 'summary';
+  });
+  const [dateSelection, setDateSelection] = useState<DateRangeSelection>(() => {
+    return getDateSelectionFromSearchParams(new URLSearchParams(searchParams.toString()), today);
+  });
 
   useEffect(() => {
     fetchInsights();
-  }, [timeRange]);
+  }, [dateSelection]);
+
+  useEffect(() => {
+    const view = searchParams.get('view') as InsightsView | null;
+    const panel = searchParams.get('panel') as RetailerHealthPanel | null;
+    const nextView = view && insightsViews.some((option) => option.id === view) ? view : 'overview';
+    const nextPanel = panel && retailerHealthPanels.some((option) => option.id === panel) ? panel : 'summary';
+    const nextSelection = getDateSelectionFromSearchParams(new URLSearchParams(searchParams.toString()), today);
+
+    if (activeView !== nextView) setActiveView(nextView);
+    if (activeHealthPanel !== nextPanel) setActiveHealthPanel(nextPanel);
+    if (!isDateSelectionEqual(dateSelection, nextSelection)) setDateSelection(nextSelection);
+  }, [searchParams, today]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+    params.set('view', activeView);
+    if (activeView === 'health') {
+      params.set('panel', activeHealthPanel);
+    } else {
+      params.delete('panel');
+    }
+    params.set('preset', dateSelection.preset);
+    params.set('start', dateSelection.startDate);
+    params.set('end', dateSelection.endDate);
+    params.set('compare', dateSelection.comparisonType);
+    params.set('today', String(dateSelection.includeToday));
+    if (dateSelection.comparisonType === 'none') {
+      params.delete('cstart');
+      params.delete('cend');
+    } else {
+      params.set('cstart', dateSelection.comparisonStartDate);
+      params.set('cend', dateSelection.comparisonEndDate);
+    }
+    router.push(`/admin/insights?${params.toString()}`, { scroll: false });
+  }, [activeHealthPanel, activeView, dateSelection, router]);
 
   const fetchInsights = async () => {
     setIsLoading(true);
@@ -466,9 +718,8 @@ export default function AdminInsightsPage() {
         }, {});
       setPipedriveDealByRetailer(nextPipedriveDealByRetailer);
 
-      const today = new Date();
-      const rangeStart = getTimeRangeStart(timeRange, today);
-      const previousRange = getPreviousTimeRange(timeRange, today);
+      const selectedRange = getDateRangeFromSelection(dateSelection);
+      const previousRange = getComparisonRangeFromSelection(dateSelection);
       const validOrders = (orders as OrderRecord[] | null || []).filter(order => order.status !== 'canceled');
       const retailerIdsWithOrders = new Set(
         validOrders.flatMap((order) => order.retailer_id ? [order.retailer_id] : []),
@@ -490,13 +741,14 @@ export default function AdminInsightsPage() {
         );
       });
       setServedRetailerLocations(fulfilledDestinationKeys.size);
-      const reportingOrders = rangeStart
-        ? validOrders.filter((order) => new Date(order.created_at) >= rangeStart)
-        : validOrders;
+      const reportingOrders = validOrders.filter((order) => {
+        const orderDate = new Date(order.created_at);
+        return orderDate >= selectedRange.start && orderDate < selectedRange.endExclusive;
+      });
       const previousOrders = previousRange
         ? validOrders.filter((order) => {
           const orderDate = new Date(order.created_at);
-          return orderDate >= previousRange.start && orderDate < previousRange.end;
+          return orderDate >= previousRange.start && orderDate < previousRange.endExclusive;
         })
         : [];
       const totalRevenueValue = reportingOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
@@ -530,14 +782,16 @@ export default function AdminInsightsPage() {
 
       const unitsSoldValue = (orderItems || []).reduce((sum: number, item: any) => {
         if (item.order?.status === 'canceled') return sum;
-        if (rangeStart && item.order?.created_at && new Date(item.order.created_at) < rangeStart) return sum;
+        if (!item.order?.created_at) return sum;
+        const orderDate = new Date(item.order.created_at);
+        if (orderDate < selectedRange.start || orderDate >= selectedRange.endExclusive) return sum;
         return sum + (item.quantity || 0);
       }, 0);
       const previousUnitsSoldValue = previousRange
         ? (orderItems || []).reduce((sum: number, item: any) => {
           if (item.order?.status === 'canceled' || !item.order?.created_at) return sum;
           const orderDate = new Date(item.order.created_at);
-          if (orderDate < previousRange.start || orderDate >= previousRange.end) return sum;
+          if (orderDate < previousRange.start || orderDate >= previousRange.endExclusive) return sum;
           return sum + (item.quantity || 0);
         }, 0)
         : null;
@@ -546,34 +800,12 @@ export default function AdminInsightsPage() {
       setUnitsSold(unitsSoldValue);
       setAvgOrderValue(totalOrders > 0 ? totalRevenueValue / totalOrders : 0);
 
-      const firstValidOrderDate = validOrders.length > 0
-        ? validOrders.reduce((earliest, order) => {
-          const orderDate = new Date(order.created_at);
-          return orderDate < earliest ? orderDate : earliest;
-        }, new Date(validOrders[0].created_at))
-        : null;
-
-      const daysSinceWindowStart = rangeStart
-        ? Math.max(1, Math.ceil((today.getTime() - rangeStart.getTime()) / MS_IN_DAY) + 1)
-        : firstValidOrderDate
-          ? Math.max(1, Math.ceil((today.getTime() - firstValidOrderDate.getTime()) / MS_IN_DAY) + 1)
-          : 0;
-      const runningWeeksSinceWindowStart = Math.max(MIN_RUNNING_WEEKS, daysSinceWindowStart / 7);
-      const useTrailingYearWindow = !rangeStart && runningWeeksSinceWindowStart >= UPSPW_TRAILING_WEEKS;
-      const divisorWeeks = useTrailingYearWindow ? UPSPW_TRAILING_WEEKS : runningWeeksSinceWindowStart;
-      const unitsWindowStart = rangeStart || (
-        useTrailingYearWindow
-          ? new Date(today.getTime() - (UPSPW_TRAILING_WEEKS * 7 - 1) * MS_IN_DAY)
-          : firstValidOrderDate
-      );
-      const effectiveUnitsWindowStart = unitsWindowStart || new Date(0);
+      const daysSinceWindowStart = getInclusiveDays(selectedRange.start, addDays(selectedRange.endExclusive, -1));
+      const divisorWeeks = Math.max(MIN_RUNNING_WEEKS, daysSinceWindowStart / 7);
+      const effectiveUnitsWindowStart = selectedRange.start;
 
       setVelocityWindowLabel(
-        rangeStart
-          ? `${getTimeRangeLabel(timeRange)} average (${divisorWeeks.toFixed(1)} weeks)`
-          : useTrailingYearWindow
-          ? 'Trailing 52-week average'
-          : `Running average since first order (${divisorWeeks.toFixed(1)} weeks)`,
+        `${getPresetLabel(dateSelection.preset)} average (${divisorWeeks.toFixed(1)} weeks)`,
       );
       setComparisonDivisorWeeks(divisorWeeks);
 
@@ -592,7 +824,7 @@ export default function AdminInsightsPage() {
       }> | null) || []).forEach((item) => {
         if (item.order?.status === 'canceled' || !item.order?.retailer_id || !item.order?.created_at) return;
         const orderDate = new Date(item.order.created_at);
-        if (orderDate < effectiveUnitsWindowStart) return;
+        if (orderDate < effectiveUnitsWindowStart || orderDate >= selectedRange.endExclusive) return;
         const storeKey = item.order.location_id || `retailer:${item.order.retailer_id}`;
         if (item.product_id) {
           skuLabels.set(item.product_id, formatSkuLabel(item.product, item.product_id));
@@ -838,34 +1070,6 @@ export default function AdminInsightsPage() {
         return nextSkuOptions.slice(0, 2).map((option) => option.id);
       });
 
-      const chartMonthCount = timeRange === 'mtd' ? 2 : timeRange === '90d' ? 4 : 12;
-      const trailingMonths = buildTrailingMonths(chartMonthCount);
-      const revenueByMonth = new Map<string, number>();
-      const paceRevenueByMonth = new Map<string, number>();
-      const currentDayOfMonth = today.getDate();
-
-      reportingOrders.forEach(order => {
-        const date = new Date(order.created_at);
-        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        const orderTotal = Number(order.total) || 0;
-        revenueByMonth.set(key, (revenueByMonth.get(key) || 0) + (Number(order.total) || 0));
-
-        const comparableDay = Math.min(
-          currentDayOfMonth,
-          new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate(),
-        );
-        if (date.getDate() <= comparableDay) {
-          paceRevenueByMonth.set(key, (paceRevenueByMonth.get(key) || 0) + orderTotal);
-        }
-      });
-
-      const monthly = trailingMonths.map(({ key, label }) => ({
-        month: label,
-        revenue: revenueByMonth.get(key) || 0,
-        paceRevenue: paceRevenueByMonth.get(key) || 0,
-      }));
-      setMonthlyRevenue(monthly);
-
       const buildRetailerStats = (ordersToSummarize: OrderRecord[]) => {
         const stats = new Map<string, RetailerStats>();
         ordersToSummarize.forEach(order => {
@@ -897,15 +1101,13 @@ export default function AdminInsightsPage() {
       const previousActiveRetailerCount = previousRange ? previousRetailerStats.size : null;
       setActiveRetailers(activeRetailerCount);
 
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const newRetailersCount = (retailers as RetailerRecord[] | null || []).filter(retailer => {
         const createdAt = new Date(retailer.created_at);
-        return createdAt >= startOfMonth;
+        return createdAt >= selectedRange.start && createdAt < selectedRange.endExclusive;
       }).length;
       const newLocationCount = (retailerLocations as RetailerLocationRecord[] | null || []).filter(location => {
         const createdAt = new Date(location.created_at);
-        return createdAt >= startOfMonth;
+        return createdAt >= selectedRange.start && createdAt < selectedRange.endExclusive;
       }).length;
       setNewLocationsThisMonth(newRetailersCount + newLocationCount);
 
@@ -918,14 +1120,14 @@ export default function AdminInsightsPage() {
         ? (previousReorderCount / previousActiveRetailerCount) * 100
         : null;
 
-      const riskThreshold = new Date(now.getTime() - 90 * MS_IN_DAY);
+      const riskThreshold = selectedRange.start;
       const atRisk = Array.from(allTimeRetailerStats.values())
         .filter(retailer => retailer.last_order_date < riskThreshold)
         .map(retailer => ({
           id: retailer.id,
           company_name: retailer.company_name,
           last_order_date: retailer.last_order_date,
-          days_since: Math.floor((now.getTime() - retailer.last_order_date.getTime()) / MS_IN_DAY),
+          days_since: Math.floor((selectedRange.endExclusive.getTime() - retailer.last_order_date.getTime()) / MS_IN_DAY),
         }))
         .sort((a, b) => b.days_since - a.days_since);
       setAtRiskRetailers(atRisk);
@@ -1018,9 +1220,10 @@ export default function AdminInsightsPage() {
         return bucketSummaries;
       };
 
-      const trendBuckets = buildTrendBuckets(timeRange, today, firstValidOrderDate);
+      const chartInterval = getChartInterval(selectedRange.start, selectedRange.endExclusive);
+      const trendBuckets = buildTrendBucketsBetween(selectedRange.start, selectedRange.endExclusive, chartInterval);
       const previousTrendBuckets = previousRange
-        ? buildTrendBucketsBetween(timeRange, previousRange.start, new Date(previousRange.end.getTime() - MS_IN_DAY))
+        ? buildTrendBucketsBetween(previousRange.start, previousRange.endExclusive, chartInterval)
         : [];
       const itemRows = (orderItems as Array<{
         quantity: number | null;
@@ -1067,30 +1270,6 @@ export default function AdminInsightsPage() {
       setIsLoading(false);
     }
   };
-
-  const monthToDateComparison = useMemo(() => {
-    const currentPace = monthlyRevenue[monthlyRevenue.length - 1]?.paceRevenue || 0;
-    const previousPace = monthlyRevenue[monthlyRevenue.length - 2]?.paceRevenue || 0;
-    const delta = currentPace - previousPace;
-    const percentDelta = previousPace === 0 ? (currentPace > 0 ? 100 : 0) : (delta / previousPace) * 100;
-
-    return {
-      currentPace,
-      previousPace,
-      delta,
-      percentDelta,
-    };
-  }, [monthlyRevenue]);
-
-  const growthLabel = useMemo(() => {
-    const sign = monthToDateComparison.percentDelta > 0 ? '+' : '';
-    return `${sign}${monthToDateComparison.percentDelta.toFixed(1)}% vs same point last month`;
-  }, [monthToDateComparison]);
-
-  const growthDeltaLabel = useMemo(() => {
-    const direction = monthToDateComparison.delta >= 0 ? 'Up' : 'Down';
-    return `${direction} ${formatCurrency(Math.abs(monthToDateComparison.delta))} MTD`;
-  }, [monthToDateComparison]);
 
   const filteredSkuOptions = useMemo(() => {
     const query = skuSearchQuery.trim().toLowerCase();
@@ -1194,6 +1373,9 @@ export default function AdminInsightsPage() {
     : 0;
   const highPerformerCount = successInsights?.byLifecycle.high_performer || 0;
   const sampleFollowUpCount = successInsights?.missingSamples.length || 0;
+  const activeDateLabel = getPresetLabel(dateSelection.preset);
+  const activeRangeLabel = formatRangeLabel(dateSelection.startDate, dateSelection.endDate);
+  const activeComparisonLabel = getComparisonLabel(dateSelection);
 
   const businessHighlights = useMemo(() => {
     const highlights: Array<{ text: string; view: InsightsView; panel?: RetailerHealthPanel }> = [];
@@ -1351,27 +1533,14 @@ export default function AdminInsightsPage() {
           </p>
         </div>
         <div className="flex flex-col gap-3">
-          <div className="flex overflow-x-auto rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
-            {timeRangeOptions.map((range) => {
-              const isActive = timeRange === range.id;
-              return (
-                <button
-                  key={range.id}
-                  type="button"
-                  onClick={() => setTimeRange(range.id)}
-                  className={`shrink-0 rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
-                    isActive
-                      ? 'bg-bark-500 text-white shadow-sm'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`}
-                  aria-pressed={isActive}
-                  title={range.description}
-                >
-                  {range.label}
-                </button>
-              );
-            })}
-          </div>
+          <DateRangePicker
+            selection={dateSelection}
+            onApply={setDateSelection}
+            today={today}
+            activeDateLabel={activeDateLabel}
+            activeRangeLabel={activeRangeLabel}
+            activeComparisonLabel={activeComparisonLabel}
+          />
           <div className="flex overflow-x-auto rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
             {insightsViews.map((view) => {
               const isActive = activeView === view.id;
@@ -1462,10 +1631,9 @@ export default function AdminInsightsPage() {
             <p className="text-xs font-semibold uppercase text-bark-500/60">Business Highlights</p>
             <h3 className="mt-1 text-lg font-semibold text-bark-500">Here is what changed and where to focus.</h3>
           </div>
-          {timeRange === 'mtd' && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              <span className="font-semibold">{growthLabel}</span>
-              <span className="block text-xs">{growthDeltaLabel}. MTD compares through the same calendar day.</span>
+          {activeComparisonLabel && (
+            <div className="rounded-lg border border-bark-100 bg-white px-4 py-3 text-sm text-bark-700">
+              Compared with {formatRangeLabel(dateSelection.comparisonStartDate, dateSelection.comparisonEndDate)}
             </div>
           )}
         </div>
@@ -1491,7 +1659,7 @@ export default function AdminInsightsPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Performance Trend</h3>
-            <p className="mt-1 text-sm text-gray-500">{getTimeRangeLabel(timeRange)} trend with comparable-period context when available.</p>
+            <p className="mt-1 text-sm text-gray-500">{activeRangeLabel} trend with comparable-period context when available.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {performanceMetricOptions.map((metric) => {
@@ -1600,7 +1768,7 @@ export default function AdminInsightsPage() {
         <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3 xl:grid-cols-6">
           <SupportingMetric label="Active retailers" value={activeRetailers} delta={<TrendDelta current={activeRetailers} previous={comparisonMetrics.activeRetailers} label={comparisonMetrics.label} />} />
           <SupportingMetric label="Active states" value={activeStates} delta={<TrendDelta current={activeStates} previous={comparisonMetrics.activeStates} label={comparisonMetrics.label} />} />
-          <SupportingMetric label="New retail locations" value={newLocationsThisMonth} helper="This month" />
+          <SupportingMetric label="New retail locations" value={newLocationsThisMonth} helper="Selected range" />
           <SupportingMetric label="Suggested SKU pairs" value={skuComparisons.length} />
           <SupportingMetric label="Top 10% retailer velocity" value={unitsPerStoreMetrics.topDecile.toFixed(2)} helper="Units/store/week" />
           <SupportingMetric label="Per-SKU velocity" value={unitsPerStorePerSkuMetrics.overall.toFixed(2)} helper="All active stores" />
@@ -1641,7 +1809,7 @@ export default function AdminInsightsPage() {
               <p className="text-xs text-gray-400 mt-2">All time</p>
             </div>
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500">New Retail Locations This Month</p>
+              <p className="text-sm text-gray-500">New Retail Locations in Range</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{newLocationsThisMonth}</p>
             </div>
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
@@ -1652,7 +1820,7 @@ export default function AdminInsightsPage() {
               <TrendDelta current={reorderRate} previous={comparisonMetrics.reorderRate} label={comparisonMetrics.label} mode="points" />
             </div>
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-              <MetricLabel tooltip="Retailers whose last non-canceled order is at least 90 days old.">
+              <MetricLabel tooltip="Retailers whose last non-canceled order was before the selected range began.">
                 At-Risk Retailers
               </MetricLabel>
               <p className="text-2xl font-bold text-gray-900 mt-1">{atRiskRetailers.length}</p>
@@ -2022,12 +2190,12 @@ export default function AdminInsightsPage() {
               <h4 className="text-md font-semibold text-gray-900">At-Risk Retailers</h4>
               <MetricLabel
                 className="text-sm text-gray-500"
-                tooltip="This list is based on retailers with no non-canceled orders in the last 90 days."
+                tooltip="This list is based on retailers whose last non-canceled order was before the selected range began."
               >
                 Rule
               </MetricLabel>
             </div>
-            <p className="text-sm text-gray-500 mt-1">No orders in the last 90 days</p>
+            <p className="text-sm text-gray-500 mt-1">No orders during the selected date range</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -2093,7 +2261,7 @@ export default function AdminInsightsPage() {
       {activeView === 'health' && activeHealthPanel === 'leaderboards' && (
       <section id="retailer-health-leaderboards" role="tabpanel" className="space-y-4">
         <h3 className="text-lg font-semibold text-gray-900">Top 10 Retailers Leaderboard</h3>
-        <p className="text-sm text-gray-500 -mt-2">{getTimeRangeLabel(timeRange)} performance</p>
+        <p className="text-sm text-gray-500 -mt-2">{activeRangeLabel} performance</p>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-6 border-b border-gray-100">
@@ -2173,6 +2341,365 @@ export default function AdminInsightsPage() {
         </div>
       </section>
       )}
+    </div>
+  );
+}
+
+function DateRangePicker({
+  selection,
+  onApply,
+  today,
+  activeDateLabel,
+  activeRangeLabel,
+  activeComparisonLabel,
+}: {
+  selection: DateRangeSelection;
+  onApply: (selection: DateRangeSelection) => void;
+  today: Date;
+  activeDateLabel: string;
+  activeRangeLabel: string;
+  activeComparisonLabel: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [draft, setDraft] = useState<DateRangeSelection>(selection);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const startDate = parseDateKey(selection.startDate) || today;
+    return new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+  });
+  const maxDate = formatDateKey(today);
+  const primaryStart = parseDateKey(draft.startDate);
+  const primaryEnd = parseDateKey(draft.endDate);
+  const comparisonStart = parseDateKey(draft.comparisonStartDate);
+  const comparisonEnd = parseDateKey(draft.comparisonEndDate);
+  const primaryDays = primaryStart && primaryEnd ? getInclusiveDays(primaryStart, primaryEnd) : 0;
+  const comparisonDays = comparisonStart && comparisonEnd ? getInclusiveDays(comparisonStart, comparisonEnd) : 0;
+  const showComparisonWarning = draft.comparisonType === 'custom' && primaryDays > 0 && comparisonDays > 0 && primaryDays !== comparisonDays;
+  const isRollingPreset = datePresetGroups.flatMap((group) => group.presets).find((option) => option.id === draft.preset)?.rolling;
+
+  useEffect(() => {
+    if (isOpen) {
+      setDraft(selection);
+      const startDate = parseDateKey(selection.startDate) || today;
+      setCalendarMonth(new Date(startDate.getFullYear(), startDate.getMonth(), 1));
+    }
+  }, [isOpen, selection, today]);
+
+  const updateDraftRange = (nextDraft: DateRangeSelection, nextStartDate: string, nextEndDate: string, nextComparisonType = nextDraft.comparisonType) => {
+    const comparison = getComparisonRange(nextStartDate, nextEndDate, nextComparisonType, today);
+    return {
+      ...nextDraft,
+      startDate: nextStartDate,
+      endDate: nextEndDate,
+      comparisonType: nextComparisonType,
+      comparisonStartDate: nextComparisonType === 'custom' ? nextDraft.comparisonStartDate : comparison?.startDate || '',
+      comparisonEndDate: nextComparisonType === 'custom' ? nextDraft.comparisonEndDate : comparison?.endDate || '',
+    };
+  };
+
+  const selectPreset = (preset: DatePresetId) => {
+    if (preset === 'custom') {
+      setDraft((current) => ({ ...current, preset }));
+      return;
+    }
+    const nextRange = getPresetRange(preset, today, draft.includeToday);
+    setDraft((current) => updateDraftRange({ ...current, preset }, nextRange.startDate, nextRange.endDate));
+    const startDate = parseDateKey(nextRange.startDate) || today;
+    setCalendarMonth(new Date(startDate.getFullYear(), startDate.getMonth(), 1));
+  };
+
+  const selectCalendarDate = (dateKey: string) => {
+    if (!draft.startDate || (draft.startDate && draft.endDate)) {
+      setDraft((current) => updateDraftRange({ ...current, preset: 'custom' }, dateKey, dateKey));
+      return;
+    }
+
+    const startDate = parseDateKey(draft.startDate);
+    const selectedDate = parseDateKey(dateKey);
+    if (startDate && selectedDate && selectedDate < startDate) {
+      setDraft((current) => updateDraftRange({ ...current, preset: 'custom' }, dateKey, draft.startDate));
+    } else {
+      setDraft((current) => updateDraftRange({ ...current, preset: 'custom' }, draft.startDate, dateKey));
+    }
+  };
+
+  const setComparisonType = (comparisonType: ComparisonType) => {
+    setDraft((current) => {
+      const comparison = getComparisonRange(current.startDate, current.endDate, comparisonType, today);
+      return {
+        ...current,
+        comparisonType,
+        comparisonStartDate: comparisonType === 'custom' ? current.comparisonStartDate || current.startDate : comparison?.startDate || '',
+        comparisonEndDate: comparisonType === 'custom' ? current.comparisonEndDate || current.endDate : comparison?.endDate || '',
+      };
+    });
+  };
+
+  const applyDraft = () => {
+    const startDate = parseDateKey(draft.startDate);
+    const endDate = parseDateKey(draft.endDate);
+    if (!startDate || !endDate || startDate > endDate || endDate > today) return;
+    onApply(draft);
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        className="flex w-full items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:border-bark-200 lg:min-w-[320px]"
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+      >
+        <span className="flex min-w-0 items-center gap-3">
+          <Calendar className="h-5 w-5 shrink-0 text-bark-500" aria-hidden="true" />
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-semibold text-gray-900">{activeDateLabel}</span>
+            <span className="block truncate text-xs text-gray-500">
+              {activeRangeLabel}{activeComparisonLabel ? ` · Compared with ${activeComparisonLabel}` : ''}
+            </span>
+          </span>
+        </span>
+        <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+      </button>
+
+      {isOpen && (
+        <div
+          role="dialog"
+          aria-label="Select insights date range"
+          className="absolute right-0 z-40 mt-2 w-[min(980px,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-4 shadow-2xl"
+        >
+          <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+            <div className="space-y-4 rounded-lg bg-cream-50 p-3">
+              {datePresetGroups.map((group) => (
+                <div key={group.label}>
+                  <p className="px-2 text-xs font-semibold uppercase text-gray-400">{group.label}</p>
+                  <div className="mt-2 space-y-1">
+                    {group.presets.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => selectPreset(preset.id)}
+                        className={`w-full rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors ${
+                          draft.preset === preset.id
+                            ? 'bg-bark-500 text-white'
+                            : 'text-gray-600 hover:bg-white hover:text-bark-700'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="text-sm font-semibold text-gray-700">
+                  Start date
+                  <input
+                    type="date"
+                    value={draft.startDate}
+                    max={maxDate}
+                    onChange={(event) => setDraft((current) => updateDraftRange({ ...current, preset: 'custom' }, event.target.value, current.endDate))}
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  />
+                </label>
+                <label className="text-sm font-semibold text-gray-700">
+                  End date
+                  <input
+                    type="date"
+                    value={draft.endDate}
+                    min={draft.startDate}
+                    max={maxDate}
+                    onChange={(event) => setDraft((current) => updateDraftRange({ ...current, preset: 'custom' }, current.startDate, event.target.value))}
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  />
+                </label>
+              </div>
+
+              {isRollingPreset && (
+                <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={draft.includeToday}
+                    onChange={(event) => {
+                      const includeToday = event.target.checked;
+                      const nextRange = draft.preset === 'custom'
+                        ? { startDate: draft.startDate, endDate: draft.endDate }
+                        : getPresetRange(draft.preset, today, includeToday);
+                      setDraft((current) => updateDraftRange({ ...current, includeToday }, nextRange.startDate, nextRange.endDate));
+                    }}
+                    className="h-4 w-4 rounded border-gray-300 text-bark-500 focus:ring-bark-500"
+                  />
+                  Include today
+                </label>
+              )}
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <CalendarMonth
+                  month={calendarMonth}
+                  today={today}
+                  startDate={primaryStart}
+                  endDate={primaryEnd}
+                  onSelectDate={selectCalendarDate}
+                  onPreviousMonth={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
+                  onNextMonth={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
+                  showPrevious
+                />
+                <CalendarMonth
+                  month={new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1)}
+                  today={today}
+                  startDate={primaryStart}
+                  endDate={primaryEnd}
+                  onSelectDate={selectCalendarDate}
+                  onPreviousMonth={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
+                  onNextMonth={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
+                  showNext
+                />
+              </div>
+
+              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+                  <label className="text-sm font-semibold text-gray-700">
+                    Compare
+                    <select
+                      value={draft.comparisonType}
+                      onChange={(event) => setComparisonType(event.target.value as ComparisonType)}
+                      className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-bark-500"
+                    >
+                      {comparisonOptions.map((option) => (
+                        <option key={option.id} value={option.id}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="text-sm font-semibold text-gray-700">
+                      Comparison start
+                      <input
+                        type="date"
+                        value={draft.comparisonStartDate}
+                        disabled={draft.comparisonType !== 'custom'}
+                        max={maxDate}
+                        onChange={(event) => setDraft((current) => ({ ...current, comparisonStartDate: event.target.value }))}
+                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400 focus:outline-none focus:ring-2 focus:ring-bark-500"
+                      />
+                    </label>
+                    <label className="text-sm font-semibold text-gray-700">
+                      Comparison end
+                      <input
+                        type="date"
+                        value={draft.comparisonEndDate}
+                        disabled={draft.comparisonType !== 'custom'}
+                        min={draft.comparisonStartDate}
+                        max={maxDate}
+                        onChange={(event) => setDraft((current) => ({ ...current, comparisonEndDate: event.target.value }))}
+                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400 focus:outline-none focus:ring-2 focus:ring-bark-500"
+                      />
+                    </label>
+                  </div>
+                </div>
+                {showComparisonWarning && (
+                  <p className="mt-2 text-xs font-medium text-amber-700">
+                    The comparison range is {comparisonDays} days while the primary range is {primaryDays} days, so rate-of-change comparisons may be less meaningful.
+                  </p>
+                )}
+                <p className="mt-2 text-xs text-gray-500">
+                  Dates use the browser's local timezone. Order filters use inclusive start and end dates in the UI, then half-open intervals internally.
+                </p>
+              </div>
+
+              <div className="flex flex-col-reverse gap-2 border-t border-gray-100 pt-4 sm:flex-row sm:justify-end">
+                <button type="button" onClick={() => setIsOpen(false)} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50">
+                  Cancel
+                </button>
+                <button type="button" onClick={applyDraft} className="rounded-lg bg-bark-500 px-4 py-2 text-sm font-semibold text-white hover:bg-bark-600">
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CalendarMonth({
+  month,
+  today,
+  startDate,
+  endDate,
+  onSelectDate,
+  onPreviousMonth,
+  onNextMonth,
+  showPrevious = false,
+  showNext = false,
+}: {
+  month: Date;
+  today: Date;
+  startDate: Date | null;
+  endDate: Date | null;
+  onSelectDate: (dateKey: string) => void;
+  onPreviousMonth: () => void;
+  onNextMonth: () => void;
+  showPrevious?: boolean;
+  showNext?: boolean;
+}) {
+  const firstOfMonth = new Date(month.getFullYear(), month.getMonth(), 1);
+  const gridStart = addDays(firstOfMonth, -firstOfMonth.getDay());
+  const days = Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
+
+  return (
+    <div className="rounded-lg border border-gray-100 p-3">
+      <div className="mb-3 flex items-center justify-between">
+        {showPrevious ? (
+          <button type="button" onClick={onPreviousMonth} className="rounded-md p-1 text-gray-500 hover:bg-gray-100" aria-label="Previous month">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        ) : <span className="h-6 w-6" />}
+        <p className="text-sm font-semibold text-gray-900">
+          {month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+        </p>
+        {showNext ? (
+          <button type="button" onClick={onNextMonth} className="rounded-md p-1 text-gray-500 hover:bg-gray-100" aria-label="Next month">
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        ) : <span className="h-6 w-6" />}
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-400">
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}
+      </div>
+      <div className="mt-2 grid grid-cols-7 gap-1">
+        {days.map((date) => {
+          const isCurrentMonth = date.getMonth() === month.getMonth();
+          const isFuture = date > today;
+          const isStart = startDate && formatDateKey(date) === formatDateKey(startDate);
+          const isEnd = endDate && formatDateKey(date) === formatDateKey(endDate);
+          const isInRange = startDate && endDate && date > startDate && date < endDate;
+          return (
+            <button
+              key={formatDateKey(date)}
+              type="button"
+              disabled={isFuture}
+              onClick={() => onSelectDate(formatDateKey(date))}
+              className={`h-9 rounded-md text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:text-gray-300 ${
+                isStart || isEnd
+                  ? 'bg-bark-500 text-white'
+                  : isInRange
+                    ? 'bg-bark-50 text-bark-700'
+                    : isCurrentMonth
+                      ? 'text-gray-700 hover:bg-gray-100'
+                      : 'text-gray-300 hover:bg-gray-50'
+              }`}
+              aria-label={date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+            >
+              {date.getDate()}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
