@@ -13,8 +13,8 @@ const MS_IN_DAY = 1000 * 60 * 60 * 24;
 
 const reminderStages: Array<{ templateKey: EmailTemplateKey; dayOffset: number }> = [
   { templateKey: 'bare_launch_offer_day_1', dayOffset: 1 },
-  { templateKey: 'bare_launch_offer_day_4', dayOffset: 4 },
-  { templateKey: 'bare_launch_offer_day_9', dayOffset: 9 },
+  { templateKey: 'bare_launch_offer_day_4', dayOffset: 7 },
+  { templateKey: 'bare_launch_offer_day_9', dayOffset: 11 },
   { templateKey: 'bare_launch_offer_final', dayOffset: 13 },
 ];
 
@@ -55,7 +55,7 @@ async function handleReminderRun(request: Request) {
 
   const { data: retailers, error: retailersError } = await adminClient
     .from('retailers')
-    .select('id, company_name, created_at')
+    .select('id, company_name, created_at, status')
     .gte('created_at', windowStart)
     .order('created_at', { ascending: true });
 
@@ -69,7 +69,11 @@ async function handleReminderRun(request: Request) {
   }
 
   const retailerIds = retailerRows.map((retailer) => retailer.id);
-  const [{ data: orderRows, error: ordersError }, { data: sentRows, error: sentError }] = await Promise.all([
+  const [
+    { data: orderRows, error: ordersError },
+    { data: sentRows, error: sentError },
+    { data: preferenceRows, error: preferencesError },
+  ] = await Promise.all([
     adminClient
       .from('orders')
       .select('retailer_id')
@@ -79,12 +83,22 @@ async function handleReminderRun(request: Request) {
       .from('bare_launch_offer_email_reminders')
       .select('retailer_id, template_key')
       .in('retailer_id', retailerIds),
+    adminClient
+      .from('welcome_offer_reminder_preferences')
+      .select('retailer_id, opted_out_at')
+      .in('retailer_id', retailerIds),
   ]);
 
   if (ordersError) throw ordersError;
   if (sentError) throw sentError;
+  if (preferencesError) throw preferencesError;
 
   const retailersWithOrders = new Set((orderRows || []).map((order) => order.retailer_id));
+  const optedOutRetailers = new Set(
+    (preferenceRows || [])
+      .filter((preference) => Boolean(preference.opted_out_at))
+      .map((preference) => preference.retailer_id),
+  );
   const sentByRetailer = new Map<string, Set<string>>();
   (sentRows || []).forEach((row) => {
     const current = sentByRetailer.get(row.retailer_id) || new Set<string>();
@@ -97,6 +111,16 @@ async function handleReminderRun(request: Request) {
   const errors: Array<{ retailerId: string; templateKey: string; error: string }> = [];
 
   for (const retailer of retailerRows) {
+    if (['inactive', 'deleted'].includes(String(retailer.status || '').toLowerCase())) {
+      skipped += 1;
+      continue;
+    }
+
+    if (optedOutRetailers.has(retailer.id)) {
+      skipped += 1;
+      continue;
+    }
+
     if (retailersWithOrders.has(retailer.id)) {
       skipped += 1;
       continue;
@@ -162,7 +186,7 @@ async function handleReminderRun(request: Request) {
         text: template.text,
         html: template.html,
         tags: [
-          { name: 'feature', value: 'bare-launch-offer' },
+          { name: 'feature', value: 'welcome-offer' },
           { name: 'template', value: template.key },
         ],
       });

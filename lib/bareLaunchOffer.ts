@@ -1,4 +1,4 @@
-export const BARE_LAUNCH_OFFER_NAME = 'Welcome Offer';
+export const BARE_LAUNCH_OFFER_NAME = 'Welcome Offer 🎉';
 export const BARE_LAUNCH_OFFER_CODE = 'BARE_LAUNCH_OFFER';
 export const BARE_LAUNCH_OFFER_DAYS = 14;
 export const BARE_LAUNCH_OFFER_DISCOUNT_RATE = 0.1;

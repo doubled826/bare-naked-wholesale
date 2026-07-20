@@ -354,7 +354,7 @@ export default function CatalogPage() {
               <div>
                 <p className="font-bold text-bark-500">{BARE_LAUNCH_OFFER_NAME} is active</p>
                 <p className="text-sm text-bark-500/70">
-                  Your 10% ISO, free samples, and private promo support are ready. {bareLaunchOffer.daysRemaining} {bareLaunchOffer.daysRemaining === 1 ? 'day' : 'days'} left.
+                  Your 10% off your first order, free samples, and private promo support are ready. {bareLaunchOffer.daysRemaining} {bareLaunchOffer.daysRemaining === 1 ? 'day' : 'days'} left.
                 </p>
               </div>
             </div>
@@ -542,7 +542,7 @@ export default function CatalogPage() {
                             {BARE_LAUNCH_OFFER_NAME} will apply
                           </span>
                           <span className="block text-xs text-bark-500/70">
-                            Your 10% ISO is calculated automatically. Samples are included with this welcome order.
+                            Your 10% off your first order is calculated automatically. Samples are included with this welcome order.
                           </span>
                         </div>
                       </div>

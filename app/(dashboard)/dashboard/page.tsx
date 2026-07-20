@@ -75,6 +75,7 @@ export default function DashboardPage() {
   const [isConfirmingLaunchPromoCancel, setIsConfirmingLaunchPromoCancel] = useState(false);
   const [showBareLaunchOfferModal, setShowBareLaunchOfferModal] = useState(false);
   const [bareLaunchOfferDismissed, setBareLaunchOfferDismissed] = useState(false);
+  const [isSavingLaunchOfferReminder, setIsSavingLaunchOfferReminder] = useState(false);
   const [successNotice, setSuccessNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const pendingSuccessSaveRef = useRef(false);
   const launchOfferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -214,6 +215,50 @@ export default function DashboardPage() {
   const handleBareLaunchOfferOrder = () => {
     dismissBareLaunchOffer();
     window.location.href = '/catalog?offer=bare-launch';
+  };
+
+  const handleBareLaunchOfferReminder = async () => {
+    if (!retailer?.id || isSavingLaunchOfferReminder) {
+      dismissBareLaunchOffer();
+      return;
+    }
+
+    const daysRemaining = bareLaunchOffer.daysRemaining;
+    setIsSavingLaunchOfferReminder(true);
+    dismissBareLaunchOffer();
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('welcome_offer_remind_me_later_clicked', {
+        detail: {
+          retailerId: retailer.id,
+          daysRemaining,
+        },
+      }));
+    }
+
+    try {
+      const response = await fetch('/api/welcome-offer/remind-me-later', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ daysRemaining }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'Unable to save reminder preference.');
+      addNotification({
+        type: 'success',
+        message: data?.alreadyEnrolled
+          ? 'Reminder saved. You are already in the Welcome Offer reminder sequence.'
+          : 'Reminder saved. We will keep your Welcome Offer on your radar.',
+      });
+    } catch (error) {
+      console.error('Welcome Offer reminder error:', error);
+      addNotification({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Unable to save reminder preference.',
+      });
+    } finally {
+      setIsSavingLaunchOfferReminder(false);
+    }
   };
 
   const showSuccessNotice = (notice: { type: 'success' | 'error'; message: string }) => {
@@ -377,6 +422,8 @@ export default function DashboardPage() {
           businessName={businessName}
           onClose={dismissBareLaunchOffer}
           onOrder={handleBareLaunchOfferOrder}
+          onRemindLater={handleBareLaunchOfferReminder}
+          remindLaterSaving={isSavingLaunchOfferReminder}
         />
       )}
 
@@ -703,11 +750,15 @@ function BareLaunchOfferModal({
   businessName,
   onClose,
   onOrder,
+  onRemindLater,
+  remindLaterSaving,
 }: {
   offer: BareLaunchOfferStatus;
   businessName: string;
   onClose: () => void;
   onOrder: () => void;
+  onRemindLater: () => void;
+  remindLaterSaving: boolean;
 }) {
   return (
     <div className="bare-launch-backdrop fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-bark-500/45 p-3 py-4 backdrop-blur-sm sm:items-center sm:p-4">
@@ -733,66 +784,66 @@ function BareLaunchOfferModal({
               Welcome{businessName ? `, ${businessName}` : ''}.
             </p>
             <h2 className="mt-2 pr-8 text-[2rem] font-bold leading-tight text-bark-500 sm:pr-0 sm:text-4xl" style={{ fontFamily: 'var(--font-poppins)' }}>
-              Welcome to the Bare family.
+              Welcome to the Bare family! 🎉
             </h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-bark-500/75 sm:mt-4 sm:text-base">
-              We are glad to have you here. To help your store get started, your Welcome Offer is ready for the next 14 days.
+              To help you launch successfully, your new retailer offer is available for the next 14 days.
             </p>
 
             <div className="mt-5 grid gap-3 sm:mt-6 sm:grid-cols-3">
-              <OfferPill icon={Gift} label="10% ISO" description="Auto-applied at checkout" />
-              <OfferPill icon={Package} label="Free samples" description="Ready for your first order" />
-              <OfferPill icon={Megaphone} label="Private promo support" description="Backed by the Bare team" />
+              <OfferPill icon={Gift} label="10% off your first order" description="Automatically applied at checkout" />
+              <OfferPill icon={Package} label="Free customer samples" description="Plenty included to help shoppers try Bare" />
+              <OfferPill icon={Megaphone} label="Supported launch promo" description={"We'll help you drive early sell-through"} />
             </div>
 
             <div className="mt-6 flex flex-col gap-3 sm:mt-7 sm:flex-row sm:items-center">
               <button type="button" onClick={onOrder} className="btn-primary">
-                Order Now
+                Build My First Order
                 <ArrowRight className="ml-2 h-4 w-4" />
               </button>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={onRemindLater}
+                disabled={remindLaterSaving}
                 className="rounded-xl border border-bark-500/20 px-5 py-3 font-semibold text-bark-500 hover:bg-cream-200"
               >
-                Later Today
+                Remind Me Later
               </button>
             </div>
             <p className="mt-3 text-xs text-bark-500/60">
-              No code needed. The 10% ISO applies automatically at checkout while the offer is active.
-              Net-30 terms are included; your invoice is emailed through QuickBooks after you order, with payment due within 30 days.
+              No code needed. Your 10% welcome discount is automatically applied at checkout. Net-30 terms are included.
             </p>
           </div>
 
           <div className="flex min-h-[260px] flex-col justify-between bg-bark-500 p-5 text-white sm:p-8">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-wide text-cream-200/80">Welcome offer</p>
+              <p className="text-sm font-semibold uppercase tracking-wide text-cream-200/80">WELCOME OFFER</p>
               <div className="mt-4 flex items-end gap-2 sm:mt-5">
                 <span className="text-6xl font-bold leading-none sm:text-7xl" style={{ fontFamily: 'var(--font-poppins)' }}>10</span>
-                <span className="pb-1.5 text-3xl font-bold sm:pb-2">%</span>
-                <span className="pb-2 text-base font-semibold text-cream-200 sm:pb-3 sm:text-lg">ISO</span>
+                <span className="pb-1.5 text-3xl font-bold sm:pb-2">% off</span>
               </div>
+              <p className="mt-1 text-base font-semibold text-cream-200">your first order</p>
               <p className="mt-4 text-sm leading-6 text-cream-100/85 sm:mt-5">
-                A warm first-order welcome from our team: ISO support, customer samples, and a private promo plan for your store.
+                More than a discount, it&apos;s a simple launch plan for your store.
               </p>
             </div>
             <div className="mt-5 space-y-3 rounded-xl bg-white/10 p-4 sm:mt-8">
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-4 w-4 shrink-0 text-amber-200" />
-                <span className="text-sm font-semibold">10% ISO</span>
+                <span className="text-sm font-semibold">First-order savings</span>
               </div>
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-4 w-4 shrink-0 text-amber-200" />
-                <span className="text-sm font-semibold">Sampling campaign</span>
+                <span className="text-sm font-semibold">Free customer sampling</span>
               </div>
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-4 w-4 shrink-0 text-amber-200" />
-                <span className="text-sm font-semibold">Promo support</span>
+                <span className="text-sm font-semibold">Fully supported launch promo</span>
               </div>
             </div>
             <div className="mt-5 rounded-xl bg-white/10 p-4 sm:mt-8">
-              <p className="text-xs uppercase tracking-wide text-cream-200/80">Always included</p>
-              <p className="mt-1 text-sm font-semibold">Free shipping, no minimums, Astro Rewards, and private promotions.</p>
+              <p className="text-xs uppercase tracking-wide text-cream-200/80">ALWAYS INCLUDED</p>
+              <p className="mt-1 text-sm font-semibold">Free shipping, no minimums, Astro Loyalty support, and retailer marketing resources.</p>
             </div>
           </div>
         </div>
@@ -825,12 +876,12 @@ function BareLaunchOfferCard({
               </span>
             </div>
             <p className="mt-1 text-sm leading-6 text-bark-500/75">
-              Your 10% ISO, free sampling campaign, and private promo support are ready when you are.
+              Your 10% off your first order, free sampling campaign, and private promo support are ready when you are.
             </p>
           </div>
         </div>
         <button type="button" onClick={onOrder} className="btn-primary w-full shrink-0 sm:w-auto">
-          Order Now
+          Build My First Order
           <ArrowRight className="ml-2 h-4 w-4" />
         </button>
       </div>

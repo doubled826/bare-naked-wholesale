@@ -243,7 +243,7 @@ export async function POST(request: Request) {
         : '';
       const launchOfferTeamNote = launchOfferDiscount > 0
         ? `\nWelcome Offer: CLAIMED
-- 10% ISO applied: $${launchOfferDiscount.toFixed(2)}
+- 10% off your first order applied: $${launchOfferDiscount.toFixed(2)}
 - Samples: INCLUDE SAMPLES
 - Private promo support: FOLLOW UP WITH RETAILER\n`
         : '';
