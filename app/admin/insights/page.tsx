@@ -9,10 +9,13 @@ import {
   Tooltip,
   CartesianGrid,
   ResponsiveContainer,
+  LineChart as RechartsLineChart,
+  Line,
   BarChart,
   Bar,
+  Legend,
 } from 'recharts';
-import { Info } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, CheckCircle2, Info, Package, ShoppingCart, Store, Target, TrendingUp, Users } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   defaultCurrentAstroPromo,
@@ -70,6 +73,20 @@ type MonthlyRevenuePoint = {
   month: string;
   revenue: number;
   paceRevenue: number;
+};
+
+type PerformanceMetric = 'revenue' | 'orders' | 'units' | 'velocity';
+
+type PerformanceTrendPoint = {
+  period: string;
+  revenue: number;
+  previousRevenue: number | null;
+  orders: number;
+  previousOrders: number | null;
+  units: number;
+  previousUnits: number | null;
+  velocity: number;
+  previousVelocity: number | null;
 };
 
 type ProductRecord = {
@@ -131,6 +148,13 @@ type SelectedSkuMetric = {
   storeWins: number;
 };
 
+type RankedSkuMetric = {
+  skuId: string;
+  label: string;
+  totalUnits: number;
+  unitsPerStorePerWeek: number;
+};
+
 type InsightsView = 'overview' | 'health' | 'skus' | 'markets';
 type RetailerHealthPanel = 'summary' | 'needs_first_order' | 'at_risk' | 'outreach' | 'leaderboards';
 type InsightsTimeRange = 'mtd' | '90d' | '12m' | 'all';
@@ -184,6 +208,13 @@ const timeRangeOptions: Array<{ id: InsightsTimeRange; label: string; descriptio
   { id: '90d', label: '90 days', description: 'Last 90 days' },
   { id: '12m', label: '12 months', description: 'Last 12 months' },
   { id: 'all', label: 'All time', description: 'All available data' },
+];
+
+const performanceMetricOptions: Array<{ id: PerformanceMetric; label: string; color: string; comparisonColor: string }> = [
+  { id: 'revenue', label: 'Revenue', color: '#3F1D0B', comparisonColor: '#B59B82' },
+  { id: 'orders', label: 'Orders', color: '#7C2D12', comparisonColor: '#D6A98C' },
+  { id: 'units', label: 'Units', color: '#2F6F4E', comparisonColor: '#A7C9B7' },
+  { id: 'velocity', label: 'Units / Store / Week', color: '#92400E', comparisonColor: '#E0B36A' },
 ];
 
 const priorityRank: Record<OutreachPriority, number> = {
@@ -242,6 +273,64 @@ const getTimeRangeLabel = (range: InsightsTimeRange) =>
 
 const getPipedriveDealUrl = (dealId: number) => `https://app.pipedrive.com/deal/${dealId}`;
 
+const getTrendBucketKey = (date: Date, range: InsightsTimeRange) => {
+  if (range === 'mtd' || range === '90d') {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const getTrendBucketLabel = (date: Date, range: InsightsTimeRange) => {
+  if (range === 'mtd' || range === '90d') {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  return `${date.toLocaleString('en-US', { month: 'short' })} ${String(date.getFullYear()).slice(-2)}`;
+};
+
+const buildTrendBuckets = (range: InsightsTimeRange, today: Date, firstOrderDate: Date | null) => {
+  const start = getTimeRangeStart(range, today) || firstOrderDate || new Date(today.getFullYear(), today.getMonth() - 11, 1);
+  return buildTrendBucketsBetween(range, start, today);
+};
+
+const buildTrendBucketsBetween = (range: InsightsTimeRange, startDate: Date, endDate: Date) => {
+  const buckets: Array<{ key: string; label: string; start: Date; end: Date }> = [];
+
+  if (range === 'mtd' || range === '90d') {
+    const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    while (cursor <= end) {
+      const bucketStart = new Date(cursor);
+      const bucketEnd = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1);
+      buckets.push({
+        key: getTrendBucketKey(bucketStart, range),
+        label: getTrendBucketLabel(bucketStart, range),
+        start: bucketStart,
+        end: bucketEnd,
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return buckets;
+  }
+
+  const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+  const end = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
+  while (cursor <= end) {
+    const bucketStart = new Date(cursor);
+    const bucketEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    buckets.push({
+      key: getTrendBucketKey(bucketStart, range),
+      label: getTrendBucketLabel(bucketStart, range),
+      start: bucketStart,
+      end: bucketEnd,
+    });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  return buckets;
+};
+
 const getPreviousTimeRange = (range: InsightsTimeRange, today = new Date()) => {
   if (range === 'all') return null;
 
@@ -271,6 +360,8 @@ export default function AdminInsightsPage() {
   const supabase = createClientComponentClient();
   const [isLoading, setIsLoading] = useState(true);
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenuePoint[]>([]);
+  const [performanceTrend, setPerformanceTrend] = useState<PerformanceTrendPoint[]>([]);
+  const [activePerformanceMetric, setActivePerformanceMetric] = useState<PerformanceMetric>('revenue');
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [unitsSold, setUnitsSold] = useState(0);
   const [avgOrderValue, setAvgOrderValue] = useState(0);
@@ -298,6 +389,7 @@ export default function AdminInsightsPage() {
   const [unitsPerStorePerSkuMetrics, setUnitsPerStorePerSkuMetrics] = useState<UnitsPerStorePerSkuMetrics>({ overall: 0, topDecile: 0, topStores: 0 });
   const [skuOptions, setSkuOptions] = useState<SkuOption[]>([]);
   const [skuComparisons, setSkuComparisons] = useState<SkuComparison[]>([]);
+  const [topSkuMetrics, setTopSkuMetrics] = useState<RankedSkuMetric[]>([]);
   const [storeSkuSnapshots, setStoreSkuSnapshots] = useState<StoreSkuSnapshot[]>([]);
   const [selectedSkuIds, setSelectedSkuIds] = useState<string[]>([]);
   const [skuSearchQuery, setSkuSearchQuery] = useState('');
@@ -585,6 +677,30 @@ export default function AdminInsightsPage() {
       }));
       setStoreSkuSnapshots(nextStoreSkuSnapshots);
 
+      const skuStoreCounts = new Map<string, number>();
+      const skuTotalUnits = new Map<string, number>();
+      skuUnitsByStore.forEach((skuMap) => {
+        skuMap.forEach((units, skuId) => {
+          if (units <= 0) return;
+          skuTotalUnits.set(skuId, (skuTotalUnits.get(skuId) || 0) + units);
+          skuStoreCounts.set(skuId, (skuStoreCounts.get(skuId) || 0) + 1);
+        });
+      });
+      setTopSkuMetrics(
+        Array.from(skuTotalUnits.entries())
+          .map(([skuId, totalUnits]) => {
+            const storeCount = Math.max(skuStoreCounts.get(skuId) || 0, 1);
+            return {
+              skuId,
+              label: skuLabels.get(skuId) || skuId,
+              totalUnits,
+              unitsPerStorePerWeek: totalUnits / storeCount / divisorWeeks,
+            };
+          })
+          .sort((a, b) => b.unitsPerStorePerWeek - a.unitsPerStorePerWeek)
+          .slice(0, 5),
+      );
+
       const topStoreCount = Math.min(10, storeUnitsPerWeek.length);
       const topStoresByUnitsPerWeek = [...storeUnitsPerWeek]
         .sort((a, b) => b.unitsPerStorePerWeek - a.unitsPerStorePerWeek)
@@ -854,6 +970,87 @@ export default function AdminInsightsPage() {
         activeStates: previousRange ? previousActiveStateSet.size : null,
       });
 
+      const summarizeTrendBuckets = (
+        buckets: Array<{ key: string; start: Date; end: Date }>,
+        ordersToSummarize: OrderRecord[],
+        itemsToSummarize: Array<{
+          quantity: number | null;
+          order?: { status?: string | null; retailer_id?: string | null; location_id?: string | null; created_at?: string | null } | null;
+        }>,
+      ) => {
+        const bucketSummaries = new Map<string, { revenue: number; orders: number; units: number; storeKeys: Set<string>; weeks: number }>();
+        buckets.forEach((bucket) => {
+          bucketSummaries.set(bucket.key, {
+            revenue: 0,
+            orders: 0,
+            units: 0,
+            storeKeys: new Set<string>(),
+            weeks: Math.max(MIN_RUNNING_WEEKS / 7, (bucket.end.getTime() - bucket.start.getTime()) / MS_IN_DAY / 7),
+          });
+        });
+
+        ordersToSummarize.forEach((order) => {
+          const orderDate = new Date(order.created_at);
+          const bucket = buckets.find((candidate) => orderDate >= candidate.start && orderDate < candidate.end);
+          if (!bucket) return;
+          const summary = bucketSummaries.get(bucket.key);
+          if (!summary) return;
+          summary.revenue += Number(order.total) || 0;
+          summary.orders += 1;
+          if (order.retailer_id) {
+            summary.storeKeys.add(order.location_id || `retailer:${order.retailer_id}`);
+          }
+        });
+
+        itemsToSummarize.forEach((item) => {
+          if (item.order?.status === 'canceled' || !item.order?.created_at) return;
+          const orderDate = new Date(item.order.created_at);
+          const bucket = buckets.find((candidate) => orderDate >= candidate.start && orderDate < candidate.end);
+          if (!bucket) return;
+          const summary = bucketSummaries.get(bucket.key);
+          if (!summary) return;
+          summary.units += item.quantity || 0;
+          if (item.order.retailer_id) {
+            summary.storeKeys.add(item.order.location_id || `retailer:${item.order.retailer_id}`);
+          }
+        });
+
+        return bucketSummaries;
+      };
+
+      const trendBuckets = buildTrendBuckets(timeRange, today, firstValidOrderDate);
+      const previousTrendBuckets = previousRange
+        ? buildTrendBucketsBetween(timeRange, previousRange.start, new Date(previousRange.end.getTime() - MS_IN_DAY))
+        : [];
+      const itemRows = (orderItems as Array<{
+        quantity: number | null;
+        order?: { status?: string | null; retailer_id?: string | null; location_id?: string | null; created_at?: string | null } | null;
+      }> | null) || [];
+      const currentTrendSummary = summarizeTrendBuckets(trendBuckets, reportingOrders, itemRows);
+      const previousTrendSummary = previousRange
+        ? summarizeTrendBuckets(previousTrendBuckets, previousOrders, itemRows)
+        : new Map<string, { revenue: number; orders: number; units: number; storeKeys: Set<string>; weeks: number }>();
+
+      setPerformanceTrend(trendBuckets.map((bucket, index) => {
+        const current = currentTrendSummary.get(bucket.key);
+        const previousBucket = previousTrendBuckets[index];
+        const previous = previousBucket ? previousTrendSummary.get(previousBucket.key) : null;
+        const currentStores = current?.storeKeys.size || 0;
+        const previousStores = previous?.storeKeys.size || 0;
+
+        return {
+          period: bucket.label,
+          revenue: current?.revenue || 0,
+          previousRevenue: previous ? previous.revenue : null,
+          orders: current?.orders || 0,
+          previousOrders: previous ? previous.orders : null,
+          units: current?.units || 0,
+          previousUnits: previous ? previous.units : null,
+          velocity: current && currentStores > 0 ? current.units / currentStores / current.weeks : 0,
+          previousVelocity: previous && previousStores > 0 ? previous.units / previousStores / previous.weeks : null,
+        };
+      }));
+
       const byRevenue = Array.from(retailerStats.values())
         .sort((a, b) => b.total_spent - a.total_spent)
         .slice(0, 10);
@@ -976,59 +1173,85 @@ export default function AdminInsightsPage() {
     };
   }, [comparisonDivisorWeeks, selectedSkuIds, skuOptions, storeSkuSnapshots]);
 
-  const growthToneClass = monthToDateComparison.percentDelta >= 0 ? 'text-emerald-600' : 'text-amber-600';
   const selectedSkuLeader = selectedSkuComparison?.metrics[0] || null;
+  const selectedPerformanceMetric = performanceMetricOptions.find((metric) => metric.id === activePerformanceMetric) || performanceMetricOptions[0];
+  const performanceDataKey = activePerformanceMetric === 'velocity' ? 'velocity' : activePerformanceMetric;
+  const previousPerformanceDataKey =
+    activePerformanceMetric === 'revenue'
+      ? 'previousRevenue'
+      : activePerformanceMetric === 'orders'
+        ? 'previousOrders'
+        : activePerformanceMetric === 'units'
+          ? 'previousUnits'
+          : 'previousVelocity';
+  const hasPreviousPerformance = performanceTrend.some((point) => point[previousPerformanceDataKey] !== null);
+  const totalOrdersInRange = performanceTrend.reduce((sum, point) => sum + point.orders, 0);
+  const oldestAccountAwaitingFirstOrder = retailersWithoutOrders
+    .filter((retailer) => retailer.created_at)
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
+  const averageDaysSinceAtRiskOrder = atRiskRetailers.length > 0
+    ? Math.round(atRiskRetailers.reduce((sum, retailer) => sum + retailer.days_since, 0) / atRiskRetailers.length)
+    : 0;
+  const highPerformerCount = successInsights?.byLifecycle.high_performer || 0;
+  const sampleFollowUpCount = successInsights?.missingSamples.length || 0;
 
-  const attentionItems = useMemo(() => {
-    if (!successInsights) {
-      return [
-        {
-          label: 'At-risk retailers',
-          value: atRiskRetailers.length,
-          detail: 'No orders in 90 days',
-          tone: 'amber',
-        },
-      ];
+  const businessHighlights = useMemo(() => {
+    const highlights: Array<{ text: string; view: InsightsView; panel?: RetailerHealthPanel }> = [];
+    const pushUnique = (text: string, view: InsightsView, panel?: RetailerHealthPanel) => {
+      if (!highlights.some((item) => item.text === text) && highlights.length < 6) {
+        highlights.push({ text, view, panel });
+      }
+    };
+
+    if (comparisonMetrics.totalRevenue !== null) {
+      const delta = totalRevenue - comparisonMetrics.totalRevenue;
+      const percent = comparisonMetrics.totalRevenue === 0
+        ? totalRevenue > 0 ? 100 : 0
+        : (delta / comparisonMetrics.totalRevenue) * 100;
+      if (Math.abs(percent) >= 1 || Math.abs(delta) > 0) {
+        pushUnique(`Revenue ${delta >= 0 ? 'increased' : 'decreased'} ${Math.abs(percent).toFixed(1)}% versus the ${comparisonMetrics.label}.`, 'overview');
+      }
     }
 
-    const items = [
-      {
-        label: 'At-risk retailers',
-        value: successInsights.byLifecycle.at_risk,
-        detail: 'Lifecycle status needs review',
-        tone: 'amber',
-      },
-      {
-        label: 'Missing Astro enrollment',
-        value: successInsights.missingAstro.length,
-        detail: 'Enrollment follow-up',
-        tone: 'bark',
-      },
-      {
-        label: 'Samples not acknowledged',
-        value: successInsights.missingSamples.length,
-        detail: 'Confirm retailer received samples',
-        tone: 'bark',
-      },
-      {
-        label: 'High-performing stores',
-        value: successInsights.byLifecycle.high_performer,
-        detail: 'Good candidates for growth asks',
-        tone: 'emerald',
-      },
-    ];
-
-    if (currentPromo.promoVisible) {
-      items.splice(3, 0, {
-        label: 'Promo non-responses',
-        value: successInsights.currentPromoNotRespondedCount,
-        detail: 'Current promo needs a yes/no',
-        tone: 'amber',
-      });
+    if (comparisonMetrics.reorderRate !== null) {
+      const delta = reorderRate - comparisonMetrics.reorderRate;
+      if (Math.abs(delta) >= 0.1) {
+        pushUnique(`Reorder rate ${delta >= 0 ? 'improved' : 'declined'} by ${Math.abs(delta).toFixed(1)} percentage points.`, 'health', 'summary');
+      }
     }
 
-    return items;
-  }, [atRiskRetailers.length, currentPromo.promoVisible, successInsights]);
+    if (retailersWithoutOrders.length > 0) {
+      pushUnique(`${retailersWithoutOrders.length} accounts have not placed a first order.`, 'health', 'needs_first_order');
+    }
+
+    if (atRiskRetailers.length > 0) {
+      pushUnique(`${atRiskRetailers.length} retailers currently need a health review.`, 'health', 'at_risk');
+    }
+
+    if (topSkuMetrics[0]) {
+      pushUnique(`${topSkuMetrics[0].label} is leading SKU velocity at ${topSkuMetrics[0].unitsPerStorePerWeek.toFixed(2)} units per store per week.`, 'skus');
+    }
+
+    if (stateRevenue[0]) {
+      pushUnique(`${stateRevenue[0].state} generated the most revenue in the selected period.`, 'markets');
+    }
+
+    if (highlights.length === 0) {
+      pushUnique('No meaningful movement is available for the selected range yet.', 'overview');
+    }
+
+    return highlights;
+  }, [
+    atRiskRetailers.length,
+    comparisonMetrics.label,
+    comparisonMetrics.reorderRate,
+    comparisonMetrics.totalRevenue,
+    reorderRate,
+    retailersWithoutOrders.length,
+    stateRevenue,
+    topSkuMetrics,
+    totalRevenue,
+  ]);
 
   const outreachRows = useMemo<OutreachRow[]>(() => {
     if (!successInsights) return [];
@@ -1224,218 +1447,163 @@ export default function AdminInsightsPage() {
 
       {activeView === 'overview' && (
         <>
-      <section className="space-y-4">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 lg:col-span-2">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Revenue & Volume</h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  {getTimeRangeLabel(timeRange)} revenue and volume with month-to-date pacing
-                </p>
-              </div>
-              <div className="text-right">
-                <MetricLabel
-                  className="justify-end text-sm text-gray-500"
-                  tooltip="Compares this month's revenue through today's calendar day against revenue through the same day last month."
-                >
-                  Month-to-date pace
-                </MetricLabel>
-                <p className={`text-2xl font-semibold ${growthToneClass}`}>{growthLabel}</p>
-                <p className={`text-sm font-medium mt-1 ${growthToneClass}`}>{growthDeltaLabel}</p>
-              </div>
-            </div>
-            <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-gray-500">
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-sm bg-bark-700"></span>
-                <span>Full month revenue</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-sm bg-amber-500"></span>
-                <span>Revenue by this day of month</span>
-              </div>
-            </div>
-            <div className="h-72 mt-6">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyRevenue} barCategoryGap={18}>
-                  <CartesianGrid stroke="#E5E7EB" strokeDasharray="3 3" />
-                  <XAxis dataKey="month" tick={{ fill: '#6B7280', fontSize: 12 }} />
-                  <YAxis tickFormatter={(value) => formatCompactCurrency(value)} tick={{ fill: '#6B7280', fontSize: 12 }} />
-                  <Tooltip
-                    formatter={(value: number, name: string) => [
-                      formatCurrency(Number(value)),
-                      name === 'paceRevenue' ? 'Revenue by this day' : 'Full month revenue',
-                    ]}
-                  />
-                  <Bar
-                    dataKey="revenue"
-                    name="revenue"
-                    stroke="#3F1D0B"
-                    fill="#3F1D0B"
-                    radius={[6, 6, 0, 0]}
-                    maxBarSize={28}
-                  />
-                  <Bar
-                    dataKey="paceRevenue"
-                    name="paceRevenue"
-                    stroke="#D97706"
-                    fill="#D97706"
-                    radius={[6, 6, 0, 0]}
-                    maxBarSize={28}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+      <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <KpiCard label="Revenue" value={formatCurrency(totalRevenue)} current={totalRevenue} previous={comparisonMetrics.totalRevenue} comparisonLabel={comparisonMetrics.label} sparkline={performanceTrend.map((point) => point.revenue)} icon={<TrendingUp className="h-4 w-4" />} />
+        <KpiCard label="Orders" value={totalOrdersInRange.toLocaleString()} current={totalOrdersInRange} previous={comparisonMetrics.totalRevenue === null ? null : performanceTrend.reduce((sum, point) => sum + (point.previousOrders || 0), 0)} comparisonLabel={comparisonMetrics.label} sparkline={performanceTrend.map((point) => point.orders)} icon={<ShoppingCart className="h-4 w-4" />} />
+        <KpiCard label="Units Sold" value={unitsSold.toLocaleString()} current={unitsSold} previous={comparisonMetrics.unitsSold} comparisonLabel={comparisonMetrics.label} sparkline={performanceTrend.map((point) => point.units)} icon={<Package className="h-4 w-4" />} />
+        <KpiCard label="Average Order Value" value={formatCurrency(avgOrderValue)} current={avgOrderValue} previous={comparisonMetrics.avgOrderValue} comparisonLabel={comparisonMetrics.label} sparkline={performanceTrend.map((point) => point.revenue)} icon={<Target className="h-4 w-4" />} />
+        <KpiCard label="Units / Store / Week" value={unitsPerStoreMetrics.overall.toFixed(2)} current={unitsPerStoreMetrics.overall} previous={null} comparisonLabel={comparisonMetrics.label} sparkline={performanceTrend.map((point) => point.velocity)} icon={<Store className="h-4 w-4" />} tooltip="Total units sold divided by active stores and weeks in the averaging window." />
+        <KpiCard label="Reorder Rate" value={`${reorderRate.toFixed(1)}%`} current={reorderRate} previous={comparisonMetrics.reorderRate} comparisonLabel={comparisonMetrics.label} mode="points" sparkline={[]} icon={<Users className="h-4 w-4" />} tooltip="Percentage of retailers with two or more non-canceled orders inside the selected range." />
+      </section>
 
-          <div className="space-y-4">
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500">Revenue in Range</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalRevenue)}</p>
-              <TrendDelta current={totalRevenue} previous={comparisonMetrics.totalRevenue} label={comparisonMetrics.label} />
-            </div>
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500">Units Sold in Range</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{unitsSold}</p>
-              <TrendDelta current={unitsSold} previous={comparisonMetrics.unitsSold} label={comparisonMetrics.label} />
-            </div>
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-              <p className="text-sm text-gray-500">Average Order Value in Range</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(avgOrderValue)}</p>
-              <TrendDelta current={avgOrderValue} previous={comparisonMetrics.avgOrderValue} label={comparisonMetrics.label} />
-            </div>
-            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <MetricLabel tooltip="Total units sold divided by active stores and weeks in the averaging window. This normalizes volume across stores.">
-                    Units per Store per Week
-                  </MetricLabel>
-                  <p className="text-xs text-gray-400 mt-1">{velocityWindowLabel}</p>
-                </div>
-              </div>
-              <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-gray-400">All active stores</p>
-                  <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStoreMetrics.overall.toFixed(2)}</p>
-                </div>
-                <div>
-                  <MetricLabel
-                    className="text-xs uppercase tracking-wide text-gray-400"
-                    tooltip="Average velocity among the top decile of retailers ranked by units per store per week."
-                  >
-                    Top 10% retailers
-                  </MetricLabel>
-                  <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStoreMetrics.topDecile.toFixed(2)}</p>
-                </div>
-                <div>
-                  <MetricLabel
-                    className="text-xs uppercase tracking-wide text-gray-400"
-                    tooltip="Average velocity for the ten highest-volume store locations in the active averaging window."
-                  >
-                    Top 10 stores
-                  </MetricLabel>
-                  <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStoreMetrics.topStores.toFixed(2)}</p>
-                </div>
-              </div>
-              <div className="mt-5 pt-5 border-t border-gray-100">
-                <div>
-                  <MetricLabel tooltip="Units per store per week divided by the number of distinct SKUs carried. This helps compare productivity across broader or narrower assortments.">
-                    Units per Store per Week per SKU
-                  </MetricLabel>
-                  <p className="text-xs text-gray-400 mt-1">Based on distinct SKUs ordered in the active averaging window</p>
-                </div>
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-400">All active stores</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStorePerSkuMetrics.overall.toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <MetricLabel
-                      className="text-xs uppercase tracking-wide text-gray-400"
-                      tooltip="Average per-SKU velocity among the top decile of retailers ranked by units per store per week per SKU."
-                    >
-                      Top 10% retailers
-                    </MetricLabel>
-                    <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStorePerSkuMetrics.topDecile.toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <MetricLabel
-                      className="text-xs uppercase tracking-wide text-gray-400"
-                      tooltip="Average per-SKU velocity for the ten strongest store locations in the active averaging window."
-                    >
-                      Top 10 stores
-                    </MetricLabel>
-                    <p className="text-2xl font-bold text-gray-900 mt-1">{unitsPerStorePerSkuMetrics.topStores.toFixed(2)}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+      <section className="rounded-xl border border-bark-100 bg-cream-100 p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase text-bark-500/60">Business Highlights</p>
+            <h3 className="mt-1 text-lg font-semibold text-bark-500">Here is what changed and where to focus.</h3>
           </div>
+          {timeRange === 'mtd' && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <span className="font-semibold">{growthLabel}</span>
+              <span className="block text-xs">{growthDeltaLabel}. MTD compares through the same calendar day.</span>
+            </div>
+          )}
+        </div>
+        <div className="mt-4 grid grid-cols-1 gap-2 lg:grid-cols-2">
+          {businessHighlights.map((highlight) => (
+            <button
+              key={highlight.text}
+              type="button"
+              onClick={() => {
+                setActiveView(highlight.view);
+                if (highlight.panel) setActiveHealthPanel(highlight.panel);
+              }}
+              className="flex items-start justify-between gap-4 rounded-lg border border-bark-100 bg-white px-4 py-3 text-left text-sm text-bark-500 shadow-sm transition-colors hover:border-bark-200 hover:bg-bark-50"
+            >
+              <span>{highlight.text}</span>
+              <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-bark-400" />
+            </button>
+          ))}
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 lg:col-span-2">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Attention Queue</h3>
-              <p className="text-sm text-gray-500 mt-1">The shortest path from insights to follow-up.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActiveView('health')}
-              className="rounded-lg border border-bark-200 px-3 py-2 text-sm font-medium text-bark-700 hover:bg-bark-50"
-            >
-              Review health
-            </button>
+      <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Performance Trend</h3>
+            <p className="mt-1 text-sm text-gray-500">{getTimeRangeLabel(timeRange)} trend with comparable-period context when available.</p>
           </div>
-          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {attentionItems.map((item) => {
-              const toneClass = item.tone === 'emerald'
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                : item.tone === 'amber'
-                  ? 'bg-amber-50 text-amber-700 border-amber-100'
-                  : 'bg-bark-50 text-bark-700 border-bark-100';
+          <div className="flex flex-wrap gap-2">
+            {performanceMetricOptions.map((metric) => {
+              const isActive = activePerformanceMetric === metric.id;
               return (
-                <div key={item.label} className={`rounded-lg border p-4 ${toneClass}`}>
-                  <p className="text-sm font-medium">{item.label}</p>
-                  <p className="mt-2 text-3xl font-bold">{item.value}</p>
-                  <p className="mt-2 text-xs opacity-80">{item.detail}</p>
-                </div>
+                <button
+                  key={metric.id}
+                  type="button"
+                  onClick={() => setActivePerformanceMetric(metric.id)}
+                  className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                    isActive
+                      ? 'border-bark-500 bg-bark-500 text-white'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-bark-200 hover:text-bark-700'
+                  }`}
+                  aria-pressed={isActive}
+                >
+                  {metric.label}
+                </button>
               );
             })}
           </div>
         </div>
+        <div className="mt-5 h-80">
+          {performanceTrend.length === 0 ? (
+            <EmptyPanel message="No performance data is available for this range yet." />
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <RechartsLineChart data={performanceTrend} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="#EFE6CB" strokeDasharray="3 3" />
+                <XAxis dataKey="period" minTickGap={24} tick={{ fill: '#6B7280', fontSize: 12 }} />
+                <YAxis
+                  width={64}
+                  tick={{ fill: '#6B7280', fontSize: 12 }}
+                  tickFormatter={(value) => activePerformanceMetric === 'revenue' ? formatCompactCurrency(Number(value)) : Number(value).toLocaleString()}
+                />
+                <Tooltip
+                  formatter={(value: number, name: string) => [
+                    activePerformanceMetric === 'revenue' ? formatCurrency(Number(value)) : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 }),
+                    name === previousPerformanceDataKey ? `${comparisonMetrics.label || 'Previous period'} ${selectedPerformanceMetric.label}` : selectedPerformanceMetric.label,
+                  ]}
+                />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey={performanceDataKey}
+                  name={selectedPerformanceMetric.label}
+                  stroke={selectedPerformanceMetric.color}
+                  strokeWidth={3}
+                  dot={false}
+                  activeDot={{ r: 5 }}
+                />
+                {hasPreviousPerformance && (
+                  <Line
+                    type="monotone"
+                    dataKey={previousPerformanceDataKey}
+                    name={comparisonMetrics.label || 'Previous period'}
+                    stroke={selectedPerformanceMetric.comparisonColor}
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={false}
+                  />
+                )}
+              </RechartsLineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </section>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h3 className="text-lg font-semibold text-gray-900">Snapshot</h3>
-          <div className="mt-5 space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm text-gray-500">Active retailers in range</p>
-              <div className="text-right">
-                <p className="font-semibold text-gray-900">{activeRetailers}</p>
-                <TrendDelta current={activeRetailers} previous={comparisonMetrics.activeRetailers} label={comparisonMetrics.label} />
-              </div>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm text-gray-500">Reorder rate</p>
-              <div className="text-right">
-                <p className="font-semibold text-gray-900">{reorderRate.toFixed(1)}%</p>
-                <TrendDelta current={reorderRate} previous={comparisonMetrics.reorderRate} label={comparisonMetrics.label} mode="points" />
-              </div>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm text-gray-500">Active states</p>
-              <div className="text-right">
-                <p className="font-semibold text-gray-900">{activeStates}</p>
-                <TrendDelta current={activeStates} previous={comparisonMetrics.activeStates} label={comparisonMetrics.label} />
-              </div>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm text-gray-500">Suggested SKU pairs</p>
-              <p className="font-semibold text-gray-900">{skuComparisons.length}</p>
-            </div>
+      <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Attention Center</h3>
+            <p className="mt-1 text-sm text-gray-500">The shortest path from insight to follow-up.</p>
           </div>
+          <button type="button" onClick={() => setActiveView('health')} className="inline-flex items-center justify-center rounded-lg border border-bark-200 px-3 py-2 text-sm font-semibold text-bark-700 hover:bg-bark-50">
+            Review health
+          </button>
+        </div>
+        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <ActionCard icon={<AlertTriangle className="h-5 w-5" />} title="Needs First Order" count={retailersWithoutOrders.length} detail={oldestAccountAwaitingFirstOrder ? `Oldest: ${oldestAccountAwaitingFirstOrder.company_name}` : 'Every account has ordered'} action="Review accounts" tone="amber" onClick={() => { setActiveView('health'); setActiveHealthPanel('needs_first_order'); }} />
+          <ActionCard icon={<AlertTriangle className="h-5 w-5" />} title="At-Risk Retailers" count={atRiskRetailers.length} detail={averageDaysSinceAtRiskOrder > 0 ? `${averageDaysSinceAtRiskOrder} average days since last order` : 'No retailers beyond the risk threshold'} action="Review retailer health" tone="red" onClick={() => { setActiveView('health'); setActiveHealthPanel('at_risk'); }} />
+          <ActionCard icon={<Users className="h-5 w-5" />} title="Retailer Outreach" count={outreachRows.length} detail={`${sampleFollowUpCount} need sample follow-up`} action="Start outreach" tone="bark" onClick={() => { setActiveView('health'); setActiveHealthPanel('outreach'); }} />
+          <ActionCard icon={<CheckCircle2 className="h-5 w-5" />} title="High-Performing Stores" count={highPerformerCount} detail="Expansion ask candidates" action="View growth opportunities" tone="green" onClick={() => { setActiveView('health'); setActiveHealthPanel('leaderboards'); }} />
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <RankedBarCard
+          title="Top Products"
+          subtitle={`Top SKUs by velocity, ${velocityWindowLabel.toLowerCase()}`}
+          emptyMessage="No SKU velocity data is available for this range yet."
+          rows={topSkuMetrics.map((sku) => ({ id: sku.skuId, label: sku.label, value: sku.unitsPerStorePerWeek, displayValue: `${sku.unitsPerStorePerWeek.toFixed(2)} UPSPW`, hrefView: 'skus' as InsightsView }))}
+          onNavigate={(view) => setActiveView(view)}
+        />
+        <RankedBarCard
+          title="Top Markets"
+          subtitle="States ranked by revenue in the selected period"
+          emptyMessage="No state revenue data is available for this range yet."
+          rows={stateRevenue.slice(0, 5).map((state) => ({ id: state.state, label: state.state, value: state.revenue, displayValue: formatCurrency(state.revenue), hrefView: 'markets' as InsightsView }))}
+          onNavigate={(view) => setActiveView(view)}
+        />
+      </section>
+
+      <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+        <h3 className="text-lg font-semibold text-gray-900">Supporting Detail</h3>
+        <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3 xl:grid-cols-6">
+          <SupportingMetric label="Active retailers" value={activeRetailers} delta={<TrendDelta current={activeRetailers} previous={comparisonMetrics.activeRetailers} label={comparisonMetrics.label} />} />
+          <SupportingMetric label="Active states" value={activeStates} delta={<TrendDelta current={activeStates} previous={comparisonMetrics.activeStates} label={comparisonMetrics.label} />} />
+          <SupportingMetric label="New retail locations" value={newLocationsThisMonth} helper="This month" />
+          <SupportingMetric label="Suggested SKU pairs" value={skuComparisons.length} />
+          <SupportingMetric label="Top 10% retailer velocity" value={unitsPerStoreMetrics.topDecile.toFixed(2)} helper="Units/store/week" />
+          <SupportingMetric label="Per-SKU velocity" value={unitsPerStorePerSkuMetrics.overall.toFixed(2)} helper="All active stores" />
         </div>
       </section>
         </>
@@ -2005,6 +2173,192 @@ export default function AdminInsightsPage() {
         </div>
       </section>
       )}
+    </div>
+  );
+}
+
+function KpiCard({
+  label,
+  value,
+  current,
+  previous,
+  comparisonLabel,
+  sparkline,
+  icon,
+  tooltip,
+  mode = 'percent',
+}: {
+  label: string;
+  value: string;
+  current: number;
+  previous: number | null;
+  comparisonLabel: string;
+  sparkline: number[];
+  icon: ReactNode;
+  tooltip?: string;
+  mode?: 'percent' | 'points';
+}) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          {tooltip ? (
+            <MetricLabel className="text-xs font-semibold uppercase text-gray-500" tooltip={tooltip}>
+              {label}
+            </MetricLabel>
+          ) : (
+            <p className="text-xs font-semibold uppercase text-gray-500">{label}</p>
+          )}
+          <p className="mt-2 text-2xl font-bold text-gray-900">{value}</p>
+        </div>
+        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-bark-50 text-bark-600">
+          {icon}
+        </span>
+      </div>
+      <div className="mt-3 min-h-8">
+        {sparkline.length > 1 ? <Sparkline values={sparkline} /> : <div className="h-8 rounded bg-gray-50" />}
+      </div>
+      <TrendDelta current={current} previous={previous} label={comparisonLabel} mode={mode} />
+    </div>
+  );
+}
+
+function Sparkline({ values }: { values: number[] }) {
+  const width = 128;
+  const height = 32;
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  const range = max - min || 1;
+  const points = values.map((value, index) => {
+    const x = values.length === 1 ? 0 : (index / (values.length - 1)) * width;
+    const y = height - ((value - min) / range) * (height - 4) - 2;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-8 w-full overflow-visible" aria-hidden="true">
+      <polyline points={points} fill="none" stroke="#3F1D0B" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function EmptyPanel({ message }: { message: string }) {
+  return (
+    <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-500">
+      {message}
+    </div>
+  );
+}
+
+function ActionCard({
+  icon,
+  title,
+  count,
+  detail,
+  action,
+  tone,
+  onClick,
+}: {
+  icon: ReactNode;
+  title: string;
+  count: number;
+  detail: string;
+  action: string;
+  tone: 'amber' | 'red' | 'bark' | 'green';
+  onClick: () => void;
+}) {
+  const toneClass = {
+    amber: 'border-amber-100 bg-amber-50 text-amber-800',
+    red: 'border-red-100 bg-red-50 text-red-800',
+    bark: 'border-bark-100 bg-bark-50 text-bark-800',
+    green: 'border-emerald-100 bg-emerald-50 text-emerald-800',
+  }[tone];
+
+  return (
+    <div className={`rounded-xl border p-4 ${toneClass}`}>
+      <div className="flex items-start justify-between gap-3">
+        <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white/75">
+          {icon}
+        </span>
+        <p className="text-3xl font-bold">{count}</p>
+      </div>
+      <p className="mt-4 text-sm font-semibold">{title}</p>
+      <p className="mt-1 min-h-10 text-sm opacity-80">{detail}</p>
+      <button
+        type="button"
+        onClick={onClick}
+        className="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold shadow-sm transition-colors hover:bg-white/80"
+      >
+        {action}
+      </button>
+    </div>
+  );
+}
+
+function RankedBarCard({
+  title,
+  subtitle,
+  emptyMessage,
+  rows,
+  onNavigate,
+}: {
+  title: string;
+  subtitle: string;
+  emptyMessage: string;
+  rows: Array<{ id: string; label: string; value: number; displayValue: string; hrefView: InsightsView }>;
+  onNavigate: (view: InsightsView) => void;
+}) {
+  const maxValue = Math.max(...rows.map((row) => row.value), 0);
+
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+      <div>
+        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+        <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
+      </div>
+      <div className="mt-5 space-y-4">
+        {rows.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
+            {emptyMessage}
+          </div>
+        ) : (
+          rows.map((row, index) => (
+            <button
+              key={row.id}
+              type="button"
+              onClick={() => onNavigate(row.hrefView)}
+              className="block w-full text-left"
+            >
+              <div className="mb-2 flex items-center justify-between gap-4 text-sm">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cream-100 text-xs font-semibold text-bark-600">
+                    {index + 1}
+                  </span>
+                  <span className="truncate font-semibold text-gray-900">{row.label}</span>
+                </div>
+                <span className="shrink-0 font-semibold text-bark-600">{row.displayValue}</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className="h-full rounded-full bg-bark-500"
+                  style={{ width: `${maxValue > 0 ? Math.max(4, (row.value / maxValue) * 100) : 0}%` }}
+                />
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SupportingMetric({ label, value, helper, delta }: { label: string; value: string | number; helper?: string; delta?: ReactNode }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase text-gray-400">{label}</p>
+      <p className="mt-1 text-xl font-bold text-gray-900">{value}</p>
+      {helper && <p className="mt-1 text-xs text-gray-400">{helper}</p>}
+      {delta}
     </div>
   );
 }
