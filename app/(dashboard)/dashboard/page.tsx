@@ -100,12 +100,14 @@ export default function DashboardPage() {
   const [isRequestingLaunchPromo, setIsRequestingLaunchPromo] = useState(false);
   const [isConfirmingLaunchPromoCancel, setIsConfirmingLaunchPromoCancel] = useState(false);
   const [showBareLaunchOfferModal, setShowBareLaunchOfferModal] = useState(false);
+  const [showShelfTalkerModal, setShowShelfTalkerModal] = useState(false);
   const [bareLaunchOfferDismissed, setBareLaunchOfferDismissed] = useState(false);
   const [isSavingLaunchOfferReminder, setIsSavingLaunchOfferReminder] = useState(false);
   const [welcomeOfferPopupState, setWelcomeOfferPopupState] = useState<WelcomeOfferPopupState | null>(null);
   const [successNotice, setSuccessNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const pendingSuccessSaveRef = useRef(false);
   const launchOfferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shelfTalkerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Get the business name - check both possible field names
   const businessName = retailer?.company_name || retailer?.business_name || '';
@@ -212,8 +214,13 @@ export default function DashboardPage() {
       clearTimeout(launchOfferTimerRef.current);
       launchOfferTimerRef.current = null;
     }
+    if (shelfTalkerTimerRef.current) {
+      clearTimeout(shelfTalkerTimerRef.current);
+      shelfTalkerTimerRef.current = null;
+    }
     setBareLaunchOfferDismissed(isDismissed);
     setShowBareLaunchOfferModal(false);
+    setShowShelfTalkerModal(false);
     setWelcomeOfferPopupState(null);
 
     const scheduleWelcomeOfferModal = async () => {
@@ -274,13 +281,52 @@ export default function DashboardPage() {
       }, 1250);
     };
 
-    scheduleWelcomeOfferModal();
+    const scheduleShelfTalkerModal = async () => {
+      if (bareLaunchOffer.eligible || !retailer?.id) return;
+
+      let alreadySeen = true;
+      try {
+        const response = await fetch('/api/shelf-talkers/popup-state');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || 'Unable to load shelf talker popup state.');
+        alreadySeen = Boolean(data.seen);
+      } catch (error) {
+        console.error('Shelf talker popup state error:', error);
+      }
+
+      if (!isMounted || alreadySeen) return;
+
+      shelfTalkerTimerRef.current = setTimeout(async () => {
+        setShowShelfTalkerModal(true);
+        shelfTalkerTimerRef.current = null;
+
+        try {
+          await fetch('/api/shelf-talkers/popup-state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'viewed' }),
+          });
+        } catch (error) {
+          console.error('Shelf talker popup view save error:', error);
+        }
+      }, 1250);
+    };
+
+    if (bareLaunchOffer.eligible) {
+      scheduleWelcomeOfferModal();
+    } else {
+      scheduleShelfTalkerModal();
+    }
 
     return () => {
       isMounted = false;
       if (launchOfferTimerRef.current) {
         clearTimeout(launchOfferTimerRef.current);
         launchOfferTimerRef.current = null;
+      }
+      if (shelfTalkerTimerRef.current) {
+        clearTimeout(shelfTalkerTimerRef.current);
+        shelfTalkerTimerRef.current = null;
       }
     };
   }, [bareLaunchOffer.eligible, retailer?.id]);
@@ -350,6 +396,19 @@ export default function DashboardPage() {
     } finally {
       setIsSavingLaunchOfferReminder(false);
     }
+  };
+
+  const dismissShelfTalkerModal = () => {
+    if (shelfTalkerTimerRef.current) {
+      clearTimeout(shelfTalkerTimerRef.current);
+      shelfTalkerTimerRef.current = null;
+    }
+    setShowShelfTalkerModal(false);
+  };
+
+  const handleShelfTalkerShop = () => {
+    dismissShelfTalkerModal();
+    window.location.href = '/catalog';
   };
 
   const showSuccessNotice = (notice: { type: 'success' | 'error'; message: string }) => {
@@ -516,6 +575,12 @@ export default function DashboardPage() {
           onRemindLater={handleBareLaunchOfferReminder}
           remindLaterSaving={isSavingLaunchOfferReminder}
           variant={welcomeOfferPopupState?.variant || 'returning'}
+        />
+      )}
+      {showShelfTalkerModal && (
+        <ShelfTalkerPromoModal
+          onClose={dismissShelfTalkerModal}
+          onShop={handleShelfTalkerShop}
         />
       )}
 
@@ -1003,6 +1068,90 @@ function BareLaunchOfferCard({
           Build My First Order
           <ArrowRight className="ml-2 h-4 w-4" />
         </button>
+      </div>
+    </div>
+  );
+}
+
+function ShelfTalkerPromoModal({
+  onClose,
+  onShop,
+}: {
+  onClose: () => void;
+  onShop: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-bark-500/45 p-3 py-4 backdrop-blur-sm sm:items-center sm:p-4">
+      <div className="relative my-auto w-full max-w-4xl overflow-hidden rounded-2xl border border-cream-300 bg-white shadow-2xl">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 z-10 rounded-lg bg-white/90 p-2 text-bark-500/70 shadow-sm hover:bg-cream-100 hover:text-bark-500"
+          aria-label="Close shelf talker announcement"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
+        <div className="grid max-h-[calc(100vh-2rem)] overflow-y-auto lg:grid-cols-[1.08fr_0.92fr]">
+          <div className="bg-bark-500">
+            <img
+              src="/images/shelf-talker-popup.png"
+              alt="Bare Naked trail mix topper bags displayed with a salmon shelf talker"
+              className="h-full min-h-[260px] w-full object-cover"
+            />
+          </div>
+
+          <div className="flex flex-col justify-center p-5 sm:p-8">
+            <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-full bg-orange-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-orange-800">
+              <Sparkles className="h-4 w-4" />
+              New shelf support
+            </div>
+            <h2 className="pr-8 text-3xl font-bold leading-tight text-bark-500 sm:pr-0 sm:text-4xl" style={{ fontFamily: 'var(--font-poppins)' }}>
+              New trail mix topper shelf talkers are here.
+            </h2>
+            <p className="mt-4 text-sm leading-6 text-bark-500/75 sm:text-base">
+              They help customers quickly understand each flavor at the shelf and they are easy to qualify for.
+            </p>
+
+            <div className="mt-6 space-y-3">
+              <div className="flex gap-3 rounded-xl bg-cream-100 p-4">
+                <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                <div>
+                  <p className="font-semibold text-bark-500">Carry both sizes</p>
+                  <p className="mt-1 text-sm leading-5 text-bark-500/70">
+                    Stores carrying both 6 oz and 12 oz of a flavor qualify for that flavor&apos;s shelf talker.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-3 rounded-xl bg-cream-100 p-4">
+                <Package className="mt-0.5 h-5 w-5 shrink-0 text-orange-700" />
+                <div>
+                  <p className="font-semibold text-bark-500">We add them automatically</p>
+                  <p className="mt-1 text-sm leading-5 text-bark-500/70">
+                    Once your store qualifies, the matching shelf talker will be added to your next order.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <button type="button" onClick={onShop} className="btn-primary">
+                Shop Toppers
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-xl border border-bark-500/20 px-5 py-3 font-semibold text-bark-500 hover:bg-cream-100"
+              >
+                Got It
+              </button>
+            </div>
+            <p className="mt-3 text-xs text-bark-500/60">
+              No request form needed. Chicken, Salmon, and Beef shelf talkers are matched by flavor.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
