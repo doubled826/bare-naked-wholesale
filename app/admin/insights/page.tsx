@@ -148,6 +148,17 @@ type RankedSkuMetric = {
   label: string;
   totalUnits: number;
   unitsPerStorePerWeek: number;
+  previousUnitsPerStorePerWeek: number | null;
+  percentChange: number | null;
+};
+
+type RankedMarketMetric = {
+  state: string;
+  revenue: number;
+  activeRetailers: number;
+  previousRevenue: number | null;
+  percentChange: number | null;
+  sparkline: number[];
 };
 
 type InsightsView = 'overview' | 'health' | 'skus' | 'markets';
@@ -198,8 +209,10 @@ type OutreachRow = {
 type ComparisonMetrics = {
   label: string;
   totalRevenue: number | null;
+  totalOrders: number | null;
   unitsSold: number | null;
   avgOrderValue: number | null;
+  unitsPerStorePerWeek: number | null;
   activeRetailers: number | null;
   reorderRate: number | null;
   activeStates: number | null;
@@ -254,7 +267,6 @@ const datePresetGroups: Array<{
       { id: 'last_week', label: 'Last week' },
       { id: 'last_month', label: 'Last month' },
       { id: 'last_quarter', label: 'Last quarter' },
-      { id: 'last_12_months', label: 'Last 12 months', rolling: true },
       { id: 'last_year', label: 'Last year' },
     ],
   },
@@ -297,6 +309,22 @@ const lifecycleLabels: Record<string, string> = {
 const formatCompactCurrency = (value: number) =>
   `$${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value)}`;
 
+const formatSignedPercent = (value: number | null) => {
+  if (value === null || Number.isNaN(value)) return 'No comp';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(1)}%`;
+};
+
+const getSparklineValues = (points: PerformanceTrendPoint[], metric: PerformanceMetric) => {
+  const rawValues = points.map((point) => {
+    if (metric === 'revenue') return point.revenue;
+    if (metric === 'orders') return point.orders;
+    if (metric === 'units') return point.units;
+    return point.velocity;
+  });
+  return rawValues.filter((value) => Number.isFinite(value));
+};
+
 const formatSkuLabel = (product: ProductRecord | undefined, fallbackId?: string | null) => {
   if (!product) return fallbackId ? `Unknown SKU (${fallbackId.slice(0, 8)})` : 'Unknown SKU';
   return `${product.name} (${product.size})`;
@@ -323,9 +351,17 @@ const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMon
 const addDays = (date: Date, days: number) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
 
 const addMonths = (date: Date, months: number) => {
-  const nextDate = new Date(date);
-  nextDate.setMonth(nextDate.getMonth() + months);
-  return nextDate;
+  const targetMonth = date.getMonth() + months;
+  const targetYear = date.getFullYear() + Math.floor(targetMonth / 12);
+  const normalizedMonth = ((targetMonth % 12) + 12) % 12;
+  const lastDayOfTargetMonth = new Date(targetYear, normalizedMonth + 1, 0).getDate();
+  return new Date(targetYear, normalizedMonth, Math.min(date.getDate(), lastDayOfTargetMonth));
+};
+
+const addYears = (date: Date, years: number) => {
+  const targetYear = date.getFullYear() + years;
+  const lastDayOfTargetMonth = new Date(targetYear, date.getMonth() + 1, 0).getDate();
+  return new Date(targetYear, date.getMonth(), Math.min(date.getDate(), lastDayOfTargetMonth));
 };
 
 const formatDateKey = (date: Date) =>
@@ -352,7 +388,7 @@ const formatRangeLabel = (startDateKey: string, endDateKey: string) => {
 
 const getDefaultDateSelection = (today = new Date()): DateRangeSelection => {
   const primary = getPresetRange('last_90_days', today, true);
-  const comparison = getComparisonRange(primary.startDate, primary.endDate, 'previous_period', today);
+  const comparison = getComparisonRange(primary.startDate, primary.endDate, 'previous_period', today, 'last_90_days');
   return {
     preset: 'last_90_days',
     startDate: primary.startDate,
@@ -380,7 +416,7 @@ const getDateSelectionFromSearchParams = (params: URLSearchParams, today = new D
   const startDate = params.get('start') || fallback.startDate;
   const endDate = params.get('end') || fallback.endDate;
   const includeToday = params.get('today') !== 'false';
-  const computedComparison = getComparisonRange(startDate, endDate, comparisonType, today);
+  const computedComparison = getComparisonRange(startDate, endDate, comparisonType, today, preset);
 
   return {
     preset: datePresetGroups.flatMap((group) => group.presets).some((option) => option.id === preset) ? preset : fallback.preset,
@@ -388,8 +424,8 @@ const getDateSelectionFromSearchParams = (params: URLSearchParams, today = new D
     endDate,
     includeToday,
     comparisonType: comparisonOptions.some((option) => option.id === comparisonType) ? comparisonType : fallback.comparisonType,
-    comparisonStartDate: params.get('cstart') || computedComparison?.startDate || fallback.comparisonStartDate,
-    comparisonEndDate: params.get('cend') || computedComparison?.endDate || fallback.comparisonEndDate,
+    comparisonStartDate: comparisonType === 'custom' ? params.get('cstart') || fallback.comparisonStartDate : computedComparison?.startDate || fallback.comparisonStartDate,
+    comparisonEndDate: comparisonType === 'custom' ? params.get('cend') || fallback.comparisonEndDate : computedComparison?.endDate || fallback.comparisonEndDate,
   };
 };
 
@@ -433,7 +469,13 @@ const getPresetRange = (preset: DatePresetId, todayInput = new Date(), includeTo
   return { startDate: formatDateKey(addDays(today, -89)), endDate: formatDateKey(today) };
 };
 
-const getComparisonRange = (startDateKey: string, endDateKey: string, comparisonType: ComparisonType, today = new Date()) => {
+const getComparisonRange = (
+  startDateKey: string,
+  endDateKey: string,
+  comparisonType: ComparisonType,
+  today = new Date(),
+  preset?: DatePresetId,
+) => {
   if (comparisonType === 'none' || comparisonType === 'custom') return null;
   const startDate = parseDateKey(startDateKey);
   const endDate = parseDateKey(endDateKey);
@@ -441,6 +483,36 @@ const getComparisonRange = (startDateKey: string, endDateKey: string, comparison
   const days = getInclusiveDays(startDate, endDate);
 
   if (comparisonType === 'previous_period') {
+    if (preset === 'week_to_date') {
+      return {
+        startDate: formatDateKey(addDays(startDate, -7)),
+        endDate: formatDateKey(addDays(endDate, -7)),
+      };
+    }
+
+    if (preset === 'month_to_date') {
+      return {
+        startDate: formatDateKey(addMonths(startDate, -1)),
+        endDate: formatDateKey(addMonths(endDate, -1)),
+      };
+    }
+
+    if (preset === 'quarter_to_date') {
+      const previousQuarterStart = addMonths(startDate, -3);
+      return {
+        startDate: formatDateKey(previousQuarterStart),
+        endDate: formatDateKey(addDays(previousQuarterStart, days - 1)),
+      };
+    }
+
+    if (preset === 'year_to_date') {
+      const previousYearStart = addYears(startDate, -1);
+      return {
+        startDate: formatDateKey(previousYearStart),
+        endDate: formatDateKey(addDays(previousYearStart, days - 1)),
+      };
+    }
+
     const comparisonEnd = addDays(startDate, -1);
     return {
       startDate: formatDateKey(addDays(comparisonEnd, -(days - 1))),
@@ -471,9 +543,6 @@ const getComparisonRange = (startDateKey: string, endDateKey: string, comparison
 const getComparisonLabel = (selection: DateRangeSelection) => {
   if (selection.comparisonType === 'none') return '';
   if (!selection.comparisonStartDate || !selection.comparisonEndDate) return '';
-  if (selection.comparisonType === 'previous_period') return `previous ${getInclusiveDays(parseDateKey(selection.startDate) || new Date(), parseDateKey(selection.endDate) || new Date())} days`;
-  if (selection.comparisonType === 'previous_year') return 'same period last year';
-  if (selection.comparisonType === 'same_period_last_month') return 'same period last month';
   return formatRangeLabel(selection.comparisonStartDate, selection.comparisonEndDate);
 };
 
@@ -577,8 +646,10 @@ export default function AdminInsightsPage() {
   const [comparisonMetrics, setComparisonMetrics] = useState<ComparisonMetrics>({
     label: '',
     totalRevenue: null,
+    totalOrders: null,
     unitsSold: null,
     avgOrderValue: null,
+    unitsPerStorePerWeek: null,
     activeRetailers: null,
     reorderRate: null,
     activeStates: null,
@@ -591,6 +662,7 @@ export default function AdminInsightsPage() {
   const [reorderRate, setReorderRate] = useState(0);
   const [atRiskRetailers, setAtRiskRetailers] = useState<AtRiskRetailer[]>([]);
   const [stateRevenue, setStateRevenue] = useState<{ state: string; revenue: number }[]>([]);
+  const [topMarketMetrics, setTopMarketMetrics] = useState<RankedMarketMetric[]>([]);
   const [activeStates, setActiveStates] = useState(0);
   const [topRetailersByRevenue, setTopRetailersByRevenue] = useState<RetailerStats[]>([]);
   const [topRetailersByOrders, setTopRetailersByOrders] = useState<RetailerStats[]>([]);
@@ -618,6 +690,7 @@ export default function AdminInsightsPage() {
   const [dateSelection, setDateSelection] = useState<DateRangeSelection>(() => {
     return getDateSelectionFromSearchParams(new URLSearchParams(searchParams.toString()), today);
   });
+  const [showComparisonSeries, setShowComparisonSeries] = useState(true);
 
   useEffect(() => {
     fetchInsights();
@@ -795,6 +868,12 @@ export default function AdminInsightsPage() {
           return sum + (item.quantity || 0);
         }, 0)
         : null;
+      const itemRows = (orderItems as Array<{
+        quantity: number | null;
+        product_id?: string | null;
+        product?: ProductRecord;
+        order?: { status?: string | null; retailer_id?: string | null; location_id?: string | null; created_at?: string | null } | null;
+      }> | null) || [];
 
       setTotalRevenue(totalRevenueValue);
       setUnitsSold(unitsSoldValue);
@@ -808,6 +887,48 @@ export default function AdminInsightsPage() {
         `${getPresetLabel(dateSelection.preset)} average (${divisorWeeks.toFixed(1)} weeks)`,
       );
       setComparisonDivisorWeeks(divisorWeeks);
+
+      const summarizeVelocityWindow = (windowStart: Date, windowEndExclusive: Date) => {
+        const windowDays = getInclusiveDays(windowStart, addDays(windowEndExclusive, -1));
+        const weeks = Math.max(MIN_RUNNING_WEEKS, windowDays / 7);
+        const unitsByStore = new Map<string, number>();
+        const skuUnitsByStoreForWindow = new Map<string, Map<string, number>>();
+        itemRows.forEach((item) => {
+          if (item.order?.status === 'canceled' || !item.order?.retailer_id || !item.order?.created_at) return;
+          const orderDate = new Date(item.order.created_at);
+          if (orderDate < windowStart || orderDate >= windowEndExclusive) return;
+          const storeKey = item.order.location_id || `retailer:${item.order.retailer_id}`;
+          unitsByStore.set(storeKey, (unitsByStore.get(storeKey) || 0) + (item.quantity || 0));
+          if (item.product_id) {
+            const skuTotalsForStore = skuUnitsByStoreForWindow.get(storeKey) || new Map<string, number>();
+            skuTotalsForStore.set(item.product_id, (skuTotalsForStore.get(item.product_id) || 0) + (item.quantity || 0));
+            skuUnitsByStoreForWindow.set(storeKey, skuTotalsForStore);
+          }
+        });
+        const totalUnits = Array.from(unitsByStore.values()).reduce((sum, quantity) => sum + quantity, 0);
+        const storeCount = unitsByStore.size;
+        const skuStoreCounts = new Map<string, number>();
+        const skuTotalUnits = new Map<string, number>();
+        skuUnitsByStoreForWindow.forEach((skuMap) => {
+          skuMap.forEach((units, skuId) => {
+            if (units <= 0) return;
+            skuTotalUnits.set(skuId, (skuTotalUnits.get(skuId) || 0) + units);
+            skuStoreCounts.set(skuId, (skuStoreCounts.get(skuId) || 0) + 1);
+          });
+        });
+
+        return {
+          overall: storeCount > 0 ? totalUnits / storeCount / weeks : 0,
+          skuMetrics: new Map(Array.from(skuTotalUnits.entries()).map(([skuId, total]) => {
+            const skuStoreCount = Math.max(skuStoreCounts.get(skuId) || 0, 1);
+            return [skuId, total / skuStoreCount / weeks];
+          })),
+        };
+      };
+
+      const previousVelocitySummary = previousRange
+        ? summarizeVelocityWindow(previousRange.start, previousRange.endExclusive)
+        : null;
 
       const unitsByRetailerInWindow = new Map<string, number>();
       const skuSetsByRetailer = new Map<string, Set<string>>();
@@ -927,6 +1048,10 @@ export default function AdminInsightsPage() {
               label: skuLabels.get(skuId) || skuId,
               totalUnits,
               unitsPerStorePerWeek: totalUnits / storeCount / divisorWeeks,
+              previousUnitsPerStorePerWeek: previousVelocitySummary?.skuMetrics.get(skuId) ?? null,
+              percentChange: previousVelocitySummary?.skuMetrics.get(skuId)
+                ? (((totalUnits / storeCount / divisorWeeks) - (previousVelocitySummary.skuMetrics.get(skuId) || 0)) / (previousVelocitySummary.skuMetrics.get(skuId) || 1)) * 100
+                : null,
             };
           })
           .sort((a, b) => b.unitsPerStorePerWeek - a.unitsPerStorePerWeek)
@@ -1133,10 +1258,22 @@ export default function AdminInsightsPage() {
       setAtRiskRetailers(atRisk);
 
       const stateRevenueMap = new Map<string, number>();
+      const stateRetailersMap = new Map<string, Set<string>>();
       reportingOrders.forEach(order => {
         const state = parseStateFromAddress(order.retailer?.business_address);
         if (!state) return;
         stateRevenueMap.set(state, (stateRevenueMap.get(state) || 0) + (Number(order.total) || 0));
+        if (order.retailer_id) {
+          const retailersForState = stateRetailersMap.get(state) || new Set<string>();
+          retailersForState.add(order.retailer_id);
+          stateRetailersMap.set(state, retailersForState);
+        }
+      });
+      const previousStateRevenueMap = new Map<string, number>();
+      previousOrders.forEach(order => {
+        const state = parseStateFromAddress(order.retailer?.business_address);
+        if (!state) return;
+        previousStateRevenueMap.set(state, (previousStateRevenueMap.get(state) || 0) + (Number(order.total) || 0));
       });
       const stateRevenueList = Array.from(stateRevenueMap.entries())
         .map(([state, revenue]) => ({ state, revenue }))
@@ -1165,8 +1302,10 @@ export default function AdminInsightsPage() {
       setComparisonMetrics({
         label: previousRange?.label || '',
         totalRevenue: previousTotalRevenue,
+        totalOrders: previousRange ? previousTotalOrders : null,
         unitsSold: previousUnitsSoldValue,
         avgOrderValue: previousAvgOrderValue,
+        unitsPerStorePerWeek: previousVelocitySummary?.overall ?? null,
         activeRetailers: previousActiveRetailerCount,
         reorderRate: previousReorderRate,
         activeStates: previousRange ? previousActiveStateSet.size : null,
@@ -1225,10 +1364,6 @@ export default function AdminInsightsPage() {
       const previousTrendBuckets = previousRange
         ? buildTrendBucketsBetween(previousRange.start, previousRange.endExclusive, chartInterval)
         : [];
-      const itemRows = (orderItems as Array<{
-        quantity: number | null;
-        order?: { status?: string | null; retailer_id?: string | null; location_id?: string | null; created_at?: string | null } | null;
-      }> | null) || [];
       const currentTrendSummary = summarizeTrendBuckets(trendBuckets, reportingOrders, itemRows);
       const previousTrendSummary = previousRange
         ? summarizeTrendBuckets(previousTrendBuckets, previousOrders, itemRows)
@@ -1251,6 +1386,35 @@ export default function AdminInsightsPage() {
           previousUnits: previous ? previous.units : null,
           velocity: current && currentStores > 0 ? current.units / currentStores / current.weeks : 0,
           previousVelocity: previous && previousStores > 0 ? previous.units / previousStores / previous.weeks : null,
+        };
+      }));
+
+      const stateSparklineMap = new Map<string, number[]>();
+      trendBuckets.forEach((bucket) => {
+        const bucketRevenueByState = new Map<string, number>();
+        reportingOrders.forEach((order) => {
+          const orderDate = new Date(order.created_at);
+          if (orderDate < bucket.start || orderDate >= bucket.end) return;
+          const state = parseStateFromAddress(order.retailer?.business_address);
+          if (!state) return;
+          bucketRevenueByState.set(state, (bucketRevenueByState.get(state) || 0) + (Number(order.total) || 0));
+        });
+        stateRevenueList.forEach((stateRow) => {
+          const points = stateSparklineMap.get(stateRow.state) || [];
+          points.push(bucketRevenueByState.get(stateRow.state) || 0);
+          stateSparklineMap.set(stateRow.state, points);
+        });
+      });
+
+      setTopMarketMetrics(stateRevenueList.slice(0, 5).map((stateRow) => {
+        const previousRevenue = previousRange ? previousStateRevenueMap.get(stateRow.state) || 0 : null;
+        return {
+          state: stateRow.state,
+          revenue: stateRow.revenue,
+          activeRetailers: stateRetailersMap.get(stateRow.state)?.size || 0,
+          previousRevenue,
+          percentChange: previousRevenue && previousRevenue > 0 ? ((stateRow.revenue - previousRevenue) / previousRevenue) * 100 : null,
+          sparkline: stateSparklineMap.get(stateRow.state) || [],
         };
       }));
 
@@ -1376,6 +1540,38 @@ export default function AdminInsightsPage() {
   const activeDateLabel = getPresetLabel(dateSelection.preset);
   const activeRangeLabel = formatRangeLabel(dateSelection.startDate, dateSelection.endDate);
   const activeComparisonLabel = getComparisonLabel(dateSelection);
+  const executiveSummary = useMemo(() => {
+    const revenueDelta = comparisonMetrics.totalRevenue !== null
+      ? totalRevenue - comparisonMetrics.totalRevenue
+      : null;
+    const reorderDelta = comparisonMetrics.reorderRate !== null
+      ? reorderRate - comparisonMetrics.reorderRate
+      : null;
+    const revenueDirection = revenueDelta === null
+      ? 'Revenue is ready for review'
+      : revenueDelta >= 0
+        ? 'Revenue is improving'
+        : 'Revenue is softer';
+    const retentionDirection = reorderDelta === null
+      ? 'retailer retention needs context'
+      : reorderDelta >= 0
+        ? 'retailer retention is improving'
+        : 'retailer retention is slipping';
+    const focus = retailersWithoutOrders.length > 20
+      ? 'first-order conversion remains the biggest opportunity'
+      : atRiskRetailers.length > 0
+        ? 'retailer health follow-up is the next best focus'
+        : 'sales momentum looks broadly healthy';
+
+    return `${revenueDirection} and ${retentionDirection}, but ${focus}.`;
+  }, [
+    atRiskRetailers.length,
+    comparisonMetrics.reorderRate,
+    comparisonMetrics.totalRevenue,
+    reorderRate,
+    retailersWithoutOrders.length,
+    totalRevenue,
+  ]);
 
   const businessHighlights = useMemo(() => {
     const highlights: Array<{ text: string; view: InsightsView; panel?: RetailerHealthPanel }> = [];
@@ -1529,7 +1725,7 @@ export default function AdminInsightsPage() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Insights</h2>
           <p className="text-sm text-gray-500 mt-1">
-            Organized views for growth, retailer follow-up, product performance, and markets.
+            {executiveSummary}
           </p>
         </div>
         <div className="flex flex-col gap-3">
@@ -1617,27 +1813,29 @@ export default function AdminInsightsPage() {
       {activeView === 'overview' && (
         <>
       <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
-        <KpiCard label="Revenue" value={formatCurrency(totalRevenue)} current={totalRevenue} previous={comparisonMetrics.totalRevenue} comparisonLabel={comparisonMetrics.label} sparkline={performanceTrend.map((point) => point.revenue)} icon={<TrendingUp className="h-4 w-4" />} />
-        <KpiCard label="Orders" value={totalOrdersInRange.toLocaleString()} current={totalOrdersInRange} previous={comparisonMetrics.totalRevenue === null ? null : performanceTrend.reduce((sum, point) => sum + (point.previousOrders || 0), 0)} comparisonLabel={comparisonMetrics.label} sparkline={performanceTrend.map((point) => point.orders)} icon={<ShoppingCart className="h-4 w-4" />} />
-        <KpiCard label="Units Sold" value={unitsSold.toLocaleString()} current={unitsSold} previous={comparisonMetrics.unitsSold} comparisonLabel={comparisonMetrics.label} sparkline={performanceTrend.map((point) => point.units)} icon={<Package className="h-4 w-4" />} />
-        <KpiCard label="Average Order Value" value={formatCurrency(avgOrderValue)} current={avgOrderValue} previous={comparisonMetrics.avgOrderValue} comparisonLabel={comparisonMetrics.label} sparkline={performanceTrend.map((point) => point.revenue)} icon={<Target className="h-4 w-4" />} />
-        <KpiCard label="Units / Store / Week" value={unitsPerStoreMetrics.overall.toFixed(2)} current={unitsPerStoreMetrics.overall} previous={null} comparisonLabel={comparisonMetrics.label} sparkline={performanceTrend.map((point) => point.velocity)} icon={<Store className="h-4 w-4" />} tooltip="Total units sold divided by active stores and weeks in the averaging window." />
-        <KpiCard label="Reorder Rate" value={`${reorderRate.toFixed(1)}%`} current={reorderRate} previous={comparisonMetrics.reorderRate} comparisonLabel={comparisonMetrics.label} mode="points" sparkline={[]} icon={<Users className="h-4 w-4" />} tooltip="Percentage of retailers with two or more non-canceled orders inside the selected range." />
+        <KpiCard label="Revenue" value={formatCurrency(totalRevenue)} current={totalRevenue} previous={comparisonMetrics.totalRevenue} comparisonLabel={comparisonMetrics.label} sparkline={getSparklineValues(performanceTrend, 'revenue')} icon={<TrendingUp className="h-4 w-4" />} onClick={() => setActivePerformanceMetric('revenue')} />
+        <KpiCard label="Orders" value={totalOrdersInRange.toLocaleString()} current={totalOrdersInRange} previous={comparisonMetrics.totalOrders} comparisonLabel={comparisonMetrics.label} sparkline={getSparklineValues(performanceTrend, 'orders')} icon={<ShoppingCart className="h-4 w-4" />} onClick={() => setActivePerformanceMetric('orders')} />
+        <KpiCard label="Units Sold" value={unitsSold.toLocaleString()} current={unitsSold} previous={comparisonMetrics.unitsSold} comparisonLabel={comparisonMetrics.label} sparkline={getSparklineValues(performanceTrend, 'units')} icon={<Package className="h-4 w-4" />} onClick={() => setActivePerformanceMetric('units')} />
+        <KpiCard label="Average Order Value" value={formatCurrency(avgOrderValue)} current={avgOrderValue} previous={comparisonMetrics.avgOrderValue} comparisonLabel={comparisonMetrics.label} sparkline={performanceTrend.map((point) => point.orders > 0 ? point.revenue / point.orders : 0)} icon={<Target className="h-4 w-4" />} onClick={() => setActivePerformanceMetric('revenue')} />
+        <KpiCard label="Units / Store / Week" value={unitsPerStoreMetrics.overall.toFixed(2)} current={unitsPerStoreMetrics.overall} previous={comparisonMetrics.unitsPerStorePerWeek} comparisonLabel={comparisonMetrics.label} sparkline={getSparklineValues(performanceTrend, 'velocity')} icon={<Store className="h-4 w-4" />} tooltip="Total units sold divided by active stores and weeks in the averaging window." benchmark="Goal 2.0" onClick={() => setActivePerformanceMetric('velocity')} />
+        <KpiCard label="Reorder Rate" value={`${reorderRate.toFixed(1)}%`} current={reorderRate} previous={comparisonMetrics.reorderRate} comparisonLabel={comparisonMetrics.label} mode="points" icon={<Users className="h-4 w-4" />} tooltip="Percentage of retailers with two or more non-canceled orders inside the selected range." benchmark="Target 45%" onClick={() => { setActiveView('health'); setActiveHealthPanel('summary'); }} />
       </section>
 
-      <section className="rounded-xl border border-bark-100 bg-cream-100 p-5 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <section className="rounded-xl border border-bark-100 bg-cream-100 px-5 py-4 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase text-bark-500/60">Business Highlights</p>
-            <h3 className="mt-1 text-lg font-semibold text-bark-500">Here is what changed and where to focus.</h3>
+            <h3 className="mt-1 text-base font-semibold text-bark-500">Here is what changed and where to focus.</h3>
           </div>
-          {activeComparisonLabel && (
-            <div className="rounded-lg border border-bark-100 bg-white px-4 py-3 text-sm text-bark-700">
-              Compared with {formatRangeLabel(dateSelection.comparisonStartDate, dateSelection.comparisonEndDate)}
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => setActiveView('health')}
+            className="inline-flex items-center gap-1 self-start rounded-lg border border-bark-200 bg-white px-3 py-2 text-sm font-semibold text-bark-700 hover:bg-bark-50 lg:self-center"
+          >
+            View All Insights <ArrowUpRight className="h-4 w-4" />
+          </button>
         </div>
-        <div className="mt-4 grid grid-cols-1 gap-2 lg:grid-cols-2">
+        <div className="mt-3 grid grid-cols-1 gap-x-5 gap-y-1.5 md:grid-cols-2 xl:grid-cols-3">
           {businessHighlights.map((highlight) => (
             <button
               key={highlight.text}
@@ -1646,10 +1844,10 @@ export default function AdminInsightsPage() {
                 setActiveView(highlight.view);
                 if (highlight.panel) setActiveHealthPanel(highlight.panel);
               }}
-              className="flex items-start justify-between gap-4 rounded-lg border border-bark-100 bg-white px-4 py-3 text-left text-sm text-bark-500 shadow-sm transition-colors hover:border-bark-200 hover:bg-bark-50"
+              className="group flex items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-bark-600 transition-colors hover:bg-white/70"
             >
-              <span>{highlight.text}</span>
-              <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-bark-400" />
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-bark-400" />
+              <span className="leading-5 group-hover:text-bark-800">{highlight.text}</span>
             </button>
           ))}
         </div>
@@ -1661,25 +1859,38 @@ export default function AdminInsightsPage() {
             <h3 className="text-lg font-semibold text-gray-900">Performance Trend</h3>
             <p className="mt-1 text-sm text-gray-500">{activeRangeLabel} trend with comparable-period context when available.</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {performanceMetricOptions.map((metric) => {
-              const isActive = activePerformanceMetric === metric.id;
-              return (
-                <button
-                  key={metric.id}
-                  type="button"
-                  onClick={() => setActivePerformanceMetric(metric.id)}
-                  className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
-                    isActive
-                      ? 'border-bark-500 bg-bark-500 text-white'
-                      : 'border-gray-200 bg-white text-gray-600 hover:border-bark-200 hover:text-bark-700'
-                  }`}
-                  aria-pressed={isActive}
-                >
-                  {metric.label}
-                </button>
-              );
-            })}
+          <div className="flex flex-col gap-2 sm:items-end">
+            <div className="flex flex-wrap gap-2">
+              {performanceMetricOptions.map((metric) => {
+                const isActive = activePerformanceMetric === metric.id;
+                return (
+                  <button
+                    key={metric.id}
+                    type="button"
+                    onClick={() => setActivePerformanceMetric(metric.id)}
+                    className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                      isActive
+                        ? 'border-bark-500 bg-bark-500 text-white'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-bark-200 hover:text-bark-700'
+                    }`}
+                    aria-pressed={isActive}
+                  >
+                    {metric.label}
+                  </button>
+                );
+              })}
+            </div>
+            {hasPreviousPerformance && (
+              <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-500">
+                <input
+                  type="checkbox"
+                  checked={showComparisonSeries}
+                  onChange={(event) => setShowComparisonSeries(event.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-bark-500 focus:ring-bark-500"
+                />
+                Show comparison
+              </label>
+            )}
           </div>
         </div>
         <div className="mt-5 h-80">
@@ -1696,10 +1907,7 @@ export default function AdminInsightsPage() {
                   tickFormatter={(value) => activePerformanceMetric === 'revenue' ? formatCompactCurrency(Number(value)) : Number(value).toLocaleString()}
                 />
                 <Tooltip
-                  formatter={(value: number, name: string) => [
-                    activePerformanceMetric === 'revenue' ? formatCurrency(Number(value)) : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 }),
-                    name === previousPerformanceDataKey ? `${comparisonMetrics.label || 'Previous period'} ${selectedPerformanceMetric.label}` : selectedPerformanceMetric.label,
-                  ]}
+                  content={<PerformanceTooltip metric={activePerformanceMetric} metricLabel={selectedPerformanceMetric.label} comparisonLabel={comparisonMetrics.label} previousKey={previousPerformanceDataKey} />}
                 />
                 <Legend />
                 <Line
@@ -1711,13 +1919,14 @@ export default function AdminInsightsPage() {
                   dot={false}
                   activeDot={{ r: 5 }}
                 />
-                {hasPreviousPerformance && (
+                {hasPreviousPerformance && showComparisonSeries && (
                   <Line
                     type="monotone"
                     dataKey={previousPerformanceDataKey}
                     name={comparisonMetrics.label || 'Previous period'}
                     stroke={selectedPerformanceMetric.comparisonColor}
-                    strokeWidth={2}
+                    strokeWidth={1.5}
+                    opacity={0.55}
                     strokeDasharray="5 5"
                     dot={false}
                   />
@@ -1729,19 +1938,14 @@ export default function AdminInsightsPage() {
       </section>
 
       <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Attention Center</h3>
-            <p className="mt-1 text-sm text-gray-500">The shortest path from insight to follow-up.</p>
-          </div>
-          <button type="button" onClick={() => setActiveView('health')} className="inline-flex items-center justify-center rounded-lg border border-bark-200 px-3 py-2 text-sm font-semibold text-bark-700 hover:bg-bark-50">
-            Review health
-          </button>
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">Attention Center</h3>
+          <p className="mt-1 text-sm text-gray-500">The shortest path from insight to follow-up.</p>
         </div>
         <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <ActionCard icon={<AlertTriangle className="h-5 w-5" />} title="Needs First Order" count={retailersWithoutOrders.length} detail={oldestAccountAwaitingFirstOrder ? `Oldest: ${oldestAccountAwaitingFirstOrder.company_name}` : 'Every account has ordered'} action="Review accounts" tone="amber" onClick={() => { setActiveView('health'); setActiveHealthPanel('needs_first_order'); }} />
           <ActionCard icon={<AlertTriangle className="h-5 w-5" />} title="At-Risk Retailers" count={atRiskRetailers.length} detail={averageDaysSinceAtRiskOrder > 0 ? `${averageDaysSinceAtRiskOrder} average days since last order` : 'No retailers beyond the risk threshold'} action="Review retailer health" tone="red" onClick={() => { setActiveView('health'); setActiveHealthPanel('at_risk'); }} />
-          <ActionCard icon={<Users className="h-5 w-5" />} title="Retailer Outreach" count={outreachRows.length} detail={`${sampleFollowUpCount} need sample follow-up`} action="Start outreach" tone="bark" onClick={() => { setActiveView('health'); setActiveHealthPanel('outreach'); }} />
+          <ActionCard icon={<Users className="h-5 w-5" />} title="Open Outreach Opportunities" count={outreachRows.length} detail={`${sampleFollowUpCount} sample follow-ups plus lifecycle tasks`} action="Start outreach" tone="bark" onClick={() => { setActiveView('health'); setActiveHealthPanel('outreach'); }} />
           <ActionCard icon={<CheckCircle2 className="h-5 w-5" />} title="High-Performing Stores" count={highPerformerCount} detail="Expansion ask candidates" action="View growth opportunities" tone="green" onClick={() => { setActiveView('health'); setActiveHealthPanel('leaderboards'); }} />
         </div>
       </section>
@@ -1751,21 +1955,37 @@ export default function AdminInsightsPage() {
           title="Top Products"
           subtitle={`Top SKUs by velocity, ${velocityWindowLabel.toLowerCase()}`}
           emptyMessage="No SKU velocity data is available for this range yet."
-          rows={topSkuMetrics.map((sku) => ({ id: sku.skuId, label: sku.label, value: sku.unitsPerStorePerWeek, displayValue: `${sku.unitsPerStorePerWeek.toFixed(2)} UPSPW`, hrefView: 'skus' as InsightsView }))}
+          rows={topSkuMetrics.map((sku) => ({
+            id: sku.skuId,
+            label: sku.label,
+            value: sku.unitsPerStorePerWeek,
+            displayValue: `${sku.unitsPerStorePerWeek.toFixed(2)} Units / Store / Week`,
+            hrefView: 'skus' as InsightsView,
+            trend: sku.percentChange,
+          }))}
           onNavigate={(view) => setActiveView(view)}
         />
         <RankedBarCard
           title="Top Markets"
           subtitle="States ranked by revenue in the selected period"
           emptyMessage="No state revenue data is available for this range yet."
-          rows={stateRevenue.slice(0, 5).map((state) => ({ id: state.state, label: state.state, value: state.revenue, displayValue: formatCurrency(state.revenue), hrefView: 'markets' as InsightsView }))}
+          rows={topMarketMetrics.map((state) => ({
+            id: state.state,
+            label: state.state,
+            value: state.revenue,
+            displayValue: formatCurrency(state.revenue),
+            hrefView: 'markets' as InsightsView,
+            trend: state.percentChange,
+            metadata: `${state.activeRetailers} active retailer${state.activeRetailers === 1 ? '' : 's'}`,
+            sparkline: state.sparkline,
+          }))}
           onNavigate={(view) => setActiveView(view)}
         />
       </section>
 
-      <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-        <h3 className="text-lg font-semibold text-gray-900">Supporting Detail</h3>
-        <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3 xl:grid-cols-6">
+      <section className="rounded-xl border border-gray-100 bg-white/80 p-4 shadow-sm">
+        <h3 className="text-sm font-semibold uppercase text-gray-400">Additional Metrics</h3>
+        <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3 xl:grid-cols-6">
           <SupportingMetric label="Active retailers" value={activeRetailers} delta={<TrendDelta current={activeRetailers} previous={comparisonMetrics.activeRetailers} label={comparisonMetrics.label} />} />
           <SupportingMetric label="Active states" value={activeStates} delta={<TrendDelta current={activeStates} previous={comparisonMetrics.activeStates} label={comparisonMetrics.label} />} />
           <SupportingMetric label="New retail locations" value={newLocationsThisMonth} helper="Selected range" />
@@ -2385,7 +2605,7 @@ function DateRangePicker({
   }, [isOpen, selection, today]);
 
   const updateDraftRange = (nextDraft: DateRangeSelection, nextStartDate: string, nextEndDate: string, nextComparisonType = nextDraft.comparisonType) => {
-    const comparison = getComparisonRange(nextStartDate, nextEndDate, nextComparisonType, today);
+    const comparison = getComparisonRange(nextStartDate, nextEndDate, nextComparisonType, today, nextDraft.preset);
     return {
       ...nextDraft,
       startDate: nextStartDate,
@@ -2424,7 +2644,7 @@ function DateRangePicker({
 
   const setComparisonType = (comparisonType: ComparisonType) => {
     setDraft((current) => {
-      const comparison = getComparisonRange(current.startDate, current.endDate, comparisonType, today);
+      const comparison = getComparisonRange(current.startDate, current.endDate, comparisonType, today, current.preset);
       return {
         ...current,
         comparisonType,
@@ -2704,6 +2924,66 @@ function CalendarMonth({
   );
 }
 
+function PerformanceTooltip({
+  active,
+  payload,
+  label,
+  metric,
+  metricLabel,
+  comparisonLabel,
+  previousKey,
+}: {
+  active?: boolean;
+  payload?: Array<{ dataKey?: string | number; value?: number | null }>;
+  label?: string;
+  metric: PerformanceMetric;
+  metricLabel: string;
+  comparisonLabel: string;
+  previousKey: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const currentValue = Number(payload.find((item) => item.dataKey !== previousKey)?.value || 0);
+  const previousRawValue = payload.find((item) => item.dataKey === previousKey)?.value;
+  const previousValue = previousRawValue === null || previousRawValue === undefined ? null : Number(previousRawValue);
+  const delta = previousValue === null ? null : currentValue - previousValue;
+  const percentDelta = previousValue && previousValue !== 0 && delta !== null ? (delta / previousValue) * 100 : null;
+  const formatValue = (value: number) => metric === 'revenue'
+    ? formatCurrency(value)
+    : value.toLocaleString(undefined, { maximumFractionDigits: metric === 'velocity' ? 2 : 0 });
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-lg">
+      <p className="font-semibold text-gray-900">{label}</p>
+      <div className="mt-2 space-y-1 text-gray-600">
+        <p className="flex justify-between gap-6">
+          <span>Current {metricLabel}</span>
+          <span className="font-semibold text-gray-900">{formatValue(currentValue)}</span>
+        </p>
+        {previousValue !== null && (
+          <>
+            <p className="flex justify-between gap-6">
+              <span>{comparisonLabel || 'Comparison'}</span>
+              <span className="font-semibold text-gray-900">{formatValue(previousValue)}</span>
+            </p>
+            <p className="flex justify-between gap-6">
+              <span>Difference</span>
+              <span className={`font-semibold ${delta !== null && delta >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {delta !== null ? `${delta >= 0 ? '+' : '-'}${formatValue(Math.abs(delta))}` : 'n/a'}
+              </span>
+            </p>
+            <p className="flex justify-between gap-6">
+              <span>% Difference</span>
+              <span className={`font-semibold ${percentDelta !== null && percentDelta >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {percentDelta === null ? 'n/a' : formatSignedPercent(percentDelta)}
+              </span>
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function KpiCard({
   label,
   value,
@@ -2713,6 +2993,8 @@ function KpiCard({
   sparkline,
   icon,
   tooltip,
+  benchmark,
+  onClick,
   mode = 'percent',
 }: {
   label: string;
@@ -2720,13 +3002,26 @@ function KpiCard({
   current: number;
   previous: number | null;
   comparisonLabel: string;
-  sparkline: number[];
+  sparkline?: number[];
   icon: ReactNode;
   tooltip?: string;
+  benchmark?: string;
+  onClick: () => void;
   mode?: 'percent' | 'points';
 }) {
   return (
-    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      className="group flex min-h-[178px] flex-col rounded-xl border border-gray-100 bg-white p-4 text-left shadow-sm transition-all hover:border-bark-200 hover:shadow-md"
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
           {tooltip ? (
@@ -2738,33 +3033,36 @@ function KpiCard({
           )}
           <p className="mt-2 text-2xl font-bold text-gray-900">{value}</p>
         </div>
-        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-bark-50 text-bark-600">
+        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-bark-50 text-bark-600 transition-colors group-hover:bg-bark-100">
           {icon}
         </span>
       </div>
-      <div className="mt-3 min-h-8">
-        {sparkline.length > 1 ? <Sparkline values={sparkline} /> : <div className="h-8 rounded bg-gray-50" />}
+      <div className="mt-3 h-9">
+        {sparkline && sparkline.length > 1 && <Sparkline values={sparkline} />}
       </div>
       <TrendDelta current={current} previous={previous} label={comparisonLabel} mode={mode} />
+      {benchmark && <p className="mt-auto pt-2 text-xs text-gray-400">{benchmark}</p>}
     </div>
   );
 }
 
 function Sparkline({ values }: { values: number[] }) {
   const width = 128;
-  const height = 32;
+  const height = 36;
   const max = Math.max(...values);
   const min = Math.min(...values);
   const range = max - min || 1;
+  const baselineY = height - 5;
   const points = values.map((value, index) => {
     const x = values.length === 1 ? 0 : (index / (values.length - 1)) * width;
-    const y = height - ((value - min) / range) * (height - 4) - 2;
+    const y = height - ((value - min) / range) * (height - 10) - 5;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-8 w-full overflow-visible" aria-hidden="true">
-      <polyline points={points} fill="none" stroke="#3F1D0B" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-9 w-full overflow-visible" aria-hidden="true">
+      <line x1="0" x2={width} y1={baselineY} y2={baselineY} stroke="#F1E7DC" strokeWidth="1" />
+      <polyline points={points} fill="none" stroke="#3F1D0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
     </svg>
   );
 }
@@ -2802,23 +3100,23 @@ function ActionCard({
   }[tone];
 
   return (
-    <div className={`rounded-xl border p-4 ${toneClass}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group flex min-h-[172px] w-full flex-col rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}
+    >
       <div className="flex items-start justify-between gap-3">
-        <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white/75">
+        <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white/75 transition-colors group-hover:bg-white">
           {icon}
         </span>
-        <p className="text-3xl font-bold">{count}</p>
+        <p className="text-3xl font-bold leading-none">{count}</p>
       </div>
       <p className="mt-4 text-sm font-semibold">{title}</p>
       <p className="mt-1 min-h-10 text-sm opacity-80">{detail}</p>
-      <button
-        type="button"
-        onClick={onClick}
-        className="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold shadow-sm transition-colors hover:bg-white/80"
-      >
+      <span className="mt-auto inline-flex w-full items-center justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold shadow-sm transition-colors group-hover:bg-white/80">
         {action}
-      </button>
-    </div>
+      </span>
+    </button>
   );
 }
 
@@ -2832,7 +3130,16 @@ function RankedBarCard({
   title: string;
   subtitle: string;
   emptyMessage: string;
-  rows: Array<{ id: string; label: string; value: number; displayValue: string; hrefView: InsightsView }>;
+  rows: Array<{
+    id: string;
+    label: string;
+    value: number;
+    displayValue: string;
+    hrefView: InsightsView;
+    trend?: number | null;
+    metadata?: string;
+    sparkline?: number[];
+  }>;
   onNavigate: (view: InsightsView) => void;
 }) {
   const maxValue = Math.max(...rows.map((row) => row.value), 0);
@@ -2854,16 +3161,31 @@ function RankedBarCard({
               key={row.id}
               type="button"
               onClick={() => onNavigate(row.hrefView)}
-              className="block w-full text-left"
+              className="block w-full rounded-lg p-1 text-left transition-colors hover:bg-gray-50"
             >
               <div className="mb-2 flex items-center justify-between gap-4 text-sm">
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cream-100 text-xs font-semibold text-bark-600">
                     {index + 1}
                   </span>
-                  <span className="truncate font-semibold text-gray-900">{row.label}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold text-gray-900">{row.label}</span>
+                    {row.metadata && <span className="block truncate text-xs text-gray-400">{row.metadata}</span>}
+                  </span>
                 </div>
-                <span className="shrink-0 font-semibold text-bark-600">{row.displayValue}</span>
+                <span className="flex shrink-0 items-center gap-3">
+                  {row.sparkline && row.sparkline.length > 1 && (
+                    <span className="hidden w-16 sm:block">
+                      <Sparkline values={row.sparkline} />
+                    </span>
+                  )}
+                  {typeof row.trend === 'number' && (
+                    <span className={`text-xs font-semibold ${row.trend >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      {row.trend >= 0 ? '▲' : '▼'} {formatSignedPercent(Math.abs(row.trend)).replace('+', '')}
+                    </span>
+                  )}
+                  <span className="font-semibold text-bark-600">{row.displayValue}</span>
+                </span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-gray-100">
                 <div
@@ -2914,6 +3236,7 @@ function MetricLabel({
       <span className="group relative inline-flex">
         <button
           type="button"
+          onClick={(event) => event.stopPropagation()}
           className="inline-flex h-4 w-4 items-center justify-center rounded-full text-gray-400 hover:text-bark-600 focus:outline-none focus:ring-2 focus:ring-bark-500"
           aria-label={`${children} definition`}
         >
