@@ -42,10 +42,18 @@ import {
   type RetailerSuccessAction,
   type RetailerSuccessProfileInput,
   type ShelfPlacementStatus,
-  type CurrentPromoStatus,
+type CurrentPromoStatus,
   type MarketingMaterialsStatus,
   type LaunchPromoStatus,
 } from '@/lib/retailerSuccess';
+
+type WelcomeOfferPopupVariant = 'initial' | 'returning';
+
+type WelcomeOfferPopupState = {
+  initialPopupSeen: boolean;
+  reminderRequested: boolean;
+  variant: WelcomeOfferPopupVariant;
+};
 
 const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   pending: { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', label: 'Processing' },
@@ -60,6 +68,24 @@ const getLocalSuccessProfileKey = (retailerId?: string) =>
 
 const getBareLaunchOfferDismissedKey = (retailerId?: string) =>
   retailerId ? `bare-launch-offer-session-dismissed:${retailerId}` : null;
+
+const trackWelcomeOfferEvent = (
+  name: string,
+  detail: {
+    retailerId?: string;
+    daysRemaining: number;
+    variant: WelcomeOfferPopupVariant;
+    reminderRequested: boolean;
+  },
+) => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(name, {
+    detail: {
+      ...detail,
+      timestamp: new Date().toISOString(),
+    },
+  }));
+};
 
 export default function DashboardPage() {
   const { retailer, orders, products, addNotification } = useAppStore();
@@ -76,6 +102,7 @@ export default function DashboardPage() {
   const [showBareLaunchOfferModal, setShowBareLaunchOfferModal] = useState(false);
   const [bareLaunchOfferDismissed, setBareLaunchOfferDismissed] = useState(false);
   const [isSavingLaunchOfferReminder, setIsSavingLaunchOfferReminder] = useState(false);
+  const [welcomeOfferPopupState, setWelcomeOfferPopupState] = useState<WelcomeOfferPopupState | null>(null);
   const [successNotice, setSuccessNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const pendingSuccessSaveRef = useRef(false);
   const launchOfferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -178,6 +205,7 @@ export default function DashboardPage() {
   }, [retailer?.id]);
 
   useEffect(() => {
+    let isMounted = true;
     const dismissedKey = getBareLaunchOfferDismissedKey(retailer?.id);
     const isDismissed = dismissedKey ? window.sessionStorage.getItem(dismissedKey) === 'true' : false;
     if (launchOfferTimerRef.current) {
@@ -186,14 +214,70 @@ export default function DashboardPage() {
     }
     setBareLaunchOfferDismissed(isDismissed);
     setShowBareLaunchOfferModal(false);
-    if (bareLaunchOffer.eligible && !isDismissed) {
-      launchOfferTimerRef.current = setTimeout(() => {
+    setWelcomeOfferPopupState(null);
+
+    const scheduleWelcomeOfferModal = async () => {
+      if (!bareLaunchOffer.eligible || isDismissed || !retailer?.id) return;
+
+      let initialPopupSeen = true;
+      let reminderRequested = false;
+
+      try {
+        const response = await fetch('/api/welcome-offer/popup-state');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || 'Unable to load Welcome Offer popup state.');
+        initialPopupSeen = Boolean(data.initialPopupSeen);
+        reminderRequested = Boolean(data.reminderRequested);
+      } catch (error) {
+        console.error('Welcome Offer popup state error:', error);
+      }
+
+      if (!isMounted) return;
+
+      const variant: WelcomeOfferPopupVariant = initialPopupSeen ? 'returning' : 'initial';
+      setWelcomeOfferPopupState({ initialPopupSeen, reminderRequested, variant });
+
+      launchOfferTimerRef.current = setTimeout(async () => {
+        if (dismissedKey) window.sessionStorage.setItem(dismissedKey, 'true');
+        setBareLaunchOfferDismissed(true);
         setShowBareLaunchOfferModal(true);
         launchOfferTimerRef.current = null;
+
+        trackWelcomeOfferEvent(
+          variant === 'initial'
+            ? 'welcome_offer_initial_popup_viewed'
+            : 'welcome_offer_returning_popup_viewed',
+          {
+            retailerId: retailer.id,
+            daysRemaining: bareLaunchOffer.daysRemaining,
+            variant,
+            reminderRequested,
+          },
+        );
+
+        try {
+          await fetch('/api/welcome-offer/popup-state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'viewed', variant }),
+          });
+          if (variant === 'initial') {
+            setWelcomeOfferPopupState({
+              initialPopupSeen: true,
+              reminderRequested,
+              variant,
+            });
+          }
+        } catch (error) {
+          console.error('Welcome Offer popup view save error:', error);
+        }
       }, 1250);
-    }
+    };
+
+    scheduleWelcomeOfferModal();
 
     return () => {
+      isMounted = false;
       if (launchOfferTimerRef.current) {
         clearTimeout(launchOfferTimerRef.current);
         launchOfferTimerRef.current = null;
@@ -213,6 +297,12 @@ export default function DashboardPage() {
   };
 
   const handleBareLaunchOfferOrder = () => {
+    trackWelcomeOfferEvent('welcome_offer_build_first_order_clicked', {
+      retailerId: retailer?.id,
+      daysRemaining: bareLaunchOffer.daysRemaining,
+      variant: welcomeOfferPopupState?.variant || 'returning',
+      reminderRequested: Boolean(welcomeOfferPopupState?.reminderRequested),
+    });
     dismissBareLaunchOffer();
     window.location.href = '/catalog?offer=bare-launch';
   };
@@ -227,14 +317,12 @@ export default function DashboardPage() {
     setIsSavingLaunchOfferReminder(true);
     dismissBareLaunchOffer();
 
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('welcome_offer_remind_me_later_clicked', {
-        detail: {
-          retailerId: retailer.id,
-          daysRemaining,
-        },
-      }));
-    }
+    trackWelcomeOfferEvent('welcome_offer_remind_me_later_clicked', {
+      retailerId: retailer.id,
+      daysRemaining,
+      variant: welcomeOfferPopupState?.variant || 'returning',
+      reminderRequested: true,
+    });
 
     try {
       const response = await fetch('/api/welcome-offer/remind-me-later', {
@@ -244,6 +332,9 @@ export default function DashboardPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || 'Unable to save reminder preference.');
+      setWelcomeOfferPopupState((current) => current
+        ? { ...current, reminderRequested: true }
+        : current);
       addNotification({
         type: 'success',
         message: data?.alreadyEnrolled
@@ -424,6 +515,7 @@ export default function DashboardPage() {
           onOrder={handleBareLaunchOfferOrder}
           onRemindLater={handleBareLaunchOfferReminder}
           remindLaterSaving={isSavingLaunchOfferReminder}
+          variant={welcomeOfferPopupState?.variant || 'returning'}
         />
       )}
 
@@ -752,6 +844,7 @@ function BareLaunchOfferModal({
   onOrder,
   onRemindLater,
   remindLaterSaving,
+  variant,
 }: {
   offer: BareLaunchOfferStatus;
   businessName: string;
@@ -759,7 +852,35 @@ function BareLaunchOfferModal({
   onOrder: () => void;
   onRemindLater: () => void;
   remindLaterSaving: boolean;
+  variant: WelcomeOfferPopupVariant;
 }) {
+  const remainingDayLabel = `${offer.daysRemaining} more ${offer.daysRemaining === 1 ? 'day' : 'days'}`;
+  const expiresAtDate = offer.expiresAt ? new Date(offer.expiresAt) : null;
+  const now = new Date();
+  const isFinalCalendarDay = Boolean(
+    expiresAtDate &&
+      now.getFullYear() === expiresAtDate.getFullYear() &&
+      now.getMonth() === expiresAtDate.getMonth() &&
+      now.getDate() === expiresAtDate.getDate(),
+  );
+  const isInitialPopup = variant === 'initial';
+  const greeting = isInitialPopup
+    ? `Welcome${businessName ? `, ${businessName}` : ''}.`
+    : `Welcome back${businessName ? `, ${businessName}` : ''}.`;
+  let headline = 'Your Welcome Offer is still available.';
+  let subheader = `You have ${remainingDayLabel} to claim everything included with your new retailer offer.`;
+
+  if (isInitialPopup) {
+    headline = 'Welcome to the Bare family.';
+    subheader = `To help you launch successfully, your new retailer offer is available for ${remainingDayLabel}.`;
+  } else if (isFinalCalendarDay) {
+    headline = 'Last day to claim your Welcome Offer.';
+    subheader = 'Save 10% on your first order and receive customer samples and launch promo support when you order today.';
+  } else if (offer.daysRemaining <= 2) {
+    headline = 'Your Welcome Offer ends soon.';
+    subheader = `You have ${remainingDayLabel} to save 10% on your first order and claim your customer samples and supported launch promo.`;
+  }
+
   return (
     <div className="bare-launch-backdrop fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-bark-500/45 p-3 py-4 backdrop-blur-sm sm:items-center sm:p-4">
       <div className="bare-launch-modal relative my-auto w-full max-w-3xl overflow-hidden rounded-2xl border border-amber-200 bg-cream-100 shadow-2xl">
@@ -780,19 +901,17 @@ function BareLaunchOfferModal({
               <Sparkles className="h-4 w-4" />
               {offer.daysRemaining} {offer.daysRemaining === 1 ? 'day' : 'days'} left
             </div>
-            <p className="text-sm font-semibold text-bark-500/70">
-              Welcome{businessName ? `, ${businessName}` : ''}.
-            </p>
+            <p className="text-sm font-semibold text-bark-500/70">{greeting}</p>
             <h2 className="mt-2 pr-8 text-[2rem] font-bold leading-tight text-bark-500 sm:pr-0 sm:text-4xl" style={{ fontFamily: 'var(--font-poppins)' }}>
-              Welcome to the Bare family! 🎉
+              {headline}
             </h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-bark-500/75 sm:mt-4 sm:text-base">
-              To help you launch successfully, your new retailer offer is available for the next 14 days.
+              {subheader}
             </p>
 
             <div className="mt-5 grid gap-3 sm:mt-6 sm:grid-cols-3">
-              <OfferPill icon={Gift} label="10% off your first order" description="Automatically applied at checkout" />
-              <OfferPill icon={Package} label="Free customer samples" description="Plenty included to help shoppers try Bare" />
+              <OfferPill icon={Gift} label={'10% off\nyour first order'} description="Automatically applied at checkout" />
+              <OfferPill icon={Package} label="Free customer samples" description="Included to help more shoppers try Bare" />
               <OfferPill icon={Megaphone} label="Supported launch promo" description={"We'll help you drive early sell-through"} />
             </div>
 
@@ -901,7 +1020,7 @@ function OfferPill({
   return (
     <div className="rounded-xl border border-cream-200 bg-cream-200/70 p-4">
       <Icon className="mb-3 h-5 w-5 text-bark-500" />
-      <p className="font-bold text-bark-500">{label}</p>
+      <p className="whitespace-pre-line font-bold text-bark-500">{label}</p>
       <p className="mt-1 text-xs leading-5 text-bark-500/70">{description}</p>
     </div>
   );

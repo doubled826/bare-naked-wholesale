@@ -142,6 +142,9 @@ CREATE TABLE IF NOT EXISTS welcome_offer_reminder_requests (
 CREATE TABLE IF NOT EXISTS welcome_offer_reminder_preferences (
   retailer_id UUID PRIMARY KEY REFERENCES retailers(id) ON DELETE CASCADE,
   remind_me_later_requested BOOLEAN NOT NULL DEFAULT false,
+  welcome_offer_initial_popup_seen BOOLEAN NOT NULL DEFAULT false,
+  welcome_offer_initial_popup_seen_at TIMESTAMPTZ,
+  welcome_offer_last_popup_viewed_at TIMESTAMPTZ,
   opted_out_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW()
