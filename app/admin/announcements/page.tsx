@@ -721,7 +721,7 @@ function PopupPreviewManager({ onPreview }: { onPreview: (popup: PreviewPopup) =
 function ShelfTalkerPreviewModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-bark-500/45 p-3 py-4 backdrop-blur-sm sm:items-center sm:p-4">
-      <div className="relative my-auto w-full max-w-4xl overflow-hidden rounded-2xl border border-cream-300 bg-white shadow-2xl">
+      <div className="relative my-auto w-full max-w-5xl overflow-hidden rounded-2xl border border-cream-300 bg-white shadow-2xl">
         <button
           type="button"
           onClick={onClose}
@@ -732,12 +732,12 @@ function ShelfTalkerPreviewModal({ onClose }: { onClose: () => void }) {
         </button>
 
         <div className="grid max-h-[calc(100vh-2rem)] overflow-y-auto lg:grid-cols-[1.05fr_0.95fr]">
-          <div className="flex min-h-[280px] items-center justify-center bg-bark-500 p-3 sm:min-h-[350px] lg:min-h-[520px]">
-            <div className="relative flex h-[94%] w-[95%] items-center justify-center">
+          <div className="relative min-h-[280px] overflow-hidden bg-bark-500 sm:min-h-[340px] lg:min-h-[500px]">
+            <div className="absolute inset-2 overflow-hidden rounded-l-xl lg:inset-3">
               <img
                 src="/images/shelf-talker-popup.png"
                 alt="Bare Naked trail mix topper bags displayed with a salmon shelf talker"
-                className="max-h-[620px] w-full object-contain"
+                className="h-full w-full object-cover object-center"
               />
               <div className="absolute bottom-3 left-3 rounded-full border border-cream-300 bg-cream-100/95 px-3 py-1.5 text-xs font-bold text-bark-500 shadow-sm">
                 Sized to fit a 6 oz + 12 oz pair
@@ -745,76 +745,73 @@ function ShelfTalkerPreviewModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <div className="flex flex-col justify-center p-5 sm:p-6 lg:p-7">
+          <div className="flex flex-col justify-center p-4 sm:p-5 lg:p-6">
             <div className="mb-3 inline-flex w-fit items-center gap-2 rounded-full bg-orange-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-orange-800">
               <Sparkles className="h-4 w-4" aria-hidden="true" />
               NEW RETAIL TOOL
             </div>
-            <h2 className="pr-8 text-2xl font-bold leading-tight text-bark-500 sm:pr-0 sm:text-3xl" style={{ fontFamily: 'var(--font-poppins)' }}>
-              New Trail Mix Topper shelf talkers are here!
+            <h2 className="pr-8 text-2xl font-bold leading-tight text-bark-500 sm:pr-0 sm:text-[1.9rem]" style={{ fontFamily: 'var(--font-poppins)' }}>
+              Help your Bare Naked products stand out on the shelf.
             </h2>
-            <p className="mt-3 text-sm leading-6 text-bark-500/75 sm:text-base">
+            <p className="mt-2.5 text-sm leading-5 text-bark-500/75 sm:text-[15px]">
               Our new shelf talkers help your display grab attention and make each recipe easier to shop at a glance.
             </p>
 
-            <div className="mt-4 space-y-2.5">
-              <div className="flex gap-3 rounded-xl bg-cream-100 p-3.5">
+            <div className="mt-3.5 space-y-2">
+              <div className="flex gap-3 rounded-xl bg-cream-100 p-3">
                 <Eye className="mt-0.5 h-5 w-5 shrink-0 text-bark-500" aria-hidden="true" />
                 <div>
                   <p className="font-semibold text-bark-500">Helps your products stand out</p>
-                  <p className="mt-1 text-sm leading-5 text-bark-500/70">
+                  <p className="mt-1 text-[13px] leading-[1.35rem] text-bark-500/70 sm:text-sm">
                     Makes each recipe easier to spot and helps shoppers quickly understand what makes every flavor different.
-                  </p>
-                  <p className="mt-2 text-xs font-semibold text-bark-500">
-                    Perfectly sized for one 6 oz + one 12 oz bag.
                   </p>
                 </div>
               </div>
-              <div className="flex gap-3 rounded-xl bg-cream-100 p-3.5">
+              <div className="flex gap-3 rounded-xl bg-cream-100 p-3">
                 <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" />
                 <div>
                   <p className="font-semibold text-bark-500">Easy to qualify</p>
-                  <p className="mt-1 text-sm leading-5 text-bark-500/70">
+                  <p className="mt-1 text-[13px] leading-[1.35rem] text-bark-500/70 sm:text-sm">
                     Carry <strong>both bag sizes</strong> of any flavor and we&apos;ll automatically send that flavor&apos;s matching shelf talker.
                   </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs font-bold text-bark-500" aria-label="6 oz plus 12 oz equals shelf talker included">
-                    <span className="rounded-full border border-cream-300 bg-white px-2.5 py-1">6 oz</span>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-bark-500 sm:text-xs" aria-label="6 oz plus 12 oz equals shelf talker included">
+                    <span className="rounded-full border border-cream-300 bg-white px-2 py-0.5 sm:px-2.5 sm:py-1">6 oz</span>
                     <span aria-hidden="true">+</span>
-                    <span className="rounded-full border border-cream-300 bg-white px-2.5 py-1">12 oz</span>
+                    <span className="rounded-full border border-cream-300 bg-white px-2 py-0.5 sm:px-2.5 sm:py-1">12 oz</span>
                     <ArrowRight className="h-3.5 w-3.5 text-bark-500/60" aria-hidden="true" />
-                    <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-700">Shelf Talker Included</span>
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700 sm:px-2.5 sm:py-1">Shelf Talker Included</span>
                   </div>
                 </div>
               </div>
-              <div className="flex gap-3 rounded-xl bg-cream-100 p-3.5">
+              <div className="flex gap-3 rounded-xl bg-cream-100 p-3">
                 <Package className="mt-0.5 h-5 w-5 shrink-0 text-orange-700" aria-hidden="true" />
                 <div>
                   <p className="font-semibold text-bark-500">Automatically included</p>
-                  <p className="mt-1 text-sm leading-5 text-bark-500/70">
-                    No forms or requests needed. Once your store qualifies, we&apos;ll add the matching shelf talker to your next order.
+                  <p className="mt-1 text-[13px] leading-[1.35rem] text-bark-500/70 sm:text-sm">
+                    No forms or requests needed. Once your store qualifies, we&apos;ll add it to your next order.
                   </p>
-                  <p className="mt-2 text-xs font-semibold text-orange-800">
-                    Included free in your next order.
+                  <p className="mt-1.5 text-xs font-semibold text-orange-800">
+                    Included free.
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <span className="btn-primary w-full justify-center sm:w-auto">
-                Complete My Bare Display
+            <div className="mt-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
+              <span className="btn-primary w-full justify-center whitespace-nowrap px-4 py-2.5 text-sm sm:w-auto">
+                Complete My Display
                 <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
               </span>
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full rounded-xl border border-bark-500/20 px-5 py-3 font-semibold text-bark-500 hover:bg-cream-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-bark-500 focus-visible:ring-offset-2 sm:w-auto"
+                className="w-full min-w-[96px] whitespace-nowrap rounded-xl border border-bark-500/20 px-5 py-2.5 text-sm font-semibold text-bark-500 hover:bg-cream-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-bark-500 focus-visible:ring-offset-2 sm:w-auto"
               >
                 Got It
               </button>
             </div>
-            <p className="mt-3 text-xs text-bark-500/60">
-              Free shelf talkers are available for Chicken, Salmon, and Beef and are matched by flavor.
+            <p className="mt-2.5 text-xs leading-4 text-bark-500/60">
+              Free shelf talkers are available for Chicken, Salmon, and Beef.
             </p>
           </div>
         </div>
