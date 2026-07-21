@@ -29,6 +29,13 @@ interface OrderItemRow {
   order?: { status?: string | null; location_id?: string | null } | { status?: string | null; location_id?: string | null }[] | null;
 }
 
+interface ExistingShelfTalkerRow {
+  id: string;
+  flavor: ShelfTalkerFlavor;
+  status: ShelfTalkerStatus;
+  fulfilled_order_id?: string | null;
+}
+
 const FLAVOR_LABELS: Record<ShelfTalkerFlavor, string> = {
   chicken: 'Chicken',
   salmon: 'Salmon',
@@ -116,7 +123,7 @@ export async function queueShelfTalkersForOrder({
 
   let existingQuery = adminClient
     .from('shelf_talker_fulfillments')
-    .select('flavor, status')
+    .select('id, flavor, status, fulfilled_order_id')
     .eq('retailer_id', retailerId)
     .in('status', ['queued', 'sent']);
 
@@ -131,11 +138,47 @@ export async function queueShelfTalkersForOrder({
     throw existingError;
   }
 
-  const existingFlavors = new Set((existingRows || []).map((row: { flavor: ShelfTalkerFlavor }) => row.flavor));
+  const existingShelfTalkers = (existingRows || []) as ExistingShelfTalkerRow[];
+  const unassignedQueuedRows = existingShelfTalkers.filter(
+    (row) =>
+      row.status === 'queued' &&
+      !row.fulfilled_order_id &&
+      qualifiedFlavors.includes(row.flavor)
+  );
+
+  const currentOrderRows = existingShelfTalkers.filter(
+    (row) =>
+      row.status === 'queued' &&
+      row.fulfilled_order_id === orderId &&
+      qualifiedFlavors.includes(row.flavor)
+  );
+
+  let claimedRows: ShelfTalkerFulfillment[] = [];
+  if (unassignedQueuedRows.length > 0) {
+    const { data: updatedRows, error: updateError } = await adminClient
+      .from('shelf_talker_fulfillments')
+      .update({
+        fulfilled_order_id: orderId,
+        updated_at: new Date().toISOString(),
+      })
+      .in('id', unassignedQueuedRows.map((row) => row.id))
+      .select('*');
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    claimedRows = (updatedRows || []) as ShelfTalkerFulfillment[];
+  }
+
+  const existingFlavors = new Set(existingShelfTalkers.map((row) => row.flavor));
   const flavorsToQueue = qualifiedFlavors.filter((flavor) => !existingFlavors.has(flavor));
 
   if (flavorsToQueue.length === 0) {
-    return [];
+    return [
+      ...(currentOrderRows as ShelfTalkerFulfillment[]),
+      ...claimedRows,
+    ];
   }
 
   const now = new Date().toISOString();
@@ -157,5 +200,9 @@ export async function queueShelfTalkersForOrder({
     throw insertError;
   }
 
-  return (insertedRows || []) as ShelfTalkerFulfillment[];
+  return [
+    ...(currentOrderRows as ShelfTalkerFulfillment[]),
+    ...claimedRows,
+    ...((insertedRows || []) as ShelfTalkerFulfillment[]),
+  ];
 }

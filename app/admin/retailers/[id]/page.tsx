@@ -1339,11 +1339,13 @@ export default function AdminRetailerDetailPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {shelfTalkerAdoption.map((row) => {
             const status = row.fulfillment?.status;
+            const isQueuedForOrder = status === 'queued' && Boolean(row.fulfillment?.fulfilled_order_id);
+            const isQualifiedWaiting = status === 'queued' && !row.fulfillment?.fulfilled_order_id;
             const statusLabel = status === 'sent'
               ? 'Sent'
-              : status === 'queued'
+              : isQueuedForOrder
                 ? 'Queued'
-                : row.qualified
+                : row.qualified || isQualifiedWaiting
                   ? 'Qualifies'
                   : 'Not qualified';
 
@@ -1354,8 +1356,8 @@ export default function AdminRetailerDetailPage() {
                   <span className={cn(
                     'px-2.5 py-0.5 rounded-full text-xs font-medium',
                     status === 'sent' && 'bg-emerald-100 text-emerald-700',
-                    status === 'queued' && 'bg-orange-100 text-orange-700',
-                    !status && row.qualified && 'bg-blue-100 text-blue-700',
+                    isQueuedForOrder && 'bg-orange-100 text-orange-700',
+                    !isQueuedForOrder && (row.qualified || isQualifiedWaiting) && 'bg-blue-100 text-blue-700',
                     !status && !row.qualified && 'bg-gray-100 text-gray-600'
                   )}>
                     {statusLabel}
@@ -1364,9 +1366,9 @@ export default function AdminRetailerDetailPage() {
                 <p className="text-xs text-gray-500 mt-2">
                   {status === 'sent' && row.fulfillment?.fulfilled_at
                     ? `Sent ${new Date(row.fulfillment.fulfilled_at).toLocaleDateString()}`
-                    : status === 'queued'
+                    : isQueuedForOrder
                       ? 'Will be included with the queued order.'
-                      : row.qualified
+                      : row.qualified || isQualifiedWaiting
                         ? 'Will be added automatically to the next order.'
                         : 'Needs both sizes in order history.'}
                 </p>
