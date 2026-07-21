@@ -10,6 +10,7 @@ import {
   Users,
   Package,
   FolderOpen,
+  Image,
   MessageSquare,
   Mail,
   FileText,
@@ -64,6 +65,7 @@ const navigation: NavigationItem[] = [
     name: 'Library',
     icon: FolderOpen,
     children: [
+      { name: 'Images', href: '/admin/library/images', icon: Image },
       { name: 'Products', href: '/admin/products', icon: Package },
       { name: 'Resources', href: '/admin/resources', icon: FolderOpen },
     ],
