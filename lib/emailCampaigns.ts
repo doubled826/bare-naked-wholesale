@@ -93,6 +93,20 @@ const replaceMergeTags = (value: string, recipient?: Partial<EmailCampaignRecipi
   });
 };
 
+const stripFormattingMarkers = (value: string) =>
+  value
+    .replace(/\*\*([\s\S]+?)\*\*/g, '$1')
+    .replace(/_([^_\n]+?)_/g, '$1')
+    .replace(/\[u\]([\s\S]+?)\[\/u\]/gi, '$1');
+
+const formatInlineHtml = (value: string) => {
+  let html = escapeHtml(value);
+  html = html.replace(/\[u\]([\s\S]+?)\[\/u\]/gi, '<span style="text-decoration:underline;">$1</span>');
+  html = html.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/_([^_\n]+?)_/g, '<em>$1</em>');
+  return html;
+};
+
 const isMissingContactNameColumnError = (error: unknown) => {
   const maybeError = error as { code?: string; message?: string };
   return (
@@ -141,7 +155,7 @@ const textToParagraphs = (text: string) =>
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean)
-    .map((paragraph) => `<p style="margin:0 0 16px;color:#4c3a2f;font-size:15px;line-height:1.65;">${escapeHtml(paragraph).replace(/\n/g, '<br />')}</p>`)
+    .map((paragraph) => `<p style="margin:0 0 16px;color:#4c3a2f;font-size:15px;line-height:1.65;">${formatInlineHtml(paragraph).replace(/\n/g, '<br />')}</p>`)
     .join('');
 
 export function renderEmailCampaign(campaignInput: Partial<EmailCampaignInput>, recipient?: Partial<EmailCampaignRecipient>) {
@@ -161,9 +175,9 @@ export function renderEmailCampaign(campaignInput: Partial<EmailCampaignInput>, 
     ? `<tr><td style="padding:0 24px 22px;"><img src="${escapeHtml(heroImageUrl)}" alt="" width="612" style="display:block;width:100%;max-width:612px;border-radius:12px;border:1px solid #eadfce;" /></td></tr>`
     : '';
 
-  const text = `${personalizedHeadline}
+  const text = `${stripFormattingMarkers(personalizedHeadline)}
 
-${personalizedBody}
+${stripFormattingMarkers(personalizedBody)}
 ${ctaUrl && ctaLabel ? `\n${ctaLabel}: ${ctaUrl}` : ''}
 
 Bare Naked Pet Co.`;

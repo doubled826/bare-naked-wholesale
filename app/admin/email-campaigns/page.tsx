@@ -3,16 +3,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  Bold,
   CheckCircle,
   Eye,
   FileText,
+  Italic,
   Loader2,
   Mail,
   Plus,
   Save,
+  Search,
   Send,
   Type,
+  Underline,
   Users,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -57,15 +62,28 @@ type CampaignListPayload = {
   error?: string;
 };
 
+type RetailerRecipientOption = {
+  id: string;
+  company_name?: string | null;
+  contact_name?: string | null;
+  email: string;
+};
+
 const audienceOptions: Array<{ value: AudienceFilter; label: string; description: string }> = [
   { value: 'all_retailers', label: 'All retailers', description: 'Every retailer with a valid email.' },
   { value: 'never_ordered', label: 'Never ordered', description: 'Retailers with no non-canceled orders.' },
   { value: 'ordered_once', label: 'Ordered once', description: 'Retailers with exactly one order.' },
   { value: 'repeat_buyers', label: 'Repeat buyers', description: 'Retailers with two or more orders.' },
-  { value: 'manual', label: 'Manual list', description: 'Paste emails for a controlled send.' },
+  { value: 'manual', label: 'Manual list', description: 'Search and select specific retailers.' },
 ];
 
 const mergeTags = ['{{first_name}}', '{{contact_name}}', '{{company_name}}'] as const;
+
+const bodyFormatControls = [
+  { label: 'Bold', icon: Bold, prefix: '**', suffix: '**', placeholder: 'bold text' },
+  { label: 'Italic', icon: Italic, prefix: '_', suffix: '_', placeholder: 'italic text' },
+  { label: 'Underline', icon: Underline, prefix: '[u]', suffix: '[/u]', placeholder: 'underlined text' },
+] as const;
 
 export default function AdminEmailCampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -83,8 +101,12 @@ export default function AdminEmailCampaignsPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [sending, setSending] = useState(false);
+  const [manualSearch, setManualSearch] = useState('');
+  const [manualSuggestions, setManualSuggestions] = useState<RetailerRecipientOption[]>([]);
+  const [manualSearchLoading, setManualSearchLoading] = useState(false);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const previewRequestId = useRef(0);
+  const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const selectedCampaign = useMemo(
     () => campaigns.find((campaign) => campaign.id === selectedId) || null,
@@ -93,6 +115,18 @@ export default function AdminEmailCampaignsPage() {
 
   const isSent = form?.status === 'sent';
   const canSend = Boolean(form?.id && !isSent && preview && !preview.validationError && preview.recipientCount > 0);
+  const selectedManualRecipients = useMemo(
+    () => parseSelectedManualRecipients(form?.manual_recipients),
+    [form?.manual_recipients],
+  );
+  const selectedManualRecipientEmails = useMemo(
+    () => new Set(selectedManualRecipients.map((recipient) => recipient.email.toLowerCase())),
+    [selectedManualRecipients],
+  );
+  const visibleManualSuggestions = useMemo(
+    () => manualSuggestions.filter((recipient) => !selectedManualRecipientEmails.has(recipient.email.toLowerCase())),
+    [manualSuggestions, selectedManualRecipientEmails],
+  );
 
   useEffect(() => {
     loadCampaigns();
@@ -112,6 +146,19 @@ export default function AdminEmailCampaignsPage() {
     }, 350);
     return () => window.clearTimeout(timeout);
   }, [form]);
+
+  useEffect(() => {
+    if (form?.audience_filter !== 'manual') {
+      setManualSuggestions([]);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      searchManualRecipients(manualSearch);
+    }, 220);
+
+    return () => window.clearTimeout(timeout);
+  }, [form?.audience_filter, manualSearch]);
 
   async function loadCampaigns(nextSelectedId?: string) {
     setLoading(true);
@@ -177,6 +224,89 @@ export default function AdminEmailCampaignsPage() {
       const separator = value && !value.endsWith(' ') && !value.endsWith('\n') ? ' ' : '';
       return { ...current, [field]: `${value}${separator}${tag}` };
     });
+  }
+
+  function applyBodyFormat(format: typeof bodyFormatControls[number]) {
+    if (!form || isSent) return;
+
+    const textarea = bodyTextareaRef.current;
+    const value = form.body || '';
+    const selectionStart = textarea?.selectionStart ?? value.length;
+    const selectionEnd = textarea?.selectionEnd ?? value.length;
+    const selectedText = value.slice(selectionStart, selectionEnd) || format.placeholder;
+    const formattedText = `${format.prefix}${selectedText}${format.suffix}`;
+    const nextBody = `${value.slice(0, selectionStart)}${formattedText}${value.slice(selectionEnd)}`;
+
+    updateForm({ body: nextBody });
+
+    window.requestAnimationFrame(() => {
+      bodyTextareaRef.current?.focus();
+      const nextSelectionStart = selectionStart + format.prefix.length;
+      const nextSelectionEnd = nextSelectionStart + selectedText.length;
+      bodyTextareaRef.current?.setSelectionRange(nextSelectionStart, nextSelectionEnd);
+    });
+  }
+
+  function parseSelectedManualRecipients(value?: string | null): RetailerRecipientOption[] {
+    const unique = new Map<string, RetailerRecipientOption>();
+    const tokens = (value || '')
+      .split(/[\n,;]/)
+      .map((token) => token.trim())
+      .filter(Boolean);
+
+    for (const token of tokens) {
+      const match = token.match(/^(?:(.*?)\s*)?<([^>]+)>$/);
+      const email = (match?.[2] || token).trim().toLowerCase();
+      const label = (match?.[1] || '').trim();
+      if (!email || unique.has(email)) continue;
+      unique.set(email, {
+        id: email,
+        email,
+        company_name: label || email,
+        contact_name: label || null,
+      });
+    }
+
+    return Array.from(unique.values());
+  }
+
+  function formatManualRecipient(recipient: RetailerRecipientOption) {
+    const label = (recipient.contact_name || recipient.company_name || '').trim();
+    return label ? `${label} <${recipient.email}>` : recipient.email;
+  }
+
+  function setSelectedManualRecipients(recipients: RetailerRecipientOption[]) {
+    updateForm({
+      audience_filter: 'manual',
+      manual_recipients: recipients.map(formatManualRecipient).join('\n'),
+    });
+  }
+
+  function addManualRecipient(recipient: RetailerRecipientOption) {
+    const selected = parseSelectedManualRecipients(form?.manual_recipients);
+    if (selected.some((item) => item.email.toLowerCase() === recipient.email.toLowerCase())) return;
+    setSelectedManualRecipients([...selected, recipient]);
+    setManualSearch('');
+  }
+
+  function removeManualRecipient(email: string) {
+    const selected = parseSelectedManualRecipients(form?.manual_recipients);
+    setSelectedManualRecipients(selected.filter((recipient) => recipient.email.toLowerCase() !== email.toLowerCase()));
+  }
+
+  async function searchManualRecipients(query: string) {
+    setManualSearchLoading(true);
+
+    try {
+      const response = await fetch(`/api/admin/email-campaigns/retailers?q=${encodeURIComponent(query)}`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to search retailers.');
+      setManualSuggestions((payload.retailers || []) as RetailerRecipientOption[]);
+    } catch (error) {
+      setManualSuggestions([]);
+    } finally {
+      setManualSearchLoading(false);
+    }
   }
 
   function startNewCampaign() {
@@ -414,7 +544,23 @@ export default function AdminEmailCampaignsPage() {
                   <input value={form.headline} onChange={(event) => updateForm({ headline: event.target.value })} disabled={isSent} className="input" />
                 </Field>
                 <Field label="Body">
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {bodyFormatControls.map((format) => (
+                      <button
+                        key={format.label}
+                        type="button"
+                        onClick={() => applyBodyFormat(format)}
+                        disabled={isSent}
+                        title={format.label}
+                        aria-label={format.label}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-cream-300 bg-white text-bark-500 transition-colors hover:bg-cream-100 disabled:opacity-60"
+                      >
+                        <format.icon className="h-4 w-4" />
+                      </button>
+                    ))}
+                  </div>
                   <textarea
+                    ref={bodyTextareaRef}
                     value={form.body}
                     onChange={(event) => updateForm({ body: event.target.value })}
                     disabled={isSent}
@@ -474,16 +620,82 @@ export default function AdminEmailCampaignsPage() {
                 </div>
 
                 {form.audience_filter === 'manual' && (
-                  <Field label="Manual recipients">
-                    <textarea
-                      value={form.manual_recipients || ''}
-                      onChange={(event) => updateForm({ manual_recipients: event.target.value })}
-                      disabled={isSent}
-                      rows={5}
-                      className="input resize-y"
-                      placeholder="store@example.com&#10;Happy Paws <buyer@happypaws.example>"
-                    />
-                  </Field>
+                  <div className="space-y-3">
+                    <Field label="Search retailers">
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-bark-500/40" />
+                        <input
+                          value={manualSearch}
+                          onChange={(event) => setManualSearch(event.target.value)}
+                          onFocus={() => searchManualRecipients(manualSearch)}
+                          disabled={isSent}
+                          className="input pl-11"
+                          placeholder="Search by store, contact, or email"
+                        />
+                      </div>
+                    </Field>
+
+                    {(manualSearch || visibleManualSuggestions.length > 0 || manualSearchLoading) && (
+                      <div className="max-h-72 overflow-auto rounded-xl border border-cream-200 bg-white shadow-sm">
+                        {manualSearchLoading ? (
+                          <div className="flex items-center gap-2 px-4 py-3 text-sm text-bark-500/60">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Searching...
+                          </div>
+                        ) : visibleManualSuggestions.length > 0 ? (
+                          visibleManualSuggestions.map((recipient) => (
+                            <button
+                              key={`${recipient.id}-${recipient.email}`}
+                              type="button"
+                              onClick={() => addManualRecipient(recipient)}
+                              disabled={isSent}
+                              className="flex w-full items-center justify-between gap-3 border-b border-cream-100 px-4 py-3 text-left last:border-b-0 hover:bg-cream-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <span>
+                                <span className="block text-sm font-semibold text-bark-500">{recipient.company_name || recipient.email}</span>
+                                <span className="block text-xs text-bark-500/60">
+                                  {recipient.contact_name ? `${recipient.contact_name} · ` : ''}{recipient.email}
+                                </span>
+                              </span>
+                              <Plus className="h-4 w-4 shrink-0 text-bark-500/50" />
+                            </button>
+                          ))
+                        ) : (
+                          <div className="px-4 py-3 text-sm text-bark-500/60">No matching retailers found.</div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="rounded-xl border border-cream-200 bg-cream-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50">Selected recipients</p>
+                      {selectedManualRecipients.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {selectedManualRecipients.map((recipient) => (
+                            <span
+                              key={recipient.email}
+                              className="inline-flex max-w-full items-center gap-2 rounded-full border border-cream-300 bg-white px-3 py-2 text-sm text-bark-500"
+                            >
+                              <span className="truncate">
+                                {recipient.company_name || recipient.email}
+                                {recipient.company_name && <span className="text-bark-500/50"> · {recipient.email}</span>}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => removeManualRecipient(recipient.email)}
+                                disabled={isSent}
+                                aria-label={`Remove ${recipient.email}`}
+                                className="shrink-0 rounded-full p-0.5 text-bark-500/50 hover:bg-cream-100 hover:text-bark-500 disabled:opacity-60"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-sm text-bark-500/60">No manual recipients selected.</p>
+                      )}
+                    </div>
+                  </div>
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-[150px_minmax(0,1fr)] gap-3">
