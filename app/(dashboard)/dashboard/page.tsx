@@ -864,6 +864,7 @@ export default function DashboardPage() {
 const perkItems = [
   'Free Shipping',
   'No Minimums',
+  'Net-30 Terms',
 ];
 
 const actionLabels: Partial<Record<RetailerSuccessAction, string>> = {
@@ -1223,16 +1224,18 @@ function OfferPill({
 function WholesalePerksBanner() {
   return (
     <div
-      className="mb-6 rounded-2xl border border-cream-200 bg-cream-100 p-2 shadow-sm sm:mb-8"
+      className="mb-6 border-y border-bark-500/10 py-3 sm:mb-8"
       aria-label="Wholesale perks"
     >
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 sm:gap-x-7">
         {perkItems.map((perk) => (
           <div
             key={perk}
-            className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-cream-200 px-4 py-3 text-sm font-semibold text-bark-500 sm:text-base"
+            className="flex items-center gap-1.5 text-[13px] font-semibold text-bark-500 sm:gap-2 sm:text-base"
           >
-            <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600 sm:h-5 sm:w-5" aria-hidden="true" />
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 sm:h-6 sm:w-6">
+              <CheckCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden="true" />
+            </span>
             <span>{perk}</span>
           </div>
         ))}
