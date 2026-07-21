@@ -333,7 +333,10 @@ export function summarizeRecipients(recipients: EmailCampaignRecipient[]) {
   };
 }
 
-export function getCampaignValidationError(campaignInput: Partial<EmailCampaignInput>) {
+export function getCampaignValidationError(
+  campaignInput: Partial<EmailCampaignInput>,
+  options: { requireRecipients?: boolean } = { requireRecipients: true },
+) {
   const campaign = normalizeCampaign(campaignInput);
   if (!campaign.name) return 'Add a campaign name.';
   if (!campaign.subject) return 'Add a subject line.';
@@ -342,7 +345,7 @@ export function getCampaignValidationError(campaignInput: Partial<EmailCampaignI
   if ((campaign.cta_label && !campaign.cta_url) || (!campaign.cta_label && campaign.cta_url)) {
     return 'Add both a CTA label and CTA URL, or leave both blank.';
   }
-  if (campaign.audience_filter === 'manual' && parseManualRecipients(campaign.manual_recipients).length === 0) {
+  if (options.requireRecipients !== false && campaign.audience_filter === 'manual' && parseManualRecipients(campaign.manual_recipients).length === 0) {
     return 'Add at least one valid manual recipient.';
   }
   return null;

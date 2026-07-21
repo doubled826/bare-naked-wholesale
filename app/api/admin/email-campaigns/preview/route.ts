@@ -19,8 +19,16 @@ export async function POST(request: Request) {
       contact_name: 'Jamie Carter',
       first_name: 'Jamie',
     });
-    const validationError = getCampaignValidationError(rendered.campaign);
-    const recipients = validationError ? [] : await loadCampaignRecipients(adminClient, rendered.campaign);
+    const validationError = getCampaignValidationError(rendered.campaign, { requireRecipients: false });
+    let recipients: Awaited<ReturnType<typeof loadCampaignRecipients>> = [];
+    let recipientError: string | null = null;
+
+    try {
+      recipients = await loadCampaignRecipients(adminClient, rendered.campaign);
+    } catch (error) {
+      console.error('Email campaign recipient preview error:', error);
+      recipientError = error instanceof Error ? error.message : 'Unable to load recipients.';
+    }
 
     return NextResponse.json({
       subject: rendered.subject,
@@ -28,6 +36,7 @@ export async function POST(request: Request) {
       text: rendered.text,
       html: rendered.html,
       validationError,
+      recipientError,
       ...summarizeRecipients(recipients),
     });
   } catch (error) {

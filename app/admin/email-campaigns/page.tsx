@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle,
@@ -44,6 +44,7 @@ type Preview = {
   text: string;
   html: string;
   validationError?: string | null;
+  recipientError?: string | null;
   recipientCount: number;
   sampleRecipients: Array<{ email: string; company_name?: string | null; contact_name?: string | null; first_name?: string | null }>;
 };
@@ -83,6 +84,7 @@ export default function AdminEmailCampaignsPage() {
   const [testing, setTesting] = useState(false);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const previewRequestId = useRef(0);
 
   const selectedCampaign = useMemo(
     () => campaigns.find((campaign) => campaign.id === selectedId) || null,
@@ -141,6 +143,8 @@ export default function AdminEmailCampaignsPage() {
   }
 
   async function renderPreview(nextForm: Campaign) {
+    const requestId = previewRequestId.current + 1;
+    previewRequestId.current = requestId;
     setPreviewLoading(true);
     try {
       const response = await fetch('/api/admin/email-campaigns/preview', {
@@ -150,11 +154,15 @@ export default function AdminEmailCampaignsPage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Unable to render preview.');
+      if (requestId !== previewRequestId.current) return;
       setPreview(payload as Preview);
     } catch (error) {
+      if (requestId !== previewRequestId.current) return;
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to render preview.' });
     } finally {
-      setPreviewLoading(false);
+      if (requestId === previewRequestId.current) {
+        setPreviewLoading(false);
+      }
     }
   }
 
@@ -212,8 +220,7 @@ export default function AdminEmailCampaignsPage() {
   }
 
   async function sendTestEmail() {
-    if (!form?.id) {
-      setNotice({ type: 'error', message: 'Save the campaign before sending a test.' });
+    if (!form) {
       return;
     }
 
@@ -221,10 +228,10 @@ export default function AdminEmailCampaignsPage() {
     setNotice(null);
 
     try {
-      const response = await fetch(`/api/admin/email-campaigns/${form.id}/test`, {
+      const response = await fetch('/api/admin/email-campaigns/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ testEmail }),
+        body: JSON.stringify({ campaign: form, testEmail }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Unable to send test email.');
@@ -498,6 +505,12 @@ export default function AdminEmailCampaignsPage() {
                     </p>
                   </div>
                 </div>
+                {preview?.recipientError && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    Recipients could not be counted yet: {preview.recipientError}
+                  </div>
+                )}
               </Panel>
 
               <Panel title="Send Controls" icon={Send}>
@@ -528,7 +541,7 @@ export default function AdminEmailCampaignsPage() {
                     className="input"
                     placeholder="name@barenakedpet.com"
                   />
-                  <button onClick={sendTestEmail} disabled={testing || !testEmail || !form.id} className="btn-primary gap-2">
+                  <button onClick={sendTestEmail} disabled={testing || !testEmail} className="btn-primary gap-2">
                     {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     {testing ? 'Sending...' : 'Send test'}
                   </button>
