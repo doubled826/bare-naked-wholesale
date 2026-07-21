@@ -110,6 +110,13 @@ export async function POST(request: Request, { params }: { params: { id: string 
       recipientCount: recipients.length,
       sentCount,
       failedCount,
+      sent: recipientLogs
+        .filter((recipient) => recipient.status === 'sent')
+        .slice(0, 10)
+        .map((recipient) => ({
+          email: recipient.email,
+          resendMessageId: recipient.resend_message_id || null,
+        })),
       failed: recipientLogs.filter((recipient) => recipient.status === 'failed').slice(0, 10),
     });
   } catch (error) {

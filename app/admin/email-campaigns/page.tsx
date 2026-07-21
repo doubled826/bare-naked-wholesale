@@ -63,6 +63,43 @@ type CampaignListPayload = {
   error?: string;
 };
 
+type SendResultPayload = {
+  recipientCount?: number;
+  sentCount?: number;
+  failedCount?: number;
+  resendMessageId?: string | null;
+  sent?: Array<{ email: string; resendMessageId?: string | null }>;
+  error?: string;
+};
+
+type DeliveryFilter = 'all' | 'accepted' | 'failed';
+
+type DeliveryDetails = {
+  campaign: {
+    id: string;
+    name: string;
+    subject: string;
+    status: string;
+    sentAt?: string | null;
+  };
+  summary: {
+    total: number;
+    accepted: number;
+    failed: number;
+  };
+  recipients: Array<{
+    id: string;
+    email: string;
+    companyName?: string | null;
+    contactName?: string | null;
+    resendMessageId?: string | null;
+    status: 'sent' | 'failed';
+    error?: string | null;
+    sentAt?: string | null;
+  }>;
+  error?: string;
+};
+
 type RetailerRecipientOption = {
   id: string;
   company_name?: string | null;
@@ -98,6 +135,16 @@ const bodyFormatControls = [
 
 const imageTokenPlaceholder = '{{image:https://example.com/photo.jpg|Image description}}';
 
+const formatDateTime = (value?: string | null) => {
+  if (!value) return '-';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+};
+
 export default function AdminEmailCampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [defaultCampaign, setDefaultCampaign] = useState<Campaign | null>(null);
@@ -123,6 +170,10 @@ export default function AdminEmailCampaignsPage() {
   const [librarySearch, setLibrarySearch] = useState('');
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
+  const [deliveryLoading, setDeliveryLoading] = useState(false);
+  const [deliveryDetails, setDeliveryDetails] = useState<DeliveryDetails | null>(null);
+  const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>('all');
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const previewRequestId = useRef(0);
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -155,6 +206,12 @@ export default function AdminEmailCampaignsPage() {
       (image.mimeType || '').toLowerCase().includes(query),
     );
   }, [libraryImages, librarySearch]);
+  const filteredDeliveryRecipients = useMemo(() => {
+    const recipients = deliveryDetails?.recipients || [];
+    if (deliveryFilter === 'accepted') return recipients.filter((recipient) => recipient.status === 'sent');
+    if (deliveryFilter === 'failed') return recipients.filter((recipient) => recipient.status === 'failed');
+    return recipients;
+  }, [deliveryDetails?.recipients, deliveryFilter]);
 
   useEffect(() => {
     loadCampaigns();
@@ -319,6 +376,37 @@ export default function AdminEmailCampaignsPage() {
     }
   }
 
+  async function openDeliveryDetails(campaign: Campaign) {
+    if (!campaign.id) return;
+
+    setDeliveryOpen(true);
+    setDeliveryLoading(true);
+    setDeliveryDetails(null);
+    setDeliveryFilter('all');
+
+    try {
+      const response = await fetch(`/api/admin/email-campaigns/${campaign.id}/delivery`);
+      const payload = await response.json().catch(() => ({})) as DeliveryDetails;
+      if (!response.ok) throw new Error(payload?.error || 'Unable to load delivery details.');
+      setDeliveryDetails(payload);
+    } catch (error) {
+      setDeliveryDetails({
+        campaign: {
+          id: campaign.id,
+          name: campaign.name,
+          subject: campaign.subject,
+          status: campaign.status || 'sent',
+          sentAt: campaign.sent_at || null,
+        },
+        summary: { total: 0, accepted: 0, failed: 0 },
+        recipients: [],
+        error: error instanceof Error ? error.message : 'Unable to load delivery details.',
+      });
+    } finally {
+      setDeliveryLoading(false);
+    }
+  }
+
   function parseSelectedManualRecipients(value?: string | null): RetailerRecipientOption[] {
     const unique = new Map<string, RetailerRecipientOption>();
     const tokens = (value || '')
@@ -439,7 +527,13 @@ export default function AdminEmailCampaignsPage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Unable to send test email.');
-      setNotice({ type: 'success', message: `Test email sent to ${testEmail}.` });
+      const resendMessageId = typeof payload?.resendMessageId === 'string' ? payload.resendMessageId : '';
+      setNotice({
+        type: 'success',
+        message: resendMessageId
+          ? `Test email accepted by Resend for ${testEmail}. Message ID: ${resendMessageId}.`
+          : `Test email accepted by Resend for ${testEmail}.`,
+      });
     } catch (error) {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to send test email.' });
     } finally {
@@ -463,14 +557,19 @@ export default function AdminEmailCampaignsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirmText }),
       });
-      const payload = await response.json().catch(() => ({}));
+      const payload = await response.json().catch(() => ({})) as SendResultPayload;
       if (!response.ok) throw new Error(payload?.error || 'Unable to send email campaign.');
+
+      const firstSent = payload.sent?.find((recipient) => recipient.resendMessageId);
+      const receiptText = firstSent?.resendMessageId
+        ? ` First receipt: ${firstSent.email} (${firstSent.resendMessageId}).`
+        : '';
 
       setNotice({
         type: Number(payload.failedCount || 0) > 0 ? 'error' : 'success',
         message: Number(payload.failedCount || 0) > 0
-          ? `Sent ${payload.sentCount || 0} emails. ${payload.failedCount || 0} failed.`
-          : `Campaign sent to ${payload.sentCount || 0} retailers.`,
+          ? `Resend accepted ${payload.sentCount || 0} emails. ${payload.failedCount || 0} failed.${receiptText}`
+          : `Resend accepted ${payload.sentCount || 0} campaign emails.${receiptText}`,
       });
       setConfirmText('');
       await loadCampaigns(form.id);
@@ -583,7 +682,12 @@ export default function AdminEmailCampaignsPage() {
             {campaigns.map((campaign) => (
               <button
                 key={campaign.id}
-                onClick={() => setSelectedId(campaign.id || '')}
+                onClick={() => {
+                  setSelectedId(campaign.id || '');
+                  if (campaign.status === 'sent') {
+                    openDeliveryDetails(campaign);
+                  }
+                }}
                 className={cn(
                   'w-full rounded-lg border p-3 text-left transition-colors',
                   selectedId === campaign.id ? 'border-bark-500 bg-cream-100' : 'border-cream-200 hover:bg-cream-50',
@@ -596,6 +700,9 @@ export default function AdminEmailCampaignsPage() {
                   </span>
                 </div>
                 <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-bark-500/60">{campaign.subject}</p>
+                {campaign.status === 'sent' && (
+                  <p className="mt-2 text-xs font-semibold text-bark-500/70">View delivery details</p>
+                )}
               </button>
             ))}
           </div>
@@ -898,6 +1005,98 @@ export default function AdminEmailCampaignsPage() {
         </section>
       </div>
 
+      {deliveryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-bark-900/40 p-4">
+          <div className="max-h-[88vh] w-full max-w-5xl overflow-hidden rounded-xl border border-cream-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-cream-200 px-5 py-4">
+              <div>
+                <h2 className="font-semibold text-bark-500">Delivery Details</h2>
+                <p className="mt-1 text-xs text-bark-500/60">
+                  {deliveryDetails?.campaign.name || 'Loading campaign delivery...'}
+                  {deliveryDetails?.campaign.sentAt ? ` · ${formatDateTime(deliveryDetails.campaign.sentAt)}` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeliveryOpen(false)}
+                className="rounded-lg p-2 text-bark-500/60 hover:bg-cream-100 hover:text-bark-500"
+                aria-label="Close delivery details"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {deliveryLoading ? (
+              <div className="flex h-72 items-center justify-center bg-cream-50">
+                <Loader2 className="h-8 w-8 animate-spin text-bark-500" />
+              </div>
+            ) : deliveryDetails?.error ? (
+              <div className="p-5">
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  {deliveryDetails.error}
+                </div>
+              </div>
+            ) : deliveryDetails ? (
+              <div className="space-y-5 p-5">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <DeliveryStat label="Recipients" value={deliveryDetails.summary.total} />
+                  <DeliveryStat label="Accepted by Resend" value={deliveryDetails.summary.accepted} tone="green" />
+                  <DeliveryStat label="Failed" value={deliveryDetails.summary.failed} tone={deliveryDetails.summary.failed > 0 ? 'red' : 'neutral'} />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <DeliveryFilterButton active={deliveryFilter === 'all'} onClick={() => setDeliveryFilter('all')} label="All" count={deliveryDetails.summary.total} />
+                  <DeliveryFilterButton active={deliveryFilter === 'accepted'} onClick={() => setDeliveryFilter('accepted')} label="Accepted" count={deliveryDetails.summary.accepted} />
+                  <DeliveryFilterButton active={deliveryFilter === 'failed'} onClick={() => setDeliveryFilter('failed')} label="Failed" count={deliveryDetails.summary.failed} />
+                </div>
+
+                <div className="max-h-[46vh] overflow-auto rounded-xl border border-cream-200">
+                  {filteredDeliveryRecipients.length > 0 ? (
+                    <div className="divide-y divide-cream-100">
+                      {filteredDeliveryRecipients.map((recipient) => (
+                        <div key={recipient.id} className="grid grid-cols-1 gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_120px_minmax(0,220px)] md:items-center">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-bark-500">
+                              {recipient.companyName || recipient.contactName || recipient.email}
+                            </p>
+                            <p className="mt-1 truncate text-xs text-bark-500/60">
+                              {recipient.contactName && recipient.companyName ? `${recipient.contactName} · ` : ''}{recipient.email}
+                            </p>
+                            {recipient.error && <p className="mt-1 text-xs text-red-700">{recipient.error}</p>}
+                          </div>
+                          <span className={cn(
+                            'w-fit rounded-full px-2 py-1 text-[11px] font-semibold uppercase',
+                            recipient.status === 'sent' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700',
+                          )}>
+                            {recipient.status === 'sent' ? 'Accepted' : 'Failed'}
+                          </span>
+                          <div className="min-w-0 text-xs text-bark-500/60">
+                            <p>{formatDateTime(recipient.sentAt)}</p>
+                            {recipient.resendMessageId && (
+                              <p className="mt-1 truncate font-mono" title={recipient.resendMessageId}>
+                                {recipient.resendMessageId}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-4 py-10 text-center text-sm text-bark-500/60">
+                      No recipients match this filter.
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-xs leading-5 text-bark-500/60">
+                  Accepted means Resend returned a message ID. Delivered, bounced, and opened statuses need Resend webhook events connected to these message IDs.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
       {imagePickerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-bark-900/40 p-4">
           <div className="max-h-[86vh] w-full max-w-4xl overflow-hidden rounded-xl border border-cream-200 bg-white shadow-2xl">
@@ -992,6 +1191,51 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="label">{label}</span>
       {children}
     </label>
+  );
+}
+
+function DeliveryStat({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: number;
+  tone?: 'neutral' | 'green' | 'red';
+}) {
+  return (
+    <div className={cn(
+      'rounded-xl p-4',
+      tone === 'green' ? 'bg-green-50 text-green-800' : tone === 'red' ? 'bg-red-50 text-red-800' : 'bg-cream-100 text-bark-500',
+    )}>
+      <p className="text-xs font-semibold uppercase tracking-wide opacity-70">{label}</p>
+      <p className="mt-1 text-2xl font-bold">{value}</p>
+    </div>
+  );
+}
+
+function DeliveryFilterButton({
+  active,
+  onClick,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-lg border px-3 py-2 text-sm font-semibold transition-colors',
+        active ? 'border-bark-500 bg-cream-100 text-bark-500' : 'border-cream-200 bg-white text-bark-500/70 hover:bg-cream-50',
+      )}
+    >
+      {label} <span className="text-bark-500/50">{count}</span>
+    </button>
   );
 }
 

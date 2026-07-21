@@ -49,6 +49,24 @@ type OrderRow = {
 
 const DEFAULT_APP_URL = 'https://wholesale.barenakedpet.com';
 
+const getAppBaseUrl = () => (process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL).replace(/\/$/, '');
+
+const getHostedEmailImageUrl = (value: string) => {
+  const imageUrl = value.trim();
+  if (!imageUrl) return '';
+
+  try {
+    const url = new URL(imageUrl);
+    const appUrl = new URL(getAppBaseUrl());
+    if (url.hostname === appUrl.hostname) return imageUrl;
+    if (!['https:', 'http:'].includes(url.protocol)) return imageUrl;
+
+    return `${appUrl.origin}/api/email-images?src=${encodeURIComponent(imageUrl)}`;
+  } catch {
+    return imageUrl;
+  }
+};
+
 export const defaultEmailCampaign: EmailCampaignInput = {
   template_key: 'retailer_announcement',
   name: 'New retailer campaign',
@@ -242,7 +260,7 @@ const textToParagraphs = (text: string) =>
     .map((paragraph) => {
       const image = parseImageToken(paragraph);
       if (image) {
-        return `<p style="margin:22px 0;"><img src="${escapeHtml(image.url)}" alt="${escapeHtml(image.alt)}" width="612" style="display:block;width:100%;max-width:612px;border-radius:12px;border:1px solid #eadfce;" /></p>`;
+        return `<p style="margin:22px 0;"><img src="${escapeHtml(getHostedEmailImageUrl(image.url))}" alt="${escapeHtml(image.alt)}" width="612" style="display:block;width:100%;max-width:612px;border-radius:12px;border:1px solid #eadfce;" /></p>`;
       }
 
       return `<p style="margin:0 0 16px;color:#4c3a2f;font-size:15px;line-height:1.65;">${formatInlineHtml(paragraph).replace(/\n/g, '<br />')}</p>`;
@@ -257,7 +275,7 @@ export function renderEmailCampaign(campaignInput: Partial<EmailCampaignInput>, 
   const personalizedBody = replaceMergeTags(campaign.body, recipient);
   const ctaUrl = replaceMergeTags(campaign.cta_url || '', recipient);
   const ctaLabel = replaceMergeTags(campaign.cta_label || '', recipient);
-  const heroImageUrl = replaceMergeTags(campaign.hero_image_url || '', recipient);
+  const heroImageUrl = getHostedEmailImageUrl(replaceMergeTags(campaign.hero_image_url || '', recipient));
   const bodyHtml = textToParagraphs(personalizedBody);
   const cta = ctaUrl && ctaLabel
     ? `<p style="margin:24px 0 0;"><a href="${escapeHtml(ctaUrl)}" style="display:inline-block;background:#3d2314;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:6px;font-weight:700;font-size:14px;">${escapeHtml(ctaLabel)}</a></p>`
