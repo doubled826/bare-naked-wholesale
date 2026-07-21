@@ -117,6 +117,7 @@ export default function AdminEmailCampaignsPage() {
   const [manualSearch, setManualSearch] = useState('');
   const [manualSuggestions, setManualSuggestions] = useState<RetailerRecipientOption[]>([]);
   const [manualSearchLoading, setManualSearchLoading] = useState(false);
+  const [manualSearchError, setManualSearchError] = useState('');
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
   const [libraryImages, setLibraryImages] = useState<LibraryImage[]>([]);
   const [librarySearch, setLibrarySearch] = useState('');
@@ -367,6 +368,7 @@ export default function AdminEmailCampaignsPage() {
 
   async function searchManualRecipients(query: string) {
     setManualSearchLoading(true);
+    setManualSearchError('');
 
     try {
       const response = await fetch(`/api/admin/email-campaigns/retailers?q=${encodeURIComponent(query)}`);
@@ -375,6 +377,7 @@ export default function AdminEmailCampaignsPage() {
       setManualSuggestions((payload.retailers || []) as RetailerRecipientOption[]);
     } catch (error) {
       setManualSuggestions([]);
+      setManualSearchError(error instanceof Error ? error.message : 'Unable to search retailers.');
     } finally {
       setManualSearchLoading(false);
     }
@@ -716,13 +719,15 @@ export default function AdminEmailCampaignsPage() {
                       </div>
                     </Field>
 
-                    {(manualSearch || visibleManualSuggestions.length > 0 || manualSearchLoading) && (
+                    {(manualSearch || visibleManualSuggestions.length > 0 || manualSearchLoading || manualSearchError) && (
                       <div className="max-h-72 overflow-auto rounded-xl border border-cream-200 bg-white shadow-sm">
                         {manualSearchLoading ? (
                           <div className="flex items-center gap-2 px-4 py-3 text-sm text-bark-500/60">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             Searching...
                           </div>
+                        ) : manualSearchError ? (
+                          <div className="px-4 py-3 text-sm text-red-700">{manualSearchError}</div>
                         ) : visibleManualSuggestions.length > 0 ? (
                           visibleManualSuggestions.map((recipient) => (
                             <button

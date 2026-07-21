@@ -17,12 +17,15 @@ type AuthUser = {
 
 const isLikelyEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
-const isMissingContactNameColumnError = (error: unknown) => {
+const isMissingColumnError = (error: unknown) => {
   const maybeError = error as { code?: string; message?: string };
   return (
     maybeError?.code === '42703' ||
     maybeError?.code === 'PGRST204' ||
-    (typeof maybeError?.message === 'string' && maybeError.message.includes('contact_name'))
+    (typeof maybeError?.message === 'string' && (
+      maybeError.message.includes('contact_name') ||
+      maybeError.message.includes('email')
+    ))
   );
 };
 
@@ -94,16 +97,22 @@ async function loadRetailers(adminClient: any, columns: string) {
 }
 
 async function searchRetailers(adminClient: any) {
-  const selectColumns = 'id, company_name, contact_name, email';
-  const fallbackColumns = 'id, company_name, email';
+  const columnAttempts = [
+    'id, company_name, contact_name, email',
+    'id, company_name, contact_name',
+    'id, company_name, email',
+    'id, company_name',
+  ];
 
-  try {
-    return hydrateRetailerEmails(adminClient, await loadRetailers(adminClient, selectColumns));
-  } catch (error) {
-    if (!isMissingContactNameColumnError(error)) throw error;
+  for (const columns of columnAttempts) {
+    try {
+      return hydrateRetailerEmails(adminClient, await loadRetailers(adminClient, columns));
+    } catch (error) {
+      if (!isMissingColumnError(error)) throw error;
+    }
   }
 
-  return hydrateRetailerEmails(adminClient, await loadRetailers(adminClient, fallbackColumns));
+  return [];
 }
 
 export async function GET(request: Request) {

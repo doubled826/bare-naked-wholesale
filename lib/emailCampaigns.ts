@@ -129,12 +129,15 @@ const parseImageToken = (value: string) => {
   };
 };
 
-const isMissingContactNameColumnError = (error: unknown) => {
+const isMissingColumnError = (error: unknown) => {
   const maybeError = error as { code?: string; message?: string };
   return (
     maybeError?.code === '42703' ||
     maybeError?.code === 'PGRST204' ||
-    (typeof maybeError?.message === 'string' && maybeError.message.includes('contact_name'))
+    (typeof maybeError?.message === 'string' && (
+      maybeError.message.includes('contact_name') ||
+      maybeError.message.includes('email')
+    ))
   );
 };
 
@@ -197,13 +200,22 @@ async function selectRetailerRows(adminClient: any, columns: string): Promise<Re
 }
 
 async function loadRetailerRows(adminClient: any): Promise<RetailerRow[]> {
-  try {
-    return hydrateRetailerEmails(adminClient, await selectRetailerRows(adminClient, 'id, company_name, email, contact_name'));
-  } catch (error) {
-    if (!isMissingContactNameColumnError(error)) throw error;
+  const columnAttempts = [
+    'id, company_name, email, contact_name',
+    'id, company_name, contact_name',
+    'id, company_name, email',
+    'id, company_name',
+  ];
+
+  for (const columns of columnAttempts) {
+    try {
+      return hydrateRetailerEmails(adminClient, await selectRetailerRows(adminClient, columns));
+    } catch (error) {
+      if (!isMissingColumnError(error)) throw error;
+    }
   }
 
-  return hydrateRetailerEmails(adminClient, await selectRetailerRows(adminClient, 'id, company_name, email'));
+  return [];
 }
 
 const normalizeCampaign = (campaign: Partial<EmailCampaignInput>): EmailCampaignInput => ({
