@@ -48,6 +48,14 @@ type Preview = {
   sampleRecipients: Array<{ email: string; company_name?: string | null }>;
 };
 
+type CampaignListPayload = {
+  campaigns?: Campaign[];
+  defaultCampaign?: Campaign;
+  setupRequired?: boolean;
+  setupMessage?: string;
+  error?: string;
+};
+
 const audienceOptions: Array<{ value: AudienceFilter; label: string; description: string }> = [
   { value: 'all_retailers', label: 'All retailers', description: 'Every retailer with a valid email.' },
   { value: 'never_ordered', label: 'Never ordered', description: 'Retailers with no non-canceled orders.' },
@@ -66,6 +74,8 @@ export default function AdminEmailCampaignsPage() {
   const [testEmail, setTestEmail] = useState('');
   const [confirmText, setConfirmText] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [setupMessage, setSetupMessage] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -102,23 +112,27 @@ export default function AdminEmailCampaignsPage() {
   async function loadCampaigns(nextSelectedId?: string) {
     setLoading(true);
     setNotice(null);
+    setLoadError('');
 
     try {
       const response = await fetch('/api/admin/email-campaigns');
-      const payload = await response.json().catch(() => ({}));
+      const payload = await response.json().catch(() => ({})) as CampaignListPayload;
       if (!response.ok) throw new Error(payload?.error || 'Unable to load email campaigns.');
 
       const nextCampaigns = (payload.campaigns || []) as Campaign[];
       const nextDefault = payload.defaultCampaign as Campaign;
       setCampaigns(nextCampaigns);
       setDefaultCampaign(nextDefault);
+      setSetupMessage(payload.setupRequired ? payload.setupMessage || 'Run the email campaigns Supabase migration before saving or sending campaigns.' : '');
 
       const targetId = nextSelectedId || selectedId;
       const target = nextCampaigns.find((campaign) => campaign.id === targetId) || nextCampaigns[0] || nextDefault;
       setSelectedId(target?.id || 'new');
       setForm(target);
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to load email campaigns.' });
+      const message = error instanceof Error ? error.message : 'Unable to load email campaigns.';
+      setLoadError(message);
+      setNotice({ type: 'error', message });
     } finally {
       setLoading(false);
     }
@@ -245,10 +259,37 @@ export default function AdminEmailCampaignsPage() {
     }
   }
 
-  if (loading || !form) {
+  if (loading) {
     return (
       <div className="min-h-[420px] flex items-center justify-center">
         <Loader2 className="w-10 h-10 animate-spin text-bark-500" />
+      </div>
+    );
+  }
+
+  if (!form) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-xl border border-cream-200 p-5">
+          <h1 className="text-2xl font-bold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
+            Email Campaigns
+          </h1>
+          <p className="mt-1 text-sm text-bark-500/60">
+            Build editable retailer emails, preview them, send tests, and deliver through Resend.
+          </p>
+        </div>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-red-700">
+          <div className="flex items-start gap-3">
+            <Mail className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <h2 className="font-semibold">Unable to load campaigns</h2>
+              <p className="mt-1 text-sm leading-6">{loadError || 'The campaign builder could not initialize.'}</p>
+              <button onClick={() => loadCampaigns()} className="mt-4 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-red-700">
+                Try again
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -283,6 +324,13 @@ export default function AdminEmailCampaignsPage() {
         >
           {notice.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <Mail className="w-4 h-4" />}
           {notice.message}
+        </div>
+      )}
+
+      {setupMessage && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{setupMessage}</span>
         </div>
       )}
 

@@ -4,6 +4,15 @@ import { defaultEmailCampaign, getCampaignValidationError, renderEmailCampaign }
 
 export const dynamic = 'force-dynamic';
 
+const isMissingCampaignTableError = (error: unknown) => {
+  const maybeError = error as { code?: string; message?: string };
+  return (
+    maybeError?.code === '42P01' ||
+    maybeError?.code === 'PGRST205' ||
+    (typeof maybeError?.message === 'string' && maybeError.message.includes('email_campaigns'))
+  );
+};
+
 export async function GET() {
   try {
     const { adminClient } = await requireAdminAccess();
@@ -12,7 +21,18 @@ export async function GET() {
       .select('id, template_key, name, subject, preheader, headline, body, cta_label, cta_url, hero_image_url, audience_filter, manual_recipients, status, sent_at, created_at, updated_at')
       .order('created_at', { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      if (isMissingCampaignTableError(error)) {
+        return NextResponse.json({
+          campaigns: [],
+          defaultCampaign: renderEmailCampaign(defaultEmailCampaign).campaign,
+          setupRequired: true,
+          setupMessage: 'Run the email campaigns Supabase migration before saving or sending campaigns.',
+        });
+      }
+
+      throw error;
+    }
 
     return NextResponse.json({ campaigns: data || [], defaultCampaign: renderEmailCampaign(defaultEmailCampaign).campaign });
   } catch (error) {
