@@ -195,10 +195,10 @@ export default function AdminEmailTemplatesPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
-              Email Templates
+              Templates
             </h1>
             <p className="text-sm text-bark-500/60 mt-1">
-              Preview code-owned email templates by category and send internal test copies.
+              Preview email templates by category and send internal test copies.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-3 sm:min-w-[360px]">

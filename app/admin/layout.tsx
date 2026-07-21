@@ -10,7 +10,6 @@ import {
   Users,
   Package,
   FolderOpen,
-  BarChart2,
   MessageSquare,
   Mail,
   FileText,
@@ -20,26 +19,76 @@ import {
   Menu,
   X,
   ChevronRight,
+  ChevronDown,
+  Workflow,
   Send,
   Zap
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const navigation = [
+type NavigationItem = {
+  name: string;
+  href?: string;
+  icon: React.ComponentType<{ className?: string }>;
+  children?: Array<{
+    name: string;
+    href: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }>;
+};
+
+const navigation: NavigationItem[] = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
   { name: 'Sales Hub', href: '/admin/sales-hub', icon: Zap },
-  { name: 'Announcements', href: '/admin/announcements', icon: Megaphone },
-  { name: 'Feed', href: '/admin/feed', icon: MessageSquare },
   { name: 'Orders', href: '/admin/orders', icon: ShoppingCart },
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
-  { name: 'Products', href: '/admin/products', icon: Package },
-  { name: 'Resources', href: '/admin/resources', icon: FolderOpen },
-  { name: 'Message', href: '/admin/messages', icon: Mail },
-  { name: 'Campaigns', href: '/admin/email-campaigns', icon: Send },
-  { name: 'Email', href: '/admin/email-templates', icon: FileText },
-  { name: 'Insights', href: '/admin/insights', icon: BarChart2 },
+  {
+    name: 'Community',
+    icon: MessageSquare,
+    children: [
+      { name: 'Feed', href: '/admin/feed', icon: MessageSquare },
+      { name: 'Messages', href: '/admin/messages', icon: Mail },
+    ],
+  },
+  {
+    name: 'Marketing',
+    icon: Megaphone,
+    children: [
+      { name: 'Campaigns', href: '/admin/email-campaigns', icon: Send },
+      { name: 'Automations', href: '/admin/automations', icon: Workflow },
+      { name: 'Announcements', href: '/admin/announcements', icon: Megaphone },
+      { name: 'Templates', href: '/admin/email-templates', icon: FileText },
+    ],
+  },
+  {
+    name: 'Library',
+    icon: FolderOpen,
+    children: [
+      { name: 'Products', href: '/admin/products', icon: Package },
+      { name: 'Resources', href: '/admin/resources', icon: FolderOpen },
+    ],
+  },
   { name: 'Account', href: '/admin/account', icon: User },
 ];
+
+const findNavigationTitle = (pathname: string) => {
+  for (const item of navigation) {
+    if (item.href === pathname) return item.name;
+
+    const child = item.children?.find((childItem) => pathname === childItem.href || pathname.startsWith(`${childItem.href}/`));
+    if (child) return child.name;
+  }
+
+  return 'Admin';
+};
+
+const getInitialOpenGroups = (pathname: string) =>
+  navigation.reduce<Record<string, boolean>>((groups, item) => {
+    if (item.children?.some((child) => pathname === child.href || pathname.startsWith(`${child.href}/`))) {
+      groups[item.name] = true;
+    }
+    return groups;
+  }, {});
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -49,10 +98,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [isAdmin, setIsAdmin] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [adminName, setAdminName] = useState('Admin');
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => getInitialOpenGroups(pathname));
 
   useEffect(() => {
     checkAdminAccess();
   }, []);
+
+  useEffect(() => {
+    setOpenGroups((current) => ({ ...current, ...getInitialOpenGroups(pathname) }));
+  }, [pathname]);
 
   const checkAdminAccess = async () => {
     try {
@@ -140,11 +194,59 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {/* Navigation */}
           <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-4">
             {navigation.map((item) => {
-              const isActive = pathname === item.href;
+              const isGroup = Boolean(item.children?.length);
+              const isActive = item.href ? pathname === item.href || pathname.startsWith(`${item.href}/`) : false;
+              const isChildActive = item.children?.some((child) => pathname === child.href || pathname.startsWith(`${child.href}/`)) || false;
+              const isOpen = openGroups[item.name] || isChildActive;
+
+              if (isGroup) {
+                return (
+                  <div key={item.name} className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => setOpenGroups((current) => ({ ...current, [item.name]: !isOpen }))}
+                      className={cn(
+                        "flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors",
+                        isChildActive
+                          ? "bg-cream-100 text-bark-500"
+                          : "text-cream-200 hover:bg-bark-400 hover:text-white"
+                      )}
+                    >
+                      <item.icon className="w-5 h-5" />
+                      {item.name}
+                      {isOpen ? <ChevronDown className="w-4 h-4 ml-auto" /> : <ChevronRight className="w-4 h-4 ml-auto" />}
+                    </button>
+                    {isOpen && (
+                      <div className="ml-8 space-y-1 border-l border-bark-400 pl-3">
+                        {item.children?.map((child) => {
+                          const childActive = pathname === child.href || pathname.startsWith(`${child.href}/`);
+                          return (
+                            <Link
+                              key={child.name}
+                              href={child.href}
+                              onClick={() => setSidebarOpen(false)}
+                              className={cn(
+                                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                                childActive
+                                  ? "bg-cream-100 text-bark-500"
+                                  : "text-cream-200 hover:bg-bark-400 hover:text-white"
+                              )}
+                            >
+                              <child.icon className="w-4 h-4" />
+                              {child.name}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
               return (
                 <Link
                   key={item.name}
-                  href={item.href}
+                  href={item.href || '#'}
                   onClick={() => setSidebarOpen(false)}
                   className={cn(
                     "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors",
@@ -198,7 +300,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </button>
             <div className="flex-1">
               <h2 className="text-lg font-semibold text-gray-900" style={{ fontFamily: 'var(--font-poppins)' }}>
-                {navigation.find(n => n.href === pathname)?.name || 'Admin'}
+                {findNavigationTitle(pathname)}
               </h2>
             </div>
 
