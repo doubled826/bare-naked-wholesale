@@ -121,14 +121,18 @@ export default function AdminOrdersPage() {
 
   const fetchOrders = async () => {
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*, retailer:retailers(id, company_name, business_address, phone), location:retailer_locations(id, location_name, business_address, phone), order_items(id, quantity, unit_price, total_price, product:products(name, size)), shelf_talker_fulfillments(id, retailer_id, location_id, flavor, status, fulfilled_order_id, qualified_at, fulfilled_at)')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      setOrders(data || []);
-      return data || [];
-    } catch (error) { console.error('Error:', error); }
+      const response = await fetch('/api/admin/orders', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok || !data?.success) throw new Error(data?.error || 'Failed to load orders');
+
+      const nextOrders = data.orders || [];
+      setOrders(nextOrders);
+      return nextOrders;
+    } catch (error) {
+      console.error('Error:', error);
+      showNotification(error instanceof Error ? error.message : 'Failed to load orders');
+      setOrders([]);
+    }
     finally { setIsLoading(false); }
     return [];
   };
