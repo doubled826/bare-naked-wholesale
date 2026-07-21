@@ -20,7 +20,9 @@ import { cn, getInitials } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { createClient } from '@/lib/supabase';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+
+const FEED_READ_EVENT = 'bnpc:feed-read';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -39,6 +41,7 @@ export function Sidebar() {
   const supabaseClient = createClientComponentClient();
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadFeed, setUnreadFeed] = useState(false);
+  const isFeedRoute = pathname.startsWith('/feed');
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -82,17 +85,22 @@ export function Sidebar() {
     fetchUnreadCount();
   }, [supabaseClient, retailer?.id]);
 
-  const markFeedRead = async () => {
+  const markFeedRead = useCallback(async () => {
     if (!retailer?.id) return;
     await supabaseClient
       .from('feed_reads')
       .upsert({ retailer_id: retailer.id, last_read_at: new Date().toISOString() }, { onConflict: 'retailer_id' });
     setUnreadFeed(false);
-  };
+  }, [retailer?.id, supabaseClient]);
 
   useEffect(() => {
     const fetchFeedUnread = async () => {
       if (!retailer?.id) return;
+      if (isFeedRoute) {
+        markFeedRead();
+        return;
+      }
+
       const { data: latestPost } = await supabaseClient
         .from('feed_posts')
         .select('created_at')
@@ -120,16 +128,22 @@ export function Sidebar() {
     };
 
     fetchFeedUnread();
-  }, [supabaseClient, retailer?.id]);
+  }, [isFeedRoute, markFeedRead, supabaseClient, retailer?.id]);
 
   useEffect(() => {
     if (pathname.startsWith('/messages')) {
       setUnreadCount(0);
     }
-    if (pathname.startsWith('/feed')) {
+    if (isFeedRoute) {
       markFeedRead();
     }
-  }, [pathname]);
+  }, [isFeedRoute, markFeedRead, pathname]);
+
+  useEffect(() => {
+    const handleFeedRead = () => setUnreadFeed(false);
+    window.addEventListener(FEED_READ_EVENT, handleFeedRead);
+    return () => window.removeEventListener(FEED_READ_EVENT, handleFeedRead);
+  }, []);
 
   useEffect(() => {
     if (!retailer?.id) return;
@@ -190,14 +204,14 @@ export function Sidebar() {
     const feedChannel = supabaseClient
       .channel('feed-notify')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_posts' }, () => {
-        if (pathname.startsWith('/feed')) {
+        if (isFeedRoute) {
           markFeedRead();
         } else {
           setUnreadFeed(true);
         }
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_comments' }, () => {
-        if (pathname.startsWith('/feed')) {
+        if (isFeedRoute) {
           markFeedRead();
         } else {
           setUnreadFeed(true);
@@ -210,7 +224,7 @@ export function Sidebar() {
       supabaseClient.removeChannel(messagesChannel);
       supabaseClient.removeChannel(feedChannel);
     };
-  }, [supabaseClient, retailer?.id, pathname]);
+  }, [isFeedRoute, markFeedRead, supabaseClient, retailer?.id]);
 
   return (
     <>

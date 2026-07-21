@@ -152,15 +152,6 @@
     background-size: 24px 24px;
   }
 
-  .perks-marquee {
-    animation: perks-marquee 24s linear infinite;
-  }
-
-  .perks-marquee:hover,
-  .perks-marquee:focus-within {
-    animation-play-state: paused;
-  }
-
   .bare-launch-backdrop {
     animation: bare-launch-backdrop-in 180ms ease-out both;
   }
@@ -205,16 +196,6 @@
   }
 }
 
-@keyframes perks-marquee {
-  from {
-    transform: translateX(0);
-  }
-
-  to {
-    transform: translateX(-50%);
-  }
-}
-
 @keyframes bare-launch-backdrop-in {
   from {
     opacity: 0;
@@ -238,10 +219,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .perks-marquee {
-    animation: none;
-  }
-
   .bare-launch-backdrop,
   .bare-launch-modal {
     animation: none;

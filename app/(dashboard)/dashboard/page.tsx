@@ -1221,29 +1221,21 @@ function OfferPill({
 }
 
 function WholesalePerksBanner() {
-  const marqueeSet = Array.from({ length: 6 }, (_, index) => perkItems[index % perkItems.length]);
-  const marqueeItems = [...marqueeSet, ...marqueeSet];
-
   return (
     <div
-      className="mb-6 overflow-hidden rounded-full border border-cream-200 bg-cream-100 py-2 shadow-sm sm:mb-8"
-      aria-label="Wholesale perks: Free Shipping and No Minimums"
+      className="mb-6 rounded-2xl border border-cream-200 bg-cream-100 p-2 shadow-sm sm:mb-8"
+      aria-label="Wholesale perks"
     >
-      <div className="relative min-w-0 overflow-hidden">
-        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-cream-100 to-transparent" />
-        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-cream-100 to-transparent" />
-        <div className="flex w-max gap-3 perks-marquee">
-          {marqueeItems.map((perk, index) => (
-            <div
-              key={`${perk}-${index}`}
-              className="flex shrink-0 items-center gap-2 rounded-full bg-cream-200 px-4 py-2 text-sm font-semibold text-bark-500"
-              aria-hidden={index >= marqueeSet.length}
-            >
-              <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
-              <span>{perk}</span>
-            </div>
-          ))}
-        </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {perkItems.map((perk) => (
+          <div
+            key={perk}
+            className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-cream-200 px-4 py-3 text-sm font-semibold text-bark-500 sm:text-base"
+          >
+            <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600 sm:h-5 sm:w-5" aria-hidden="true" />
+            <span>{perk}</span>
+          </div>
+        ))}
       </div>
     </div>
   );

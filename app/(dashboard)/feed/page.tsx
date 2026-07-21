@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { AlertCircle, Award, CheckCircle2, Heart, ImagePlus, MessageCircle, MessageSquare, Send, X } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
+
+const FEED_READ_EVENT = 'bnpc:feed-read';
 
 interface FeedPost {
   id: string;
@@ -74,6 +76,14 @@ export default function FeedPage() {
   };
 
   const businessName = retailer?.company_name || retailer?.business_name || 'Retailer';
+
+  const markFeedRead = useCallback(async () => {
+    if (!retailer?.id) return;
+    await supabase
+      .from('feed_reads')
+      .upsert({ retailer_id: retailer.id, last_read_at: new Date().toISOString() }, { onConflict: 'retailer_id' });
+    window.dispatchEvent(new Event(FEED_READ_EVENT));
+  }, [retailer?.id, supabase]);
 
   const uploadImage = async (file: File, folder: string) => {
     const extension = file.name.split('.').pop() || 'jpg';
@@ -170,10 +180,13 @@ export default function FeedPage() {
 
   useEffect(() => {
     if (!retailer?.id) return;
-    supabase
-      .from('feed_reads')
-      .upsert({ retailer_id: retailer.id, last_read_at: new Date().toISOString() }, { onConflict: 'retailer_id' });
-  }, [supabase, retailer?.id]);
+    markFeedRead();
+  }, [markFeedRead, retailer?.id]);
+
+  useEffect(() => {
+    if (loading) return;
+    markFeedRead();
+  }, [loading, posts.length, commentsByPost, markFeedRead]);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -187,6 +200,7 @@ export default function FeedPage() {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_posts' }, (payload) => {
         const incoming = payload.new as FeedPost;
         setPosts((current) => (current.some((post) => post.id === incoming.id) ? current : [incoming, ...current]));
+        markFeedRead();
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'feed_posts' }, (payload) => {
         const removed = payload.old as { id: string };
@@ -204,6 +218,7 @@ export default function FeedPage() {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_comments' }, (payload) => {
         const incoming = payload.new as FeedComment;
         addCommentToPost(incoming.post_id, incoming);
+        markFeedRead();
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'feed_comments' }, (payload) => {
         const removed = payload.old as FeedComment;
@@ -218,7 +233,7 @@ export default function FeedPage() {
       supabase.removeChannel(postsChannel);
       supabase.removeChannel(commentsChannel);
     };
-  }, [supabase]);
+  }, [markFeedRead, supabase]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
