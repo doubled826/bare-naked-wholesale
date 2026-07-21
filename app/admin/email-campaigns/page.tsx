@@ -172,6 +172,7 @@ export default function AdminEmailCampaignsPage() {
   const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [deliveryLoading, setDeliveryLoading] = useState(false);
+  const [retryDraftCreating, setRetryDraftCreating] = useState(false);
   const [deliveryDetails, setDeliveryDetails] = useState<DeliveryDetails | null>(null);
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>('all');
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -404,6 +405,53 @@ export default function AdminEmailCampaignsPage() {
       });
     } finally {
       setDeliveryLoading(false);
+    }
+  }
+
+  async function createFailedRetryDraft() {
+    if (!form || !deliveryDetails) return;
+
+    const failedRecipients = deliveryDetails.recipients.filter((recipient) => recipient.status === 'failed');
+    if (failedRecipients.length === 0) {
+      setNotice({ type: 'error', message: 'There are no failed recipients to retarget.' });
+      return;
+    }
+
+    setRetryDraftCreating(true);
+    setNotice(null);
+
+    try {
+      const retryCampaign = {
+        ...form,
+        id: undefined,
+        status: 'draft' as const,
+        sent_at: null,
+        name: `${form.name} - failed retry`,
+        audience_filter: 'manual' as const,
+        manual_recipients: failedRecipients
+          .map((recipient) => {
+            const label = (recipient.contactName || recipient.companyName || '').trim();
+            return label ? `${label} <${recipient.email}>` : recipient.email;
+          })
+          .join('\n'),
+      };
+
+      const response = await fetch('/api/admin/email-campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(retryCampaign),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to create retry draft.');
+
+      const saved = payload.campaign as Campaign;
+      setDeliveryOpen(false);
+      setNotice({ type: 'success', message: `Retry draft created for ${failedRecipients.length} failed recipients.` });
+      await loadCampaigns(saved.id);
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to create retry draft.' });
+    } finally {
+      setRetryDraftCreating(false);
     }
   }
 
@@ -1048,6 +1096,17 @@ export default function AdminEmailCampaignsPage() {
                   <DeliveryFilterButton active={deliveryFilter === 'all'} onClick={() => setDeliveryFilter('all')} label="All" count={deliveryDetails.summary.total} />
                   <DeliveryFilterButton active={deliveryFilter === 'accepted'} onClick={() => setDeliveryFilter('accepted')} label="Accepted" count={deliveryDetails.summary.accepted} />
                   <DeliveryFilterButton active={deliveryFilter === 'failed'} onClick={() => setDeliveryFilter('failed')} label="Failed" count={deliveryDetails.summary.failed} />
+                  {deliveryDetails.summary.failed > 0 && (
+                    <button
+                      type="button"
+                      onClick={createFailedRetryDraft}
+                      disabled={retryDraftCreating}
+                      className="ml-auto inline-flex items-center gap-2 rounded-lg bg-bark-500 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-bark-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {retryDraftCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      {retryDraftCreating ? 'Creating...' : 'Retarget failed'}
+                    </button>
+                  )}
                 </div>
 
                 <div className="max-h-[46vh] overflow-auto rounded-xl border border-cream-200">

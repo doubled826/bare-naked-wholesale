@@ -9,6 +9,11 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+const SEND_BATCH_SIZE = 8;
+const SEND_BATCH_DELAY_MS = 1100;
+
+const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
     const { user, adminClient } = await requireAdminAccess();
@@ -53,7 +58,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
       error?: string | null;
     }> = [];
 
-    for (const recipient of recipients) {
+    for (let index = 0; index < recipients.length; index += 1) {
+      const recipient = recipients[index]!;
       const rendered = renderEmailCampaign(campaign, recipient);
 
       try {
@@ -83,6 +89,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
           status: 'failed',
           error: sendError instanceof Error ? sendError.message : 'Unable to send email.',
         });
+      }
+
+      if ((index + 1) % SEND_BATCH_SIZE === 0 && index < recipients.length - 1) {
+        await sleep(SEND_BATCH_DELAY_MS);
       }
     }
 
