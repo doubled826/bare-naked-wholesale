@@ -20,6 +20,7 @@ import {
   Menu,
   X,
   ChevronRight,
+  Send,
   Zap
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -34,6 +35,7 @@ const navigation = [
   { name: 'Products', href: '/admin/products', icon: Package },
   { name: 'Resources', href: '/admin/resources', icon: FolderOpen },
   { name: 'Message', href: '/admin/messages', icon: Mail },
+  { name: 'Campaigns', href: '/admin/email-campaigns', icon: Send },
   { name: 'Email', href: '/admin/email-templates', icon: FileText },
   { name: 'Insights', href: '/admin/insights', icon: BarChart2 },
   { name: 'Account', href: '/admin/account', icon: User },
