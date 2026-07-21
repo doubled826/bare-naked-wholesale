@@ -7,6 +7,7 @@ import {
   CheckCircle,
   Eye,
   FileText,
+  Image as ImageIcon,
   Italic,
   Loader2,
   Mail,
@@ -69,6 +70,16 @@ type RetailerRecipientOption = {
   email: string;
 };
 
+type LibraryImage = {
+  name: string;
+  path: string;
+  url: string;
+  size?: number | null;
+  mimeType?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
 const audienceOptions: Array<{ value: AudienceFilter; label: string; description: string }> = [
   { value: 'all_retailers', label: 'All retailers', description: 'Every retailer with a valid email.' },
   { value: 'never_ordered', label: 'Never ordered', description: 'Retailers with no non-canceled orders.' },
@@ -84,6 +95,8 @@ const bodyFormatControls = [
   { label: 'Italic', icon: Italic, prefix: '_', suffix: '_', placeholder: 'italic text' },
   { label: 'Underline', icon: Underline, prefix: '[u]', suffix: '[/u]', placeholder: 'underlined text' },
 ] as const;
+
+const imageTokenPlaceholder = '{{image:https://example.com/photo.jpg|Image description}}';
 
 export default function AdminEmailCampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -104,6 +117,11 @@ export default function AdminEmailCampaignsPage() {
   const [manualSearch, setManualSearch] = useState('');
   const [manualSuggestions, setManualSuggestions] = useState<RetailerRecipientOption[]>([]);
   const [manualSearchLoading, setManualSearchLoading] = useState(false);
+  const [imagePickerOpen, setImagePickerOpen] = useState(false);
+  const [libraryImages, setLibraryImages] = useState<LibraryImage[]>([]);
+  const [librarySearch, setLibrarySearch] = useState('');
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const previewRequestId = useRef(0);
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -127,6 +145,15 @@ export default function AdminEmailCampaignsPage() {
     () => manualSuggestions.filter((recipient) => !selectedManualRecipientEmails.has(recipient.email.toLowerCase())),
     [manualSuggestions, selectedManualRecipientEmails],
   );
+  const filteredLibraryImages = useMemo(() => {
+    const query = librarySearch.trim().toLowerCase();
+    if (!query) return libraryImages;
+    return libraryImages.filter((image) =>
+      image.name.toLowerCase().includes(query) ||
+      image.path.toLowerCase().includes(query) ||
+      (image.mimeType || '').toLowerCase().includes(query),
+    );
+  }, [libraryImages, librarySearch]);
 
   useEffect(() => {
     loadCampaigns();
@@ -245,6 +272,50 @@ export default function AdminEmailCampaignsPage() {
       const nextSelectionEnd = nextSelectionStart + selectedText.length;
       bodyTextareaRef.current?.setSelectionRange(nextSelectionStart, nextSelectionEnd);
     });
+  }
+
+  function insertBodyImageToken(image: LibraryImage) {
+    if (!form || isSent) return;
+
+    const token = `{{image:${image.url}|${image.name}}}`;
+    const textarea = bodyTextareaRef.current;
+    const value = form.body || '';
+    const selectionStart = textarea?.selectionStart ?? value.length;
+    const selectionEnd = textarea?.selectionEnd ?? value.length;
+    const before = value.slice(0, selectionStart);
+    const after = value.slice(selectionEnd);
+    const prefix = before && !before.endsWith('\n\n') ? before.endsWith('\n') ? '\n' : '\n\n' : '';
+    const suffix = after && !after.startsWith('\n\n') ? after.startsWith('\n') ? '\n' : '\n\n' : '';
+    const nextBody = `${before}${prefix}${token}${suffix}${after}`;
+    const nextCursorPosition = `${before}${prefix}${token}`.length;
+
+    updateForm({ body: nextBody });
+
+    window.requestAnimationFrame(() => {
+      bodyTextareaRef.current?.focus();
+      bodyTextareaRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
+    });
+
+    setImagePickerOpen(false);
+  }
+
+  async function openImagePicker() {
+    setImagePickerOpen(true);
+    setLibrarySearch('');
+    if (libraryLoaded || libraryLoading) return;
+
+    setLibraryLoading(true);
+    try {
+      const response = await fetch('/api/admin/library/images');
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to load images.');
+      setLibraryImages((payload.images || []) as LibraryImage[]);
+      setLibraryLoaded(true);
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to load images.' });
+    } finally {
+      setLibraryLoading(false);
+    }
   }
 
   function parseSelectedManualRecipients(value?: string | null): RetailerRecipientOption[] {
@@ -558,6 +629,16 @@ export default function AdminEmailCampaignsPage() {
                         <format.icon className="h-4 w-4" />
                       </button>
                     ))}
+                    <button
+                      type="button"
+                      onClick={openImagePicker}
+                      disabled={isSent}
+                      title="Insert image"
+                      aria-label="Insert image"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-cream-300 bg-white text-bark-500 transition-colors hover:bg-cream-100 disabled:opacity-60"
+                    >
+                      <ImageIcon className="h-4 w-4" />
+                    </button>
                   </div>
                   <textarea
                     ref={bodyTextareaRef}
@@ -584,7 +665,7 @@ export default function AdminEmailCampaignsPage() {
                     ))}
                   </div>
                   <p className="mt-2 text-xs leading-5 text-bark-500/60">
-                    Preview uses Jamie as the sample. Bulk sends use each retailer contact name, and missing first names fall back to there.
+                    Preview uses Jamie as the sample. Images can be inserted with {imageTokenPlaceholder}.
                   </p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -811,6 +892,71 @@ export default function AdminEmailCampaignsPage() {
           </div>
         </section>
       </div>
+
+      {imagePickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-bark-900/40 p-4">
+          <div className="max-h-[86vh] w-full max-w-4xl overflow-hidden rounded-xl border border-cream-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-cream-200 px-5 py-4">
+              <div>
+                <h2 className="font-semibold text-bark-500">Select Image</h2>
+                <p className="mt-1 text-xs text-bark-500/60">Choose an uploaded image to insert into the email body.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setImagePickerOpen(false)}
+                className="rounded-lg p-2 text-bark-500/60 hover:bg-cream-100 hover:text-bark-500"
+                aria-label="Close image picker"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-bark-500/40" />
+                <input
+                  value={librarySearch}
+                  onChange={(event) => setLibrarySearch(event.target.value)}
+                  className="input pl-11"
+                  placeholder="Search image names"
+                  autoFocus
+                />
+              </div>
+
+              {libraryLoading ? (
+                <div className="flex h-64 items-center justify-center rounded-xl border border-cream-200 bg-cream-50">
+                  <Loader2 className="h-8 w-8 animate-spin text-bark-500" />
+                </div>
+              ) : filteredLibraryImages.length > 0 ? (
+                <div className="grid max-h-[54vh] grid-cols-1 gap-3 overflow-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+                  {filteredLibraryImages.map((image) => (
+                    <button
+                      key={image.path}
+                      type="button"
+                      onClick={() => insertBodyImageToken(image)}
+                      className="overflow-hidden rounded-xl border border-cream-200 bg-white text-left transition-colors hover:border-bark-500 hover:bg-cream-50"
+                    >
+                      <div className="aspect-video bg-cream-50">
+                        <img src={image.url} alt={image.name} className="h-full w-full object-contain" />
+                      </div>
+                      <div className="p-3">
+                        <p className="truncate text-sm font-semibold text-bark-500" title={image.name}>{image.name}</p>
+                        <p className="mt-1 truncate text-xs text-bark-500/50">{image.mimeType || 'image'}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-cream-300 bg-cream-50 px-5 py-12 text-center">
+                  <ImageIcon className="mx-auto h-10 w-10 text-bark-500/30" />
+                  <p className="mt-3 font-semibold text-bark-500">No images found</p>
+                  <p className="mt-1 text-sm text-bark-500/60">Upload images in Library, then select them here.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

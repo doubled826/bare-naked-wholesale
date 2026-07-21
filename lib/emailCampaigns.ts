@@ -95,6 +95,10 @@ const replaceMergeTags = (value: string, recipient?: Partial<EmailCampaignRecipi
 
 const stripFormattingMarkers = (value: string) =>
   value
+    .replace(/\{\{\s*image\s*:\s*([^|}]+?)(?:\s*\|\s*([^}]+?))?\s*\}\}/gi, (_match, url: string, alt: string) => {
+      const label = (alt || 'Image').trim();
+      return `${label}: ${url.trim()}`;
+    })
     .replace(/\*\*([\s\S]+?)\*\*/g, '$1')
     .replace(/_([^_\n]+?)_/g, '$1')
     .replace(/\[u\]([\s\S]+?)\[\/u\]/gi, '$1');
@@ -105,6 +109,19 @@ const formatInlineHtml = (value: string) => {
   html = html.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/_([^_\n]+?)_/g, '<em>$1</em>');
   return html;
+};
+
+const parseImageToken = (value: string) => {
+  const tokenMatch = value.match(/^\{\{\s*image\s*:\s*([^|}]+?)(?:\s*\|\s*([^}]+?))?\s*\}\}$/i);
+  if (!tokenMatch) return null;
+
+  const url = tokenMatch[1]?.trim();
+  if (!url || !/^https?:\/\//i.test(url)) return null;
+
+  return {
+    url,
+    alt: tokenMatch[2]?.trim() || '',
+  };
 };
 
 const isMissingContactNameColumnError = (error: unknown) => {
@@ -176,7 +193,14 @@ const textToParagraphs = (text: string) =>
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean)
-    .map((paragraph) => `<p style="margin:0 0 16px;color:#4c3a2f;font-size:15px;line-height:1.65;">${formatInlineHtml(paragraph).replace(/\n/g, '<br />')}</p>`)
+    .map((paragraph) => {
+      const image = parseImageToken(paragraph);
+      if (image) {
+        return `<p style="margin:22px 0;"><img src="${escapeHtml(image.url)}" alt="${escapeHtml(image.alt)}" width="612" style="display:block;width:100%;max-width:612px;border-radius:12px;border:1px solid #eadfce;" /></p>`;
+      }
+
+      return `<p style="margin:0 0 16px;color:#4c3a2f;font-size:15px;line-height:1.65;">${formatInlineHtml(paragraph).replace(/\n/g, '<br />')}</p>`;
+    })
     .join('');
 
 export function renderEmailCampaign(campaignInput: Partial<EmailCampaignInput>, recipient?: Partial<EmailCampaignRecipient>) {
