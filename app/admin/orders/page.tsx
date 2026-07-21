@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Search, Truck, Package, Download, X, CheckCircle, Eye, Plus, Trash2 } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
@@ -44,8 +45,11 @@ const getAdminOrderItemSortIndex = (item: OrderItem) => {
 
 export default function AdminOrdersPage() {
   const supabase = createClientComponentClient();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const orderParam = searchParams.get('order');
+  const currentOrdersQuery = searchParams.toString();
+  const ordersReturnTo = currentOrdersQuery ? `${pathname}?${currentOrdersQuery}` : pathname;
   const [orders, setOrders] = useState<Order[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -232,6 +236,10 @@ export default function AdminOrdersPage() {
     setSelectedOrder(order);
     setInvoiceUrl(order.invoice_url || '');
   };
+
+  const getRetailerProfileHref = (retailerId?: string | null) => (
+    retailerId ? `/admin/retailers/${retailerId}?returnTo=${encodeURIComponent(ordersReturnTo)}` : '#'
+  );
 
   useEffect(() => {
     const fetchSelectedOrderCredits = async () => {
@@ -495,7 +503,18 @@ export default function AdminOrdersPage() {
               {filteredOrders.length === 0 ? <tr><td colSpan={8} className="px-6 py-12 text-center text-gray-500"><Package className="w-12 h-12 mx-auto mb-4 text-gray-300" /><p>No orders found</p></td></tr> : filteredOrders.map((order) => (
                 <tr key={order.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4"><span className="font-medium text-gray-900">{order.order_number}</span></td>
-                  <td className="px-6 py-4"><div><p className="font-medium text-gray-900">{order.retailer?.company_name || 'Unknown'}</p><p className="text-sm text-gray-500 truncate max-w-[200px]">{order.retailer?.business_address}</p></div></td>
+                  <td className="px-6 py-4">
+                    <div>
+                      {order.retailer_id ? (
+                        <Link href={getRetailerProfileHref(order.retailer_id)} className="font-medium text-gray-900 hover:text-bark-600 hover:underline">
+                          {order.retailer?.company_name || 'Unknown'}
+                        </Link>
+                      ) : (
+                        <p className="font-medium text-gray-900">{order.retailer?.company_name || 'Unknown'}</p>
+                      )}
+                      <p className="text-sm text-gray-500 truncate max-w-[200px]">{order.retailer?.business_address}</p>
+                    </div>
+                  </td>
                   <td className="px-6 py-4"><div className="text-sm">{order.order_items?.slice(0, 2).map((item, i) => <p key={i} className="text-gray-600">{item.quantity}x {item.product?.name} ({item.product?.size})</p>)}{order.order_items?.length > 2 && <p className="text-gray-400">+{order.order_items.length - 2} more</p>}</div></td>
                   <td className="px-6 py-4"><select value={order.status} onChange={(e) => handleUpdateStatus(order.id, e.target.value)} className={cn("text-xs font-medium px-2.5 py-1 rounded-full border-0 cursor-pointer", getStatusColor(order.status))}><option value="pending">Pending</option><option value="processing">Processing</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="canceled">Canceled</option></select></td>
                   <td className="px-6 py-4 font-medium text-gray-900">{formatCurrency(order.total)}</td>

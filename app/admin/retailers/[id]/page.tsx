@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target, Search, X, Unlink } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
@@ -263,7 +263,15 @@ export default function AdminRetailerDetailPage() {
   const supabase = createClientComponentClient();
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const retailerId = params?.id;
+  const returnTo = searchParams.get('returnTo');
+  const safeReturnTo = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '';
+  const retailerListParams = new URLSearchParams(searchParams.toString());
+  retailerListParams.delete('returnTo');
+  const retailerListQuery = retailerListParams.toString();
+  const retailerListHref = retailerListQuery ? `/admin/retailers?${retailerListQuery}` : '/admin/retailers';
+  const backHref = safeReturnTo || retailerListHref;
 
   const [retailer, setRetailer] = useState<Retailer | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -1025,8 +1033,8 @@ export default function AdminRetailerDetailPage() {
   if (error || !retailer) {
     return (
       <div className="space-y-6">
-        <Link href="/admin/retailers" className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-bark-600">
-          <ArrowLeft className="w-4 h-4" /> Back to Retailers
+        <Link href={backHref} className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-bark-600">
+          <ArrowLeft className="w-4 h-4" /> Back
         </Link>
         <div className="bg-white rounded-xl border border-gray-100 p-6 text-gray-600">{error || 'Retailer not found.'}</div>
       </div>
@@ -1039,8 +1047,8 @@ export default function AdminRetailerDetailPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <Link href="/admin/retailers" className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-bark-600">
-            <ArrowLeft className="w-4 h-4" /> Back to Retailers
+          <Link href={backHref} className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-bark-600">
+            <ArrowLeft className="w-4 h-4" /> Back
           </Link>
           <h1 className="text-2xl font-semibold text-gray-900 mt-2">{retailer.company_name}</h1>
           <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500 mt-1">

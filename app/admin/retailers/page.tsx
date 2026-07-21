@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Search, Users, Edit2, Eye, X, CheckCircle, ShoppingCart, DollarSign, Plus, Mail, Download, SlidersHorizontal } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
@@ -120,19 +121,35 @@ const US_STATE_NAMES: Record<string, string> = {
 
 const DAYS_IN_MS = 24 * 60 * 60 * 1000;
 
+const buyingStatusValues = new Set(buyingStatusOptions.map((option) => option.value));
+const lastOrderValues = new Set(lastOrderOptions.map((option) => option.value));
+const revenueValues = new Set(revenueOptions.map((option) => option.value));
+const accountAgeValues = new Set(accountAgeOptions.map((option) => option.value));
+const sortValues = new Set(sortOptions.map((option) => option.value));
+
+const getValidatedParam = <T extends string>(params: URLSearchParams, key: string, allowedValues: Set<T>, fallback: T) => {
+  const value = params.get(key);
+  return value && allowedValues.has(value as T) ? value as T : fallback;
+};
+
 export default function AdminRetailersPage() {
   const supabase = createClientComponentClient();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const initialParams = useMemo(() => new URLSearchParams(searchParams.toString()), []);
+
   const [retailers, setRetailers] = useState<RetailerWithStats[]>([]);
   const [filteredRetailers, setFilteredRetailers] = useState<RetailerWithStats[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [buyingStatusFilter, setBuyingStatusFilter] = useState<BuyingStatusFilter>('all');
-  const [lastOrderFilter, setLastOrderFilter] = useState<LastOrderFilter>('any');
-  const [revenueFilter, setRevenueFilter] = useState<RevenueFilter>('any');
-  const [accountStatusFilter, setAccountStatusFilter] = useState('all');
-  const [stateFilter, setStateFilter] = useState('all');
-  const [accountAgeFilter, setAccountAgeFilter] = useState<AccountAgeFilter>('any');
-  const [sortOption, setSortOption] = useState<SortOption>('created_desc');
+  const [searchQuery, setSearchQuery] = useState(() => initialParams.get('q') || '');
+  const [buyingStatusFilter, setBuyingStatusFilter] = useState<BuyingStatusFilter>(() => getValidatedParam(initialParams, 'buying', buyingStatusValues, 'all'));
+  const [lastOrderFilter, setLastOrderFilter] = useState<LastOrderFilter>(() => getValidatedParam(initialParams, 'lastOrder', lastOrderValues, 'any'));
+  const [revenueFilter, setRevenueFilter] = useState<RevenueFilter>(() => getValidatedParam(initialParams, 'revenue', revenueValues, 'any'));
+  const [accountStatusFilter, setAccountStatusFilter] = useState(() => initialParams.get('status') || 'all');
+  const [stateFilter, setStateFilter] = useState(() => initialParams.get('state') || 'all');
+  const [accountAgeFilter, setAccountAgeFilter] = useState<AccountAgeFilter>(() => getValidatedParam(initialParams, 'age', accountAgeValues, 'any'));
+  const [sortOption, setSortOption] = useState<SortOption>(() => getValidatedParam(initialParams, 'sort', sortValues, 'created_desc'));
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState({ company_name: '', business_address: '', phone: '', email: '' });
   const [isUpdating, setIsUpdating] = useState(false);
@@ -152,6 +169,30 @@ export default function AdminRetailersPage() {
 
   useEffect(() => { fetchRetailers(); }, []);
   useEffect(() => { filterRetailers(); }, [retailers, searchQuery, buyingStatusFilter, lastOrderFilter, revenueFilter, accountStatusFilter, stateFilter, accountAgeFilter, sortOption]);
+
+  const retailerListQuery = useMemo(() => {
+    const nextParams = new URLSearchParams();
+    const trimmedSearch = searchQuery.trim();
+
+    if (trimmedSearch) nextParams.set('q', trimmedSearch);
+    if (buyingStatusFilter !== 'all') nextParams.set('buying', buyingStatusFilter);
+    if (lastOrderFilter !== 'any') nextParams.set('lastOrder', lastOrderFilter);
+    if (revenueFilter !== 'any') nextParams.set('revenue', revenueFilter);
+    if (accountStatusFilter !== 'all') nextParams.set('status', accountStatusFilter);
+    if (stateFilter !== 'all') nextParams.set('state', stateFilter);
+    if (accountAgeFilter !== 'any') nextParams.set('age', accountAgeFilter);
+    if (sortOption !== 'created_desc') nextParams.set('sort', sortOption);
+
+    return nextParams.toString();
+  }, [searchQuery, buyingStatusFilter, lastOrderFilter, revenueFilter, accountStatusFilter, stateFilter, accountAgeFilter, sortOption]);
+
+  useEffect(() => {
+    const nextQuery = retailerListQuery;
+    const currentQuery = searchParams.toString();
+    if (nextQuery === currentQuery) return;
+
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+  }, [retailerListQuery, pathname, router, searchParams]);
 
   const fetchRetailers = async () => {
     try {
@@ -314,6 +355,10 @@ export default function AdminRetailersPage() {
 
   const accountStatusOptions = Array.from(new Set(retailers.map(getRetailerStatus))).sort();
   const stateOptions = Array.from(new Set(retailers.map((retailer) => getRetailerState(retailer.business_address)).filter((state): state is string => Boolean(state)))).sort();
+  const retailerListReturnTo = retailerListQuery ? `${pathname}?${retailerListQuery}` : pathname;
+  const getRetailerDetailHref = (retailerId: string) => (
+    `/admin/retailers/${retailerId}?returnTo=${encodeURIComponent(retailerListReturnTo)}`
+  );
 
   const hasActiveFilters = Boolean(
     searchQuery ||
@@ -719,7 +764,7 @@ export default function AdminRetailersPage() {
                 <tr key={retailer.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div>
-                      <Link href={`/admin/retailers/${retailer.id}`} className="font-medium text-gray-900 hover:text-bark-600">
+                      <Link href={getRetailerDetailHref(retailer.id)} className="font-medium text-gray-900 hover:text-bark-600">
                         {retailer.company_name}
                       </Link>
                       <p className="text-sm text-gray-500">
@@ -742,7 +787,7 @@ export default function AdminRetailersPage() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      <Link href={`/admin/retailers/${retailer.id}`} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
+                      <Link href={getRetailerDetailHref(retailer.id)} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
                         <Eye className="w-4 h-4" />
                       </Link>
                       <button onClick={() => handleEditRetailer(retailer)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 className="w-4 h-4" /></button>
