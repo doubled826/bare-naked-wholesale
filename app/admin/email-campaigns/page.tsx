@@ -72,7 +72,7 @@ type SendResultPayload = {
   error?: string;
 };
 
-type DeliveryFilter = 'all' | 'accepted' | 'failed';
+type DeliveryFilter = 'all' | 'clicked' | 'opened' | 'accepted' | 'issues' | 'failed';
 
 type DeliveryDetails = {
   campaign: {
@@ -86,7 +86,13 @@ type DeliveryDetails = {
     total: number;
     accepted: number;
     failed: number;
+    delivered: number;
+    opened: number;
+    clicked: number;
+    bounced: number;
+    complained: number;
   };
+  topClickedLinks?: Array<{ url: string; count: number }>;
   recipients: Array<{
     id: string;
     email: string;
@@ -96,6 +102,12 @@ type DeliveryDetails = {
     status: 'sent' | 'failed';
     error?: string | null;
     sentAt?: string | null;
+    deliveredAt?: string | null;
+    openedAt?: string | null;
+    clickedAt?: string | null;
+    bouncedAt?: string | null;
+    complainedAt?: string | null;
+    lastEventAt?: string | null;
   }>;
   error?: string;
 };
@@ -144,6 +156,16 @@ const formatDateTime = (value?: string | null) => {
     minute: '2-digit',
   }).format(new Date(value));
 };
+
+const getTimestamp = (value?: string | null) => (value ? new Date(value).getTime() : 0);
+
+const getRecipientEngagementTime = (recipient: DeliveryDetails['recipients'][number]) =>
+  Math.max(
+    getTimestamp(recipient.clickedAt),
+    getTimestamp(recipient.openedAt),
+    getTimestamp(recipient.lastEventAt),
+    getTimestamp(recipient.sentAt),
+  );
 
 export default function AdminEmailCampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -208,8 +230,15 @@ export default function AdminEmailCampaignsPage() {
     );
   }, [libraryImages, librarySearch]);
   const filteredDeliveryRecipients = useMemo(() => {
-    const recipients = deliveryDetails?.recipients || [];
+    const recipients = [...(deliveryDetails?.recipients || [])].sort((a, b) => {
+      const clickPriority = Number(Boolean(b.clickedAt)) - Number(Boolean(a.clickedAt));
+      if (clickPriority !== 0) return clickPriority;
+      return getRecipientEngagementTime(b) - getRecipientEngagementTime(a);
+    });
+    if (deliveryFilter === 'clicked') return recipients.filter((recipient) => recipient.clickedAt);
+    if (deliveryFilter === 'opened') return recipients.filter((recipient) => recipient.openedAt);
     if (deliveryFilter === 'accepted') return recipients.filter((recipient) => recipient.status === 'sent');
+    if (deliveryFilter === 'issues') return recipients.filter((recipient) => recipient.bouncedAt || recipient.complainedAt);
     if (deliveryFilter === 'failed') return recipients.filter((recipient) => recipient.status === 'failed');
     return recipients;
   }, [deliveryDetails?.recipients, deliveryFilter]);
@@ -399,7 +428,17 @@ export default function AdminEmailCampaignsPage() {
           status: campaign.status || 'sent',
           sentAt: campaign.sent_at || null,
         },
-        summary: { total: 0, accepted: 0, failed: 0 },
+        summary: {
+          total: 0,
+          accepted: 0,
+          failed: 0,
+          delivered: 0,
+          opened: 0,
+          clicked: 0,
+          bounced: 0,
+          complained: 0,
+        },
+        topClickedLinks: [],
         recipients: [],
         error: error instanceof Error ? error.message : 'Unable to load delivery details.',
       });
@@ -1086,15 +1125,20 @@ export default function AdminEmailCampaignsPage() {
               </div>
             ) : deliveryDetails ? (
               <div className="space-y-5 p-5">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
                   <DeliveryStat label="Recipients" value={deliveryDetails.summary.total} />
-                  <DeliveryStat label="Accepted by Resend" value={deliveryDetails.summary.accepted} tone="green" />
-                  <DeliveryStat label="Failed" value={deliveryDetails.summary.failed} tone={deliveryDetails.summary.failed > 0 ? 'red' : 'neutral'} />
+                  <DeliveryStat label="Delivered" value={deliveryDetails.summary.delivered} tone="green" />
+                  <DeliveryStat label="Clicked" value={deliveryDetails.summary.clicked} tone="green" />
+                  <DeliveryStat label="Opened" value={deliveryDetails.summary.opened} />
+                  <DeliveryStat label="Issues" value={deliveryDetails.summary.bounced + deliveryDetails.summary.complained + deliveryDetails.summary.failed} tone={deliveryDetails.summary.bounced + deliveryDetails.summary.complained + deliveryDetails.summary.failed > 0 ? 'red' : 'neutral'} />
                 </div>
 
                 <div className="flex flex-wrap gap-2">
                   <DeliveryFilterButton active={deliveryFilter === 'all'} onClick={() => setDeliveryFilter('all')} label="All" count={deliveryDetails.summary.total} />
+                  <DeliveryFilterButton active={deliveryFilter === 'clicked'} onClick={() => setDeliveryFilter('clicked')} label="Clicked" count={deliveryDetails.summary.clicked} />
+                  <DeliveryFilterButton active={deliveryFilter === 'opened'} onClick={() => setDeliveryFilter('opened')} label="Opened" count={deliveryDetails.summary.opened} />
                   <DeliveryFilterButton active={deliveryFilter === 'accepted'} onClick={() => setDeliveryFilter('accepted')} label="Accepted" count={deliveryDetails.summary.accepted} />
+                  <DeliveryFilterButton active={deliveryFilter === 'issues'} onClick={() => setDeliveryFilter('issues')} label="Bounced/spam" count={deliveryDetails.summary.bounced + deliveryDetails.summary.complained} />
                   <DeliveryFilterButton active={deliveryFilter === 'failed'} onClick={() => setDeliveryFilter('failed')} label="Failed" count={deliveryDetails.summary.failed} />
                   {deliveryDetails.summary.failed > 0 && (
                     <button
@@ -1109,6 +1153,20 @@ export default function AdminEmailCampaignsPage() {
                   )}
                 </div>
 
+                {deliveryDetails.topClickedLinks && deliveryDetails.topClickedLinks.length > 0 && (
+                  <div className="rounded-xl border border-cream-200 bg-cream-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/60">Top clicked links</p>
+                    <div className="mt-3 space-y-2">
+                      {deliveryDetails.topClickedLinks.map((link) => (
+                        <div key={link.url} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 text-sm">
+                          <p className="truncate font-medium text-bark-500" title={link.url}>{link.url}</p>
+                          <p className="font-semibold text-bark-500/70">{link.count}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="max-h-[46vh] overflow-auto rounded-xl border border-cream-200">
                   {filteredDeliveryRecipients.length > 0 ? (
                     <div className="divide-y divide-cream-100">
@@ -1121,6 +1179,13 @@ export default function AdminEmailCampaignsPage() {
                             <p className="mt-1 truncate text-xs text-bark-500/60">
                               {recipient.contactName && recipient.companyName ? `${recipient.contactName} · ` : ''}{recipient.email}
                             </p>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {recipient.clickedAt && <EngagementBadge label="Clicked" tone="green" />}
+                              {recipient.openedAt && <EngagementBadge label="Opened" />}
+                              {recipient.deliveredAt && <EngagementBadge label="Delivered" />}
+                              {recipient.bouncedAt && <EngagementBadge label="Bounced" tone="red" />}
+                              {recipient.complainedAt && <EngagementBadge label="Spam" tone="red" />}
+                            </div>
                             {recipient.error && <p className="mt-1 text-xs text-red-700">{recipient.error}</p>}
                           </div>
                           <span className={cn(
@@ -1131,6 +1196,8 @@ export default function AdminEmailCampaignsPage() {
                           </span>
                           <div className="min-w-0 text-xs text-bark-500/60">
                             <p>{formatDateTime(recipient.sentAt)}</p>
+                            {recipient.clickedAt && <p className="mt-1 text-green-700">Clicked {formatDateTime(recipient.clickedAt)}</p>}
+                            {!recipient.clickedAt && recipient.openedAt && <p className="mt-1">Opened {formatDateTime(recipient.openedAt)}</p>}
                             {recipient.resendMessageId && (
                               <p className="mt-1 truncate font-mono" title={recipient.resendMessageId}>
                                 {recipient.resendMessageId}
@@ -1148,7 +1215,7 @@ export default function AdminEmailCampaignsPage() {
                 </div>
 
                 <p className="text-xs leading-5 text-bark-500/60">
-                  Accepted means Resend returned a message ID. Delivered, bounced, and opened statuses need Resend webhook events connected to these message IDs.
+                  Clicks are the best follow-up signal. Opens are directional because inboxes can preload or block tracking pixels.
                 </p>
               </div>
             ) : null}
@@ -1270,6 +1337,23 @@ function DeliveryStat({
       <p className="text-xs font-semibold uppercase tracking-wide opacity-70">{label}</p>
       <p className="mt-1 text-2xl font-bold">{value}</p>
     </div>
+  );
+}
+
+function EngagementBadge({
+  label,
+  tone = 'neutral',
+}: {
+  label: string;
+  tone?: 'neutral' | 'green' | 'red';
+}) {
+  return (
+    <span className={cn(
+      'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+      tone === 'green' ? 'bg-green-50 text-green-700' : tone === 'red' ? 'bg-red-50 text-red-700' : 'bg-cream-100 text-bark-500/70',
+    )}>
+      {label}
+    </span>
   );
 }
 
