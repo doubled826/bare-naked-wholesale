@@ -10,6 +10,11 @@ type RetailerSearchRow = {
   email?: string | null;
 };
 
+type AuthUser = {
+  id?: string;
+  email?: string | null;
+};
+
 const isLikelyEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
 const isMissingContactNameColumnError = (error: unknown) => {
@@ -21,24 +26,39 @@ const isMissingContactNameColumnError = (error: unknown) => {
   );
 };
 
-async function hydrateRetailerEmails(adminClient: any, rows: RetailerSearchRow[]) {
-  const missingEmailRows = rows.filter((row) => !row.email);
-  if (missingEmailRows.length === 0) return rows;
+async function listAllAuthUsers(adminClient: any): Promise<AuthUser[]> {
+  const users: AuthUser[] = [];
+  let page = 1;
 
-  const { data, error } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (error) {
+  while (true) {
+    const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw error;
+
+    users.push(...(data?.users || []));
+    if (!data?.nextPage || !data.users?.length) break;
+    page += 1;
+  }
+
+  return users;
+}
+
+async function hydrateRetailerEmails(adminClient: any, rows: RetailerSearchRow[]) {
+  let authUsers: AuthUser[] = [];
+  try {
+    authUsers = await listAllAuthUsers(adminClient);
+  } catch (error) {
     console.error('Unable to hydrate retailer emails from auth:', error);
     return rows;
   }
 
   const emailByUserId = new Map<string, string>();
-  for (const user of data?.users || []) {
+  for (const user of authUsers) {
     if (user.id && user.email) emailByUserId.set(user.id, user.email);
   }
 
   return rows.map((row) => ({
     ...row,
-    email: row.email || emailByUserId.get(row.id) || null,
+    email: emailByUserId.get(row.id) || row.email || null,
   }));
 }
 
@@ -51,29 +71,39 @@ const matchesQuery = (row: RetailerSearchRow, query: string) => {
     .some((value) => value!.toLowerCase().includes(normalizedQuery));
 };
 
-async function searchRetailers(adminClient: any, query: string) {
+async function loadRetailers(adminClient: any, columns: string) {
+  const rows: RetailerSearchRow[] = [];
+  const pageSize = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await adminClient
+      .from('retailers')
+      .select(columns)
+      .order('company_name')
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+
+    rows.push(...((data || []) as RetailerSearchRow[]));
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+async function searchRetailers(adminClient: any) {
   const selectColumns = 'id, company_name, contact_name, email';
   const fallbackColumns = 'id, company_name, email';
 
-  const request = adminClient
-    .from('retailers')
-    .select(selectColumns)
-    .order('company_name')
-    .limit(500);
+  try {
+    return hydrateRetailerEmails(adminClient, await loadRetailers(adminClient, selectColumns));
+  } catch (error) {
+    if (!isMissingContactNameColumnError(error)) throw error;
+  }
 
-  const { data, error } = await request;
-  if (!error) return hydrateRetailerEmails(adminClient, (data || []) as RetailerSearchRow[]);
-  if (!isMissingContactNameColumnError(error)) throw error;
-
-  const fallbackRequest = adminClient
-    .from('retailers')
-    .select(fallbackColumns)
-    .order('company_name')
-    .limit(500);
-
-  const fallback = await fallbackRequest;
-  if (fallback.error) throw fallback.error;
-  return hydrateRetailerEmails(adminClient, (fallback.data || []) as RetailerSearchRow[]);
+  return hydrateRetailerEmails(adminClient, await loadRetailers(adminClient, fallbackColumns));
 }
 
 export async function GET(request: Request) {
@@ -81,7 +111,7 @@ export async function GET(request: Request) {
     const { adminClient } = await requireAdminAccess();
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('q') || '';
-    const rows = await searchRetailers(adminClient, query);
+    const rows = await searchRetailers(adminClient);
     const uniqueByEmail = new Map<string, RetailerSearchRow>();
 
     for (const row of rows.filter((retailer) => matchesQuery(retailer, query))) {

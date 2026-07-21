@@ -37,6 +37,11 @@ type RetailerRow = {
   contact_name?: string | null;
 };
 
+type AuthUser = {
+  id?: string;
+  email?: string | null;
+};
+
 type OrderRow = {
   retailer_id?: string | null;
   status?: string | null;
@@ -133,43 +138,72 @@ const isMissingContactNameColumnError = (error: unknown) => {
   );
 };
 
-async function hydrateRetailerEmails(adminClient: any, rows: RetailerRow[]): Promise<RetailerRow[]> {
-  const missingEmailRows = rows.filter((row) => !row.email);
-  if (missingEmailRows.length === 0) return rows;
+async function listAllAuthUsers(adminClient: any): Promise<AuthUser[]> {
+  const users: AuthUser[] = [];
+  let page = 1;
 
-  const { data, error } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (error) {
+  while (true) {
+    const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw error;
+
+    users.push(...(data?.users || []));
+    if (!data?.nextPage || !data.users?.length) break;
+    page += 1;
+  }
+
+  return users;
+}
+
+async function hydrateRetailerEmails(adminClient: any, rows: RetailerRow[]): Promise<RetailerRow[]> {
+  let authUsers: AuthUser[] = [];
+  try {
+    authUsers = await listAllAuthUsers(adminClient);
+  } catch (error) {
     console.error('Unable to hydrate campaign recipient emails from auth:', error);
     return rows;
   }
 
   const emailByUserId = new Map<string, string>();
-  for (const user of data?.users || []) {
+  for (const user of authUsers) {
     if (user.id && user.email) emailByUserId.set(user.id, user.email);
   }
 
   return rows.map((row) => ({
     ...row,
-    email: row.email || emailByUserId.get(row.id) || null,
+    email: emailByUserId.get(row.id) || row.email || null,
   }));
 }
 
+async function selectRetailerRows(adminClient: any, columns: string): Promise<RetailerRow[]> {
+  const rows: RetailerRow[] = [];
+  const pageSize = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await adminClient
+      .from('retailers')
+      .select(columns)
+      .order('company_name')
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+
+    rows.push(...((data || []) as RetailerRow[]));
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 async function loadRetailerRows(adminClient: any): Promise<RetailerRow[]> {
-  const { data, error } = await adminClient
-    .from('retailers')
-    .select('id, company_name, email, contact_name')
-    .order('company_name');
+  try {
+    return hydrateRetailerEmails(adminClient, await selectRetailerRows(adminClient, 'id, company_name, email, contact_name'));
+  } catch (error) {
+    if (!isMissingContactNameColumnError(error)) throw error;
+  }
 
-  if (!error) return hydrateRetailerEmails(adminClient, (data || []) as RetailerRow[]);
-  if (!isMissingContactNameColumnError(error)) throw error;
-
-  const fallback = await adminClient
-    .from('retailers')
-    .select('id, company_name, email')
-    .order('company_name');
-
-  if (fallback.error) throw fallback.error;
-  return hydrateRetailerEmails(adminClient, (fallback.data || []) as RetailerRow[]);
+  return hydrateRetailerEmails(adminClient, await selectRetailerRows(adminClient, 'id, company_name, email'));
 }
 
 const normalizeCampaign = (campaign: Partial<EmailCampaignInput>): EmailCampaignInput => ({
