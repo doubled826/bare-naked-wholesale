@@ -4,7 +4,7 @@ import {
 } from '@/lib/bareLaunchOffer';
 
 export type EmailTemplateAudience = 'retailer' | 'team';
-export type EmailTemplateGroup = 'transactional' | 'launch_offer';
+export type EmailTemplateGroup = 'transactional' | 'launch_offer' | 'marketing';
 
 export type EmailTemplateKey =
   | 'order_confirmation'
@@ -17,6 +17,7 @@ export type EmailTemplateKey =
   | 'bare_launch_offer_day_4'
   | 'bare_launch_offer_day_9'
   | 'bare_launch_offer_final'
+  | 'shelf_talker_launch'
   | 'signup_team_notification'
   | 'message_team_notification';
 
@@ -118,6 +119,98 @@ const renderShell = (options: {
   </body>
 </html>`;
 };
+
+function renderShelfTalkerLaunchEmail() {
+  const catalogUrl = `${appUrl()}/catalog`;
+  const imageUrl = `${appUrl()}/images/shelf-talker-popup.png`;
+  const subject = 'Free shelf talkers for your Trail Mix Topper display';
+  const preheader = 'Carry both bag sizes of a flavor and we will include the matching shelf talker with your next order.';
+  const text = `New retail support for Trail Mix Toppers
+
+Our new shelf talkers are designed to help your Bare Naked products stand out on the shelf and make each recipe easier to shop at a glance.
+
+How to qualify:
+Carry both bag sizes of any Trail Mix Topper flavor:
+
+6 oz + 12 oz = Shelf Talker Included
+
+Once your store qualifies, we will automatically add that flavor's matching shelf talker to your next order. No forms or requests needed.
+
+Free shelf talkers are available for Chicken, Salmon, and Beef.
+
+Complete your display:
+${catalogUrl}
+
+Bare Naked Pet Co.`;
+
+  const cardStyle = 'background:#f7f1e0;border:1px solid #eadfce;border-radius:12px;padding:16px;margin:0 0 12px;';
+  const labelStyle = 'display:inline-block;background:#ffffff;border:1px solid #dfd1bf;border-radius:999px;padding:6px 10px;font-size:13px;font-weight:700;color:#3b2a1e;';
+
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f8f4ec;font-family:Arial,Helvetica,sans-serif;color:#3b2a1e;">
+    <div style="display:none;max-height:0;overflow:hidden;">${escapeHtml(preheader)}</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8f4ec;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px;background:#ffffff;border:1px solid #eadfce;border-radius:14px;overflow:hidden;">
+            <tr>
+              <td style="background:#3d2314;padding:18px 24px;">
+                <p style="margin:0;color:#ffffff;font-size:18px;font-weight:700;">Bare Naked Pet Co.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px 24px 0;">
+                <p style="margin:0 0 10px;color:#a74f28;font-weight:700;font-size:12px;letter-spacing:.05em;text-transform:uppercase;">New Retail Tool</p>
+                <h1 style="margin:0 0 12px;font-size:28px;line-height:1.2;color:#3b2a1e;">Help your Bare Naked products stand out on the shelf.</h1>
+                <p style="margin:0 0 18px;color:#6b5f55;font-size:15px;line-height:1.55;">Our new shelf talkers help your display grab attention and make each recipe easier to shop at a glance.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 24px 18px;">
+                <img src="${escapeHtml(imageUrl)}" alt="Bare Naked Trail Mix Topper bags with a matching shelf talker" width="612" style="display:block;width:100%;max-width:612px;border-radius:12px;border:1px solid #eadfce;" />
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 24px 6px;">
+                <div style="${cardStyle}">
+                  <p style="margin:0 0 6px;font-size:17px;font-weight:700;color:#3b2a1e;">Helps your products stand out</p>
+                  <p style="margin:0;color:#6b5f55;font-size:14px;line-height:1.5;">Makes each recipe easier to spot and helps shoppers quickly understand what makes every flavor different.</p>
+                </div>
+                <div style="${cardStyle}">
+                  <p style="margin:0 0 6px;font-size:17px;font-weight:700;color:#3b2a1e;">Easy to qualify</p>
+                  <p style="margin:0 0 12px;color:#6b5f55;font-size:14px;line-height:1.5;">Carry both bag sizes of any flavor and we will automatically send that flavor's matching shelf talker.</p>
+                  <p style="margin:0;">
+                    <span style="${labelStyle}">6 oz</span>
+                    <span style="display:inline-block;margin:0 8px;color:#3b2a1e;font-weight:700;">+</span>
+                    <span style="${labelStyle}">12 oz</span>
+                    <span style="display:inline-block;margin:0 8px;color:#8a8177;font-weight:700;">→</span>
+                    <span style="display:inline-block;background:#d9f6e5;border-radius:999px;padding:7px 12px;font-size:13px;font-weight:700;color:#147a4d;">Shelf Talker Included</span>
+                  </p>
+                </div>
+                <div style="${cardStyle}">
+                  <p style="margin:0 0 6px;font-size:17px;font-weight:700;color:#3b2a1e;">Automatically included</p>
+                  <p style="margin:0;color:#6b5f55;font-size:14px;line-height:1.5;">No forms or requests needed. Once your store qualifies, we will add it to your next order.</p>
+                  <p style="margin:8px 0 0;color:#a74f28;font-size:13px;font-weight:700;">Included free.</p>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:10px 24px 28px;">
+                <p style="margin:0 0 18px;color:#6b5f55;font-size:13px;line-height:1.45;">Free shelf talkers are available for Chicken, Salmon, and Beef.</p>
+                ${button(catalogUrl, 'Complete My Display')}
+              </td>
+            </tr>
+          </table>
+          <p style="max-width:660px;margin:14px auto 0;color:#9a8e82;font-size:11px;line-height:1.45;">You are receiving this because your store has a Bare Naked Pet Co. wholesale portal account. Reply to this email if you need help planning your display.</p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  return { subject, text, html };
+}
 
 const fallbackSampleProducts: EmailTemplateSampleProduct[] = [
   { name: 'Chicken Meal Mixer', size: '6 oz', price: 16.67, quantity: 12 },
@@ -567,6 +660,14 @@ Bare Naked Pet Co.`;
       expiresAtLabel: launchOffer.expiresAtLabel,
       catalogUrl: launchOffer.catalogUrl,
     }),
+  },
+  {
+    key: 'shelf_talker_launch',
+    name: 'Shelf talker launch',
+    group: 'marketing',
+    audience: 'retailer',
+    description: 'Manual retailer campaign promoting the new flavor-matched Trail Mix Topper shelf talkers.',
+    render: () => renderShelfTalkerLaunchEmail(),
   },
   {
     key: 'signup_team_notification',

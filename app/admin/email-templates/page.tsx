@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle, Eye, FileText, Loader2, Mail, Send, Type } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Eye, FileText, Loader2, Mail, Send, Type } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type EmailTemplate = {
@@ -15,8 +15,13 @@ type EmailTemplate = {
   html: string;
 };
 
-type EmailTemplateGroup = 'transactional' | 'launch_offer';
+type EmailTemplateGroup = 'transactional' | 'launch_offer' | 'marketing';
 type PreviewMode = 'html' | 'text';
+
+type ShelfTalkerCampaignSummary = {
+  recipientCount: number;
+  sampleRecipients: Array<{ id: string; company_name?: string | null; email: string }>;
+};
 
 const GROUP_META: Record<EmailTemplateGroup, { label: string; description: string }> = {
   transactional: {
@@ -27,9 +32,13 @@ const GROUP_META: Record<EmailTemplateGroup, { label: string; description: strin
     label: 'Welcome Offer',
     description: 'Automated reminders for the first-order Welcome Offer sequence.',
   },
+  marketing: {
+    label: 'Marketing',
+    description: 'Manual retailer-facing campaigns that admins can review, test, and send when ready.',
+  },
 };
 
-const GROUP_ORDER: EmailTemplateGroup[] = ['transactional', 'launch_offer'];
+const GROUP_ORDER: EmailTemplateGroup[] = ['marketing', 'transactional', 'launch_offer'];
 
 export default function AdminEmailTemplatesPage() {
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
@@ -39,6 +48,10 @@ export default function AdminEmailTemplatesPage() {
   const [testEmail, setTestEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [campaignSummary, setCampaignSummary] = useState<ShelfTalkerCampaignSummary | null>(null);
+  const [campaignLoading, setCampaignLoading] = useState(false);
+  const [bulkSending, setBulkSending] = useState(false);
+  const [confirmSend, setConfirmSend] = useState('');
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const groups = useMemo(
@@ -67,6 +80,11 @@ export default function AdminEmailTemplatesPage() {
   useEffect(() => {
     loadTemplates();
   }, []);
+
+  useEffect(() => {
+    if (selectedTemplate?.key !== 'shelf_talker_launch') return;
+    loadShelfTalkerCampaignSummary();
+  }, [selectedTemplate?.key]);
 
   async function loadTemplates() {
     setLoading(true);
@@ -109,6 +127,57 @@ export default function AdminEmailTemplatesPage() {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to send test email.' });
     } finally {
       setSending(false);
+    }
+  }
+
+  async function loadShelfTalkerCampaignSummary() {
+    setCampaignLoading(true);
+    try {
+      const response = await fetch('/api/admin/email-templates/shelf-talker-campaign');
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to load shelf talker campaign recipients.');
+      setCampaignSummary({
+        recipientCount: Number(payload.recipientCount || 0),
+        sampleRecipients: payload.sampleRecipients || [],
+      });
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to load shelf talker campaign recipients.' });
+    } finally {
+      setCampaignLoading(false);
+    }
+  }
+
+  async function sendShelfTalkerCampaign() {
+    if (confirmSend !== 'SEND') {
+      setNotice({ type: 'error', message: 'Type SEND to confirm the retailer campaign.' });
+      return;
+    }
+
+    setBulkSending(true);
+    setNotice(null);
+
+    try {
+      const response = await fetch('/api/admin/email-templates/shelf-talker-campaign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true, confirmText: confirmSend }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to send shelf talker campaign.');
+
+      const failedCount = Number(payload.failedCount || 0);
+      setNotice({
+        type: failedCount > 0 ? 'error' : 'success',
+        message: failedCount > 0
+          ? `Sent ${payload.sentCount || 0} emails. ${failedCount} failed.`
+          : `Shelf talker campaign sent to ${payload.sentCount || 0} retailers.`,
+      });
+      setConfirmSend('');
+      await loadShelfTalkerCampaignSummary();
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to send shelf talker campaign.' });
+    } finally {
+      setBulkSending(false);
     }
   }
 
@@ -276,6 +345,77 @@ export default function AdminEmailTemplatesPage() {
                 </button>
               </div>
             </div>
+
+            {selectedTemplate.key === 'shelf_talker_launch' && (
+              <div className="bg-white rounded-xl border border-cream-200 p-5 space-y-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-100 text-orange-700">
+                      <Mail className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-bark-500">Manual bulk send</h3>
+                      <p className="mt-1 text-sm leading-5 text-bark-500/60">
+                        Sends this reviewed shelf talker campaign to every retailer in the portal with an email on file. This is manual only; no automation is scheduled.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadShelfTalkerCampaignSummary}
+                    disabled={campaignLoading}
+                    className="rounded-xl border border-cream-300 px-3 py-2 text-sm font-semibold text-bark-500 hover:bg-cream-100 disabled:opacity-60"
+                  >
+                    {campaignLoading ? 'Refreshing...' : 'Refresh recipients'}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
+                  <div className="rounded-xl bg-cream-100 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50">Recipients</p>
+                    <p className="mt-1 text-2xl font-bold text-bark-500">
+                      {campaignLoading ? '...' : campaignSummary?.recipientCount ?? 0}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-cream-100 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50">Sample recipients</p>
+                    <p className="mt-1 text-sm leading-6 text-bark-500/70">
+                      {campaignSummary?.sampleRecipients?.length
+                        ? campaignSummary.sampleRecipients.map((recipient) => `${recipient.company_name || 'Retailer'} <${recipient.email}>`).join(' · ')
+                        : 'No recipients loaded yet.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                    <p className="text-sm leading-5 text-amber-800">
+                      Send a test first, review the rendered preview, then type <span className="font-bold">SEND</span> to enable the bulk send.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                  <input
+                    type="text"
+                    value={confirmSend}
+                    onChange={(event) => setConfirmSend(event.target.value)}
+                    className="input"
+                    placeholder="Type SEND to confirm"
+                  />
+                  <button
+                    type="button"
+                    onClick={sendShelfTalkerCampaign}
+                    disabled={bulkSending || confirmSend !== 'SEND' || !campaignSummary?.recipientCount}
+                    className="btn-primary justify-center gap-2"
+                  >
+                    {bulkSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    {bulkSending ? 'Sending...' : 'Send to all retailers'}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="bg-white rounded-xl border border-cream-200 overflow-hidden">
               <div className="border-b border-cream-200 px-5 py-3">
