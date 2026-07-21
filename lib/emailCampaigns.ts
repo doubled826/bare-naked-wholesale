@@ -26,12 +26,15 @@ export type EmailCampaignRecipient = {
   retailer_id?: string | null;
   email: string;
   company_name?: string | null;
+  contact_name?: string | null;
+  first_name?: string | null;
 };
 
 type RetailerRow = {
   id: string;
   company_name?: string | null;
   email?: string | null;
+  contact_name?: string | null;
 };
 
 type OrderRow = {
@@ -47,7 +50,7 @@ export const defaultEmailCampaign: EmailCampaignInput = {
   subject: 'A quick update from Bare Naked Pet Co.',
   preheader: 'A retailer update from Bare Naked Pet Co.',
   headline: 'A quick update for your Bare Naked display',
-  body: `Hi there,
+  body: `Hi {{first_name}},
 
 We wanted to share a quick update with our retail partners.
 
@@ -59,8 +62,6 @@ Thanks for carrying Bare Naked Pet Co. and helping more pet parents discover sim
   manual_recipients: '',
 };
 
-const appUrl = () => process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL;
-
 const escapeHtml = (value: string) =>
   value
     .replace(/&/g, '&amp;')
@@ -70,6 +71,54 @@ const escapeHtml = (value: string) =>
     .replace(/'/g, '&#039;');
 
 const isLikelyEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+const getFirstName = (contactName?: string | null) => {
+  const firstName = (contactName || '').trim().split(/\s+/)[0];
+  return firstName || null;
+};
+
+const replaceMergeTags = (value: string, recipient?: Partial<EmailCampaignRecipient>) => {
+  const contactName = (recipient?.contact_name || '').trim();
+  const firstName = (recipient?.first_name || getFirstName(contactName) || 'there').trim();
+  const replacements: Record<string, string> = {
+    first_name: firstName,
+    contact_name: contactName || firstName,
+    company_name: (recipient?.company_name || 'your store').trim(),
+    store_name: (recipient?.company_name || 'your store').trim(),
+    email: (recipient?.email || '').trim(),
+  };
+
+  return value.replace(/\{\{\s*(first_name|contact_name|company_name|store_name|email)\s*\}\}/gi, (_match, key: string) => {
+    return replacements[key.toLowerCase()] || '';
+  });
+};
+
+const isMissingContactNameColumnError = (error: unknown) => {
+  const maybeError = error as { code?: string; message?: string };
+  return (
+    maybeError?.code === '42703' ||
+    maybeError?.code === 'PGRST204' ||
+    (typeof maybeError?.message === 'string' && maybeError.message.includes('contact_name'))
+  );
+};
+
+async function loadRetailerRows(adminClient: any): Promise<RetailerRow[]> {
+  const { data, error } = await adminClient
+    .from('retailers')
+    .select('id, company_name, email, contact_name')
+    .order('company_name');
+
+  if (!error) return (data || []) as RetailerRow[];
+  if (!isMissingContactNameColumnError(error)) throw error;
+
+  const fallback = await adminClient
+    .from('retailers')
+    .select('id, company_name, email')
+    .order('company_name');
+
+  if (fallback.error) throw fallback.error;
+  return (fallback.data || []) as RetailerRow[];
+}
 
 const normalizeCampaign = (campaign: Partial<EmailCampaignInput>): EmailCampaignInput => ({
   ...defaultEmailCampaign,
@@ -95,13 +144,16 @@ const textToParagraphs = (text: string) =>
     .map((paragraph) => `<p style="margin:0 0 16px;color:#4c3a2f;font-size:15px;line-height:1.65;">${escapeHtml(paragraph).replace(/\n/g, '<br />')}</p>`)
     .join('');
 
-export function renderEmailCampaign(campaignInput: Partial<EmailCampaignInput>) {
+export function renderEmailCampaign(campaignInput: Partial<EmailCampaignInput>, recipient?: Partial<EmailCampaignRecipient>) {
   const campaign = normalizeCampaign(campaignInput);
-  const preheader = campaign.preheader || campaign.subject;
-  const ctaUrl = campaign.cta_url || '';
-  const ctaLabel = campaign.cta_label || '';
-  const heroImageUrl = campaign.hero_image_url || '';
-  const bodyHtml = textToParagraphs(campaign.body);
+  const personalizedSubject = replaceMergeTags(campaign.subject, recipient);
+  const personalizedPreheader = replaceMergeTags(campaign.preheader || campaign.subject, recipient);
+  const personalizedHeadline = replaceMergeTags(campaign.headline, recipient);
+  const personalizedBody = replaceMergeTags(campaign.body, recipient);
+  const ctaUrl = replaceMergeTags(campaign.cta_url || '', recipient);
+  const ctaLabel = replaceMergeTags(campaign.cta_label || '', recipient);
+  const heroImageUrl = replaceMergeTags(campaign.hero_image_url || '', recipient);
+  const bodyHtml = textToParagraphs(personalizedBody);
   const cta = ctaUrl && ctaLabel
     ? `<p style="margin:24px 0 0;"><a href="${escapeHtml(ctaUrl)}" style="display:inline-block;background:#3d2314;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:6px;font-weight:700;font-size:14px;">${escapeHtml(ctaLabel)}</a></p>`
     : '';
@@ -109,9 +161,9 @@ export function renderEmailCampaign(campaignInput: Partial<EmailCampaignInput>) 
     ? `<tr><td style="padding:0 24px 22px;"><img src="${escapeHtml(heroImageUrl)}" alt="" width="612" style="display:block;width:100%;max-width:612px;border-radius:12px;border:1px solid #eadfce;" /></td></tr>`
     : '';
 
-  const text = `${campaign.headline}
+  const text = `${personalizedHeadline}
 
-${campaign.body}
+${personalizedBody}
 ${ctaUrl && ctaLabel ? `\n${ctaLabel}: ${ctaUrl}` : ''}
 
 Bare Naked Pet Co.`;
@@ -119,7 +171,7 @@ Bare Naked Pet Co.`;
   const html = `<!doctype html>
 <html>
   <body style="margin:0;padding:0;background:#f8f4ec;font-family:Arial,Helvetica,sans-serif;color:#3b2a1e;">
-    <div style="display:none;max-height:0;overflow:hidden;">${escapeHtml(preheader)}</div>
+    <div style="display:none;max-height:0;overflow:hidden;">${escapeHtml(personalizedPreheader)}</div>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8f4ec;padding:28px 12px;">
       <tr>
         <td align="center">
@@ -132,7 +184,7 @@ Bare Naked Pet Co.`;
             <tr>
               <td style="padding:24px 24px 18px;">
                 <p style="margin:0 0 10px;color:#a74f28;font-weight:700;font-size:12px;letter-spacing:.05em;text-transform:uppercase;">Retailer Update</p>
-                <h1 style="margin:0;color:#3b2a1e;font-size:30px;line-height:1.18;font-weight:800;">${escapeHtml(campaign.headline)}</h1>
+                <h1 style="margin:0;color:#3b2a1e;font-size:30px;line-height:1.18;font-weight:800;">${escapeHtml(personalizedHeadline)}</h1>
               </td>
             </tr>
             ${hero}
@@ -152,8 +204,8 @@ Bare Naked Pet Co.`;
 
   return {
     campaign,
-    subject: campaign.subject,
-    preheader,
+    subject: personalizedSubject,
+    preheader: personalizedPreheader,
     text,
     html,
   };
@@ -171,7 +223,12 @@ export function parseManualRecipients(value?: string | null): EmailCampaignRecip
     const email = (match?.[2] || token).trim().toLowerCase();
     const companyName = (match?.[1] || '').trim() || null;
     if (!isLikelyEmail(email) || unique.has(email)) continue;
-    unique.set(email, { email, company_name: companyName });
+    unique.set(email, {
+      email,
+      company_name: companyName,
+      contact_name: companyName,
+      first_name: getFirstName(companyName),
+    });
   }
 
   return Array.from(unique.values());
@@ -187,12 +244,11 @@ export async function loadCampaignRecipients(
     return parseManualRecipients(campaign.manual_recipients);
   }
 
-  const [{ data: retailers, error: retailersError }, { data: orders, error: ordersError }] = await Promise.all([
-    adminClient.from('retailers').select('id, company_name, email').order('company_name'),
+  const [retailers, { data: orders, error: ordersError }] = await Promise.all([
+    loadRetailerRows(adminClient),
     adminClient.from('orders').select('retailer_id, status'),
   ]);
 
-  if (retailersError) throw retailersError;
   if (ordersError) throw ordersError;
 
   const orderCounts = new Map<string, number>();
@@ -202,7 +258,7 @@ export async function loadCampaignRecipients(
   }
 
   const unique = new Map<string, EmailCampaignRecipient>();
-  for (const retailer of (retailers || []) as RetailerRow[]) {
+  for (const retailer of retailers) {
     const email = (retailer.email || '').trim().toLowerCase();
     if (!email || !isLikelyEmail(email) || unique.has(email)) continue;
 
@@ -215,6 +271,8 @@ export async function loadCampaignRecipients(
       retailer_id: retailer.id,
       email,
       company_name: retailer.company_name || null,
+      contact_name: retailer.contact_name || null,
+      first_name: getFirstName(retailer.contact_name),
     });
   }
 

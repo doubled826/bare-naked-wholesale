@@ -27,7 +27,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ error: 'Email campaign not found.' }, { status: 404 });
     }
 
-    const rendered = renderEmailCampaign(campaign);
+    const rendered = renderEmailCampaign(campaign, {
+      email: testEmail,
+      contact_name: 'Test Recipient',
+      first_name: 'Test',
+      company_name: 'Test Store',
+    });
     const response = await sendResendCampaignEmail({
       to: testEmail,
       subject: `[TEST] ${rendered.subject}`,

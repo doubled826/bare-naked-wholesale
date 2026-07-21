@@ -45,7 +45,7 @@ type Preview = {
   html: string;
   validationError?: string | null;
   recipientCount: number;
-  sampleRecipients: Array<{ email: string; company_name?: string | null }>;
+  sampleRecipients: Array<{ email: string; company_name?: string | null; contact_name?: string | null; first_name?: string | null }>;
 };
 
 type CampaignListPayload = {
@@ -63,6 +63,8 @@ const audienceOptions: Array<{ value: AudienceFilter; label: string; description
   { value: 'repeat_buyers', label: 'Repeat buyers', description: 'Retailers with two or more orders.' },
   { value: 'manual', label: 'Manual list', description: 'Paste emails for a controlled send.' },
 ];
+
+const mergeTags = ['{{first_name}}', '{{contact_name}}', '{{company_name}}'] as const;
 
 export default function AdminEmailCampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -158,6 +160,15 @@ export default function AdminEmailCampaignsPage() {
 
   function updateForm(updates: Partial<Campaign>) {
     setForm((current) => current ? { ...current, ...updates } : current);
+  }
+
+  function appendMergeTag(field: 'subject' | 'preheader' | 'headline' | 'body', tag: typeof mergeTags[number]) {
+    setForm((current) => {
+      if (!current) return current;
+      const value = current[field] || '';
+      const separator = value && !value.endsWith(' ') && !value.endsWith('\n') ? ' ' : '';
+      return { ...current, [field]: `${value}${separator}${tag}` };
+    });
   }
 
   function startNewCampaign() {
@@ -404,6 +415,25 @@ export default function AdminEmailCampaignsPage() {
                     className="input min-h-[210px] resize-y"
                   />
                 </Field>
+                <div className="rounded-xl border border-cream-200 bg-cream-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50">Personalization</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {mergeTags.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => appendMergeTag('body', tag)}
+                        disabled={isSent}
+                        className="rounded-lg border border-cream-300 bg-white px-3 py-2 text-xs font-semibold text-bark-500 hover:bg-cream-100 disabled:opacity-60"
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-bark-500/60">
+                    Preview uses Jamie as the sample. Bulk sends use each retailer contact name, and missing first names fall back to there.
+                  </p>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Field label="CTA label">
                     <input value={form.cta_label || ''} onChange={(event) => updateForm({ cta_label: event.target.value })} disabled={isSent} className="input" />
@@ -460,7 +490,10 @@ export default function AdminEmailCampaignsPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50">Sample</p>
                     <p className="mt-1 text-sm leading-6 text-bark-500/70">
                       {preview?.sampleRecipients?.length
-                        ? preview.sampleRecipients.map((recipient) => `${recipient.company_name || 'Retailer'} <${recipient.email}>`).join(' · ')
+                        ? preview.sampleRecipients.map((recipient) => {
+                            const contact = recipient.contact_name ? `${recipient.contact_name} · ` : '';
+                            return `${contact}${recipient.company_name || 'Retailer'} <${recipient.email}>`;
+                          }).join(' · ')
                         : 'No recipients loaded.'}
                     </p>
                   </div>

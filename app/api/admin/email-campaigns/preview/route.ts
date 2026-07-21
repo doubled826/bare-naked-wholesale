@@ -13,7 +13,12 @@ export async function POST(request: Request) {
   try {
     const { adminClient } = await requireAdminAccess();
     const body = await request.json().catch(() => ({}));
-    const rendered = renderEmailCampaign(body);
+    const rendered = renderEmailCampaign(body, {
+      email: 'buyer@happypaws.example',
+      company_name: 'Happy Paws Market',
+      contact_name: 'Jamie Carter',
+      first_name: 'Jamie',
+    });
     const validationError = getCampaignValidationError(rendered.campaign);
     const recipients = validationError ? [] : await loadCampaignRecipients(adminClient, rendered.campaign);
 

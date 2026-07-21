@@ -9,6 +9,7 @@ CREATE SEQUENCE IF NOT EXISTS retailer_account_seq START 1000;
 CREATE TABLE IF NOT EXISTS retailers (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   company_name TEXT NOT NULL, -- Changed from business_name to match code
+  contact_name TEXT,
   business_address TEXT NOT NULL,
   phone TEXT NOT NULL,
   logo_url TEXT,
@@ -949,12 +950,13 @@ ALTER COLUMN account_number SET DEFAULT ('BNP-' || nextval('retailer_account_seq
 CREATE OR REPLACE FUNCTION public.handle_new_retailer()
 RETURNS trigger AS $$
 BEGIN
-  INSERT INTO public.retailers (id, company_name, business_address, phone, status)
+  INSERT INTO public.retailers (id, company_name, business_address, phone, contact_name, status)
   VALUES (
     new.id,
     COALESCE(new.raw_user_meta_data->>'company_name', 'New Retailer'),
     COALESCE(new.raw_user_meta_data->>'business_address', 'No Address Provided'),
     COALESCE(new.raw_user_meta_data->>'phone', 'No Phone Provided'),
+    NULLIF(TRIM(new.raw_user_meta_data->>'display_name'), ''),
     'pending'
   );
   RETURN new;

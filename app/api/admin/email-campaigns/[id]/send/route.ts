@@ -37,7 +37,6 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
-    const rendered = renderEmailCampaign(campaign);
     const recipients = await loadCampaignRecipients(adminClient, campaign);
     if (recipients.length === 0) {
       return NextResponse.json({ error: 'No eligible recipients were found.' }, { status: 400 });
@@ -48,12 +47,15 @@ export async function POST(request: Request, { params }: { params: { id: string 
       retailer_id?: string | null;
       email: string;
       company_name?: string | null;
+      contact_name?: string | null;
       resend_message_id?: string | null;
       status: 'sent' | 'failed';
       error?: string | null;
     }> = [];
 
     for (const recipient of recipients) {
+      const rendered = renderEmailCampaign(campaign, recipient);
+
       try {
         const response = await sendResendCampaignEmail({
           to: recipient.email,
@@ -67,6 +69,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
           retailer_id: recipient.retailer_id || null,
           email: recipient.email,
           company_name: recipient.company_name || null,
+          contact_name: recipient.contact_name || null,
           resend_message_id: response.id || null,
           status: 'sent',
         });
@@ -76,6 +79,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
           retailer_id: recipient.retailer_id || null,
           email: recipient.email,
           company_name: recipient.company_name || null,
+          contact_name: recipient.contact_name || null,
           status: 'failed',
           error: sendError instanceof Error ? sendError.message : 'Unable to send email.',
         });
