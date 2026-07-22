@@ -11,6 +11,7 @@ import {
   Package,
   FolderOpen,
   Image,
+  BarChart2,
   MessageSquare,
   Mail,
   FileText,
@@ -40,6 +41,7 @@ type NavigationItem = {
 
 const navigation: NavigationItem[] = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+  { name: 'Insights', href: '/admin/insights', icon: BarChart2 },
   { name: 'Sales Hub', href: '/admin/sales-hub', icon: Zap },
   { name: 'Orders', href: '/admin/orders', icon: ShoppingCart },
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
