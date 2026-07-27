@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { ArrowRight, CheckCircle, Edit2, ExternalLink, Eye, Gift, Loader2, Megaphone, Package, Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import {
   DEFAULT_ASTRO_URL,
   defaultCurrentAstroPromo,
@@ -45,7 +44,6 @@ const shelfTalkerAnnouncementDraft = {
 };
 
 function DashboardAnnouncementsManager() {
-  const supabase = createClientComponentClient();
   const [announcements, setAnnouncements] = useState<DashboardAnnouncement[]>([]);
   const [form, setForm] = useState(emptyAnnouncementForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -58,13 +56,14 @@ function DashboardAnnouncementsManager() {
     setIsLoading(true);
     setNotice('');
     try {
-      const { data, error } = await supabase
-        .from('announcements')
-        .select('id, title, message, is_active, created_at, updated_at')
-        .order('created_at', { ascending: false });
+      const response = await fetch('/api/admin/announcements');
+      const data = await response.json();
 
-      if (error) throw error;
-      setAnnouncements((data || []) as DashboardAnnouncement[]);
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to load announcements.');
+      }
+
+      setAnnouncements((data.announcements || []) as DashboardAnnouncement[]);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Unable to load announcements.');
     } finally {
@@ -100,11 +99,19 @@ function DashboardAnnouncementsManager() {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = editingId
-        ? await supabase.from('announcements').update(payload).eq('id', editingId)
-        : await supabase.from('announcements').insert(payload);
+      const response = await fetch(
+        editingId ? `/api/admin/announcements?id=${encodeURIComponent(editingId)}` : '/api/admin/announcements',
+        {
+          method: editingId ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      );
+      const data = await response.json();
 
-      if (error) throw error;
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to save announcement.');
+      }
 
       setNotice(editingId ? 'Announcement updated.' : 'Announcement created.');
       resetForm();
@@ -129,15 +136,22 @@ function DashboardAnnouncementsManager() {
   const toggleAnnouncement = async (announcement: DashboardAnnouncement) => {
     setNotice('');
     try {
-      const { error } = await supabase
-        .from('announcements')
-        .update({
+      const response = await fetch(`/api/admin/announcements?id=${encodeURIComponent(announcement.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: announcement.title,
+          message: announcement.message,
           is_active: !announcement.is_active,
           updated_at: new Date().toISOString(),
-        })
-        .eq('id', announcement.id);
+        }),
+      });
+      const data = await response.json();
 
-      if (error) throw error;
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to update announcement.');
+      }
+
       await loadAnnouncements();
       setNotice(!announcement.is_active ? 'Announcement published.' : 'Announcement hidden.');
     } catch (error) {
@@ -152,12 +166,15 @@ function DashboardAnnouncementsManager() {
     setDeletingId(announcement.id);
     setNotice('');
     try {
-      const { error } = await supabase
-        .from('announcements')
-        .delete()
-        .eq('id', announcement.id);
+      const response = await fetch(`/api/admin/announcements?id=${encodeURIComponent(announcement.id)}`, {
+        method: 'DELETE',
+      });
+      const data = await response.json();
 
-      if (error) throw error;
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to delete announcement.');
+      }
+
       if (editingId === announcement.id) resetForm();
       await loadAnnouncements();
       setNotice('Announcement deleted.');
