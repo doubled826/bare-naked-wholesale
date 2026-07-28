@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Mail,
   FileText,
+  BadgePercent,
   Megaphone,
   User,
   LogOut,
@@ -58,6 +59,7 @@ const navigation: NavigationItem[] = [
     icon: Megaphone,
     children: [
       { name: 'Campaigns', href: '/admin/email-campaigns', icon: Send },
+      { name: 'Discounts', href: '/admin/discounts', icon: BadgePercent },
       { name: 'Automations', href: '/admin/automations', icon: Workflow },
       { name: 'Announcements', href: '/admin/announcements', icon: Megaphone },
       { name: 'Templates', href: '/admin/email-templates', icon: FileText },

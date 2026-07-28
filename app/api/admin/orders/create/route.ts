@@ -6,6 +6,7 @@ import { formatOrderItemsText, formatTeamOrderItemsText, sendRetailerEmail, send
 import { applyRetailerCredits } from '@/lib/retailerCredits';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 import { formatShelfTalkerList, queueShelfTalkersForOrder } from '@/lib/shelfTalkers';
+import { findApplicableDiscount, recordDiscountRedemption } from '@/lib/discountCodes';
 
 interface CreateOrderItemInput {
   productId: string;
@@ -66,7 +67,19 @@ export async function POST(request: Request) {
       (sum, item) => sum + Number(item.product.price) * item.quantity,
       0
     );
-    const total = subtotal;
+    const discountResult = await findApplicableDiscount({
+      adminClient,
+      code: promotionCode,
+      retailerId,
+      subtotal,
+    });
+
+    if (discountResult.error) {
+      return NextResponse.json({ error: discountResult.error }, { status: 400 });
+    }
+
+    const promotionDiscount = discountResult.amount;
+    const total = Math.max(0, subtotal - promotionDiscount);
     const orderNumber = `ORD-${Date.now().toString().slice(-8)}`;
 
     const { data: sampleRequest } = await adminClient
@@ -115,13 +128,13 @@ export async function POST(request: Request) {
         location_id: shipToLocation?.id ?? null,
         status: 'pending',
         delivery_date: deliveryDate || null,
-        promotion_code: promotionCode || null,
+        promotion_code: discountResult.discount?.code || promotionCode || null,
         subtotal,
         total,
         include_samples: shouldIncludeSamples,
         include_marketing_materials: shouldIncludeMarketingMaterials,
         marketing_materials_type: marketingMaterialsType,
-        credit_applied: 0,
+        credit_applied: promotionDiscount,
       })
       .select()
       .single();
@@ -160,11 +173,25 @@ export async function POST(request: Request) {
       }
     }
 
+    try {
+      await recordDiscountRedemption({
+        adminClient,
+        discount: discountResult.discount,
+        retailerId,
+        orderId: order.id,
+        discountAmount: promotionDiscount,
+      });
+    } catch (redemptionError) {
+      console.error('Discount redemption tracking error:', redemptionError);
+    }
+
     const creditResult = await applyRetailerCredits({
       adminClient,
       retailerId,
       orderId: order.id,
       subtotal,
+      currentCreditApplied: promotionDiscount,
+      maxApplyAmount: Math.max(0, subtotal - promotionDiscount),
     });
 
     if (sampleRequest?.id && shouldIncludeSamples) {
@@ -251,8 +278,11 @@ export async function POST(request: Request) {
       const shipToPhone = shipToLocation?.phone || retailer?.phone || 'Not provided';
 
       const creditSummary = creditResult.creditApplied > 0
-        ? `Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
+        ? `Discounts/Credits Applied: -$${(promotionDiscount + creditResult.creditApplied).toFixed(2)}
 Total: $${creditResult.totalAfterCredit.toFixed(2)}`
+        : promotionDiscount > 0
+          ? `Promotion Discount: -$${promotionDiscount.toFixed(2)}
+Total: $${total.toFixed(2)}`
         : `Total: $${total.toFixed(2)}`;
 
       const emailText = `
@@ -308,8 +338,9 @@ ${retailerSamplesNote}
 ${retailerMaterialsNote}
 ${shelfTalkerRetailerNote}
 Subtotal: $${subtotal.toFixed(2)}
-${creditResult.creditApplied > 0 ? `Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
-Total: $${creditResult.totalAfterCredit.toFixed(2)}` : `Total: $${total.toFixed(2)}`}
+${promotionDiscount > 0 ? `Promotion Discount (${discountResult.discount?.code || promotionCode}): -$${promotionDiscount.toFixed(2)}
+` : ''}${creditResult.creditApplied > 0 ? `Account Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
+` : ''}Total: $${creditResult.totalAfterCredit.toFixed(2)}
 
 Ship-To Location:
 - Name: ${shipToName}
@@ -332,6 +363,7 @@ Thank you for choosing Bare Naked Pet Co.!
       orderNumber,
       shelfTalkersAdded: queuedShelfTalkers.map((talker) => talker.flavor),
       creditApplied: creditResult.creditApplied,
+      promotionDiscountApplied: promotionDiscount,
       total: creditResult.totalAfterCredit,
     });
   } catch (error) {

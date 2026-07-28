@@ -12,6 +12,7 @@ import {
   calculateBareLaunchOfferDiscount,
   getBareLaunchOfferStatus,
 } from '@/lib/bareLaunchOffer';
+import { findApplicableDiscount, recordDiscountRedemption } from '@/lib/discountCodes';
 
 export async function POST(request: Request) {
   try {
@@ -42,6 +43,8 @@ export async function POST(request: Request) {
       shipToLocation = location;
     }
 
+    const adminClient = createSupabaseAdminClient();
+
     // Calculate totals
     const subtotal = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
     const { data: retailerForOffer } = await supabase
@@ -67,7 +70,20 @@ export async function POST(request: Request) {
     const launchOfferDiscount = launchOfferStatus.eligible
       ? calculateBareLaunchOfferDiscount(subtotal)
       : 0;
-    const total = Math.max(0, subtotal - launchOfferDiscount); // Add tax/shipping logic if needed
+    const discountResult = await findApplicableDiscount({
+      adminClient,
+      code: promotionCode,
+      retailerId: user.id,
+      subtotal,
+    });
+
+    if (discountResult.error) {
+      return NextResponse.json({ error: discountResult.error }, { status: 400 });
+    }
+
+    const promotionDiscount = discountResult.amount;
+    const totalDiscount = launchOfferDiscount + promotionDiscount;
+    const total = Math.max(0, subtotal - totalDiscount); // Add tax/shipping logic if needed
 
     // Generate order number (avoid collisions with unique constraint)
     const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
@@ -93,9 +109,10 @@ export async function POST(request: Request) {
     const marketingMaterialsType = shouldIncludeMarketingMaterials
       ? marketingMaterialsRequest?.materials_type || 'both'
       : null;
-    const orderPromotionCode = launchOfferDiscount > 0
-      ? [promotionCode, BARE_LAUNCH_OFFER_CODE].filter(Boolean).join(', ')
-      : promotionCode || null;
+    const orderPromotionCode = [
+      discountResult.discount?.code || promotionCode || null,
+      launchOfferDiscount > 0 ? BARE_LAUNCH_OFFER_CODE : null,
+    ].filter(Boolean).join(', ') || null;
 
     // Create the order
     const { data: order, error: orderError } = await supabase
@@ -112,7 +129,7 @@ export async function POST(request: Request) {
         include_samples: shouldIncludeSamples,
         include_marketing_materials: shouldIncludeMarketingMaterials,
         marketing_materials_type: marketingMaterialsType,
-        credit_applied: launchOfferDiscount,
+        credit_applied: totalDiscount,
       })
       .select()
       .single();
@@ -147,8 +164,6 @@ export async function POST(request: Request) {
       console.error('Order items error:', itemsError);
     }
 
-    const adminClient = createSupabaseAdminClient();
-
     let queuedShelfTalkers: Awaited<ReturnType<typeof queueShelfTalkersForOrder>> = [];
     if (!itemsError) {
       try {
@@ -163,13 +178,25 @@ export async function POST(request: Request) {
       }
     }
 
+    try {
+      await recordDiscountRedemption({
+        adminClient,
+        discount: discountResult.discount,
+        retailerId: user.id,
+        orderId: order.id,
+        discountAmount: promotionDiscount,
+      });
+    } catch (redemptionError) {
+      console.error('Discount redemption tracking error:', redemptionError);
+    }
+
     const creditResult = await applyRetailerCredits({
       adminClient,
       retailerId: user.id,
       orderId: order.id,
       subtotal,
-      currentCreditApplied: launchOfferDiscount,
-      maxApplyAmount: Math.max(0, subtotal - launchOfferDiscount),
+      currentCreditApplied: totalDiscount,
+      maxApplyAmount: Math.max(0, subtotal - totalDiscount),
     });
 
     if (sampleRequest?.id) {
@@ -277,10 +304,10 @@ Private Promo Support: Our team will follow up with next steps.
         : '';
 
       const creditSummary = creditResult.creditApplied > 0
-        ? `Discounts/Credits Applied: -$${(launchOfferDiscount + creditResult.creditApplied).toFixed(2)}
+        ? `Discounts/Credits Applied: -$${(totalDiscount + creditResult.creditApplied).toFixed(2)}
 Total: $${creditResult.totalAfterCredit.toFixed(2)}`
-        : launchOfferDiscount > 0
-          ? `Discounts/Credits Applied: -$${launchOfferDiscount.toFixed(2)}
+        : totalDiscount > 0
+          ? `Discounts/Credits Applied: -$${totalDiscount.toFixed(2)}
 Total: $${total.toFixed(2)}`
           : `Total: $${total.toFixed(2)}`;
 
@@ -343,6 +370,7 @@ ${shelfTalkerRetailerNote}
 ${launchOfferRetailerNote}
 Subtotal: $${subtotal.toFixed(2)}
 ${launchOfferDiscount > 0 ? `${BARE_LAUNCH_OFFER_NAME}: -$${launchOfferDiscount.toFixed(2)}
+` : ''}${promotionDiscount > 0 ? `Promotion Discount (${discountResult.discount?.code || promotionCode}): -$${promotionDiscount.toFixed(2)}
 ` : ''}${creditResult.creditApplied > 0 ? `Account Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
 ` : ''}Total: $${creditResult.totalAfterCredit.toFixed(2)}
 
@@ -372,6 +400,7 @@ Thank you for choosing Bare Naked Pet Co.!
       shelfTalkersAdded: queuedShelfTalkers.map((talker) => talker.flavor),
       creditApplied: creditResult.creditApplied,
       launchOfferDiscountApplied: launchOfferDiscount,
+      promotionDiscountApplied: promotionDiscount,
       total: creditResult.totalAfterCredit,
     });
 
