@@ -26,6 +26,14 @@ declare global {
 
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
+const hearAboutUsOptions = [
+  { value: 'facebook_instagram', label: 'Facebook/Instagram' },
+  { value: 'google_search', label: 'Google Search' },
+  { value: 'referral', label: 'Referral' },
+  { value: 'team_outreach', label: 'Bare Naked team reached out' },
+  { value: 'other', label: 'Other' },
+];
+
 export default function SignupPage() {
   const searchParams = useSearchParams();
   const [formData, setFormData] = useState({
@@ -39,6 +47,8 @@ export default function SignupPage() {
     password: '',
     phone: '',
     taxId: '',
+    howHeardAboutUs: '',
+    howHeardAboutUsOther: '',
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -98,7 +108,7 @@ export default function SignupPage() {
     }
   }, [searchParams]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
@@ -111,6 +121,16 @@ export default function SignupPage() {
 
     if (!turnstileToken) {
       setError('Please complete the verification before creating your account.');
+      return;
+    }
+
+    if (!formData.howHeardAboutUs) {
+      setError('Please tell us how you heard about us.');
+      return;
+    }
+
+    if (formData.howHeardAboutUs === 'other' && !formData.howHeardAboutUsOther.trim()) {
+      setError('Please add how you heard about us.');
       return;
     }
 
@@ -379,6 +399,50 @@ export default function SignupPage() {
               required
             />
           </div>
+
+          <div>
+            <label htmlFor="howHeardAboutUs" className="label">
+              How did you hear about us?
+            </label>
+            <select
+              id="howHeardAboutUs"
+              name="howHeardAboutUs"
+              value={formData.howHeardAboutUs}
+              onChange={(e) => {
+                const value = e.target.value;
+                setFormData({
+                  ...formData,
+                  howHeardAboutUs: value,
+                  howHeardAboutUsOther: value === 'other' ? formData.howHeardAboutUsOther : '',
+                });
+              }}
+              className="input"
+              required
+            >
+              <option value="">Select an option</option>
+              {hearAboutUsOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {formData.howHeardAboutUs === 'other' && (
+            <div>
+              <label htmlFor="howHeardAboutUsOther" className="label">
+                Tell us where
+              </label>
+              <input
+                id="howHeardAboutUsOther"
+                name="howHeardAboutUsOther"
+                type="text"
+                value={formData.howHeardAboutUsOther}
+                onChange={handleChange}
+                placeholder="Trade show, vendor, local event..."
+                className="input"
+                required
+              />
+            </div>
+          )}
 
           <div>
             <label className="label">Verification</label>

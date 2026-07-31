@@ -39,6 +39,8 @@ interface Retailer {
   status?: string;
   pipedrive_deal_id?: number | null;
   pipedrive_stage_name?: string | null;
+  how_heard_about_us?: string | null;
+  how_heard_about_us_other?: string | null;
   created_at: string;
 }
 
@@ -191,6 +193,22 @@ const normalizeOrders = (orders: Order[]) =>
   }));
 
 const getPipedriveDealUrl = (dealId: number) => `https://app.pipedrive.com/deal/${dealId}`;
+
+const hearAboutUsLabels: Record<string, string> = {
+  facebook_instagram: 'Facebook/Instagram',
+  google_search: 'Google Search',
+  referral: 'Referral',
+  team_outreach: 'Bare Naked team reached out',
+  other: 'Other',
+};
+
+const formatHearAboutUs = (retailer: Retailer) => {
+  const label = retailer.how_heard_about_us ? hearAboutUsLabels[retailer.how_heard_about_us] || retailer.how_heard_about_us : '';
+  if (retailer.how_heard_about_us === 'other' && retailer.how_heard_about_us_other) {
+    return `${label}: ${retailer.how_heard_about_us_other}`;
+  }
+  return label || '—';
+};
 
 const isMissingShelfTalkerTableError = (error: unknown) => {
   const maybeError = error as { code?: string; message?: string };
@@ -1399,6 +1417,10 @@ export default function AdminRetailerDetailPage() {
               ) : (
                 <p className="text-gray-900 font-medium mt-1">—</p>
               )}
+            </div>
+            <div>
+              <p className="text-gray-500">How Heard About Us</p>
+              <p className="text-gray-900 font-medium mt-1">{formatHearAboutUs(retailer)}</p>
             </div>
             <div>
               <p className="text-gray-500">Avg Order Value</p>

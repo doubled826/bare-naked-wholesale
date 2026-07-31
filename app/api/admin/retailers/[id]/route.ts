@@ -24,7 +24,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
     ] = await Promise.all([
       adminClient
         .from('retailers')
-        .select('id, company_name, business_address, phone, account_number, status, created_at')
+        .select('id, company_name, business_address, phone, account_number, status, created_at, how_heard_about_us, how_heard_about_us_other')
         .eq('id', retailerId)
         .single(),
       adminClient

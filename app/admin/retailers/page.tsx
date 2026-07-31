@@ -7,7 +7,7 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Search, Users, Edit2, Eye, X, CheckCircle, ShoppingCart, DollarSign, Plus, Mail, Download, SlidersHorizontal } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
-interface Retailer { id: string; company_name: string; business_address: string; phone: string; account_number: string; created_at: string; status?: string; email?: string }
+interface Retailer { id: string; company_name: string; business_address: string; phone: string; account_number: string; created_at: string; status?: string; email?: string; how_heard_about_us?: string | null; how_heard_about_us_other?: string | null }
 interface RetailerWithStats extends Retailer { total_orders: number; total_spent: number; last_order_date: string | null }
 type BuyingStatusFilter = 'all' | 'never_ordered' | 'ordered_once' | 'repeat_buyer';
 type LastOrderFilter = 'any' | 'last_30' | 'days_31_90' | 'days_90_plus' | 'never';
@@ -56,6 +56,14 @@ const sortOptions: Array<{ value: SortOption; label: string }> = [
   { value: 'last_order_desc', label: 'Last order newest' },
   { value: 'last_order_asc', label: 'Last order oldest' },
 ];
+
+const hearAboutUsLabels: Record<string, string> = {
+  facebook_instagram: 'Facebook/Instagram',
+  google_search: 'Google Search',
+  referral: 'Referral',
+  team_outreach: 'Bare Naked team reached out',
+  other: 'Other',
+};
 
 const US_STATE_ABBREVIATIONS = new Set([
   'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
@@ -219,7 +227,8 @@ export default function AdminRetailersPage() {
         retailer.account_number?.toLowerCase().includes(q) ||
         retailer.business_address?.toLowerCase().includes(q) ||
         retailer.phone?.toLowerCase().includes(q) ||
-        retailer.email?.toLowerCase().includes(q)
+        retailer.email?.toLowerCase().includes(q) ||
+        formatHearAboutUs(retailer).toLowerCase().includes(q)
       );
     };
     const getDaysSince = (date: string | null | undefined) => (
@@ -360,6 +369,14 @@ export default function AdminRetailersPage() {
     `/admin/retailers/${retailerId}?returnTo=${encodeURIComponent(retailerListReturnTo)}`
   );
 
+  const formatHearAboutUs = (retailer: Retailer) => {
+    const label = retailer.how_heard_about_us ? hearAboutUsLabels[retailer.how_heard_about_us] || retailer.how_heard_about_us : '';
+    if (retailer.how_heard_about_us === 'other' && retailer.how_heard_about_us_other) {
+      return `${label}: ${retailer.how_heard_about_us_other}`;
+    }
+    return label || '—';
+  };
+
   const hasActiveFilters = Boolean(
     searchQuery ||
     buyingStatusFilter !== 'all' ||
@@ -403,6 +420,7 @@ export default function AdminRetailersPage() {
       'State',
       'Contact',
       'Email',
+      'How Heard About Us',
       'Orders',
       'Total Spent',
       'Last Order',
@@ -417,6 +435,7 @@ export default function AdminRetailersPage() {
       getRetailerState(retailer.business_address) || '',
       retailer.phone,
       retailer.email || '',
+      formatHearAboutUs(retailer),
       retailer.total_orders,
       retailer.total_spent.toFixed(2),
       retailer.last_order_date ? new Date(retailer.last_order_date).toLocaleDateString() : 'Never',
@@ -754,13 +773,14 @@ export default function AdminRetailersPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Orders</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revenue</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Order</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredRetailers.length === 0 ? <tr><td colSpan={8} className="px-6 py-12 text-center text-gray-500"><Users className="w-12 h-12 mx-auto mb-4 text-gray-300" /><p>No retailers found</p></td></tr> : filteredRetailers.map((retailer) => (
+              {filteredRetailers.length === 0 ? <tr><td colSpan={9} className="px-6 py-12 text-center text-gray-500"><Users className="w-12 h-12 mx-auto mb-4 text-gray-300" /><p>No retailers found</p></td></tr> : filteredRetailers.map((retailer) => (
                 <tr key={retailer.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div>
@@ -781,6 +801,9 @@ export default function AdminRetailersPage() {
                   <td className="px-6 py-4"><span className="font-medium text-gray-900">{retailer.total_orders}</span></td>
                   <td className="px-6 py-4 font-medium text-gray-900">{formatCurrency(retailer.total_spent)}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">{retailer.last_order_date ? new Date(retailer.last_order_date).toLocaleDateString() : 'Never'}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    <span className="block max-w-[180px] truncate" title={formatHearAboutUs(retailer)}>{formatHearAboutUs(retailer)}</span>
+                  </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{retailer.created_at ? new Date(retailer.created_at).toLocaleDateString() : '—'}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     <span className="block max-w-[180px] truncate">{getLocationLabel(retailer.business_address)}</span>

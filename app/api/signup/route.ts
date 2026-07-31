@@ -9,6 +9,14 @@ type TurnstileVerificationResult = {
   'error-codes'?: string[];
 };
 
+const HEAR_ABOUT_US_LABELS: Record<string, string> = {
+  facebook_instagram: 'Facebook/Instagram',
+  google_search: 'Google Search',
+  referral: 'Referral',
+  team_outreach: 'Bare Naked team reached out',
+  other: 'Other',
+};
+
 async function verifyTurnstileToken(token: string, remoteIp?: string | null) {
   const secret = process.env.TURNSTILE_SECRET_KEY;
 
@@ -56,6 +64,8 @@ export async function POST(request: Request) {
       password,
       phone,
       taxId,
+      howHeardAboutUs,
+      howHeardAboutUsOther,
       turnstileToken,
     } = await request.json();
 
@@ -80,6 +90,16 @@ export async function POST(request: Request) {
       state: businessState,
       zip: businessZip,
     });
+    const heardAboutUsValue = typeof howHeardAboutUs === 'string' ? howHeardAboutUs.trim() : '';
+    const heardAboutUsOtherValue = typeof howHeardAboutUsOther === 'string' ? howHeardAboutUsOther.trim() : '';
+
+    if (!HEAR_ABOUT_US_LABELS[heardAboutUsValue]) {
+      return NextResponse.json({ error: 'Please tell us how you heard about us.' }, { status: 400 });
+    }
+
+    if (heardAboutUsValue === 'other' && !heardAboutUsOtherValue) {
+      return NextResponse.json({ error: 'Please add how you heard about us.' }, { status: 400 });
+    }
 
     // 1. Create the auth user with metadata
     // IMPORTANT: Use 'company_name' to match the database trigger!
@@ -97,6 +117,8 @@ export async function POST(request: Request) {
           business_zip: businessZip?.trim(),
           phone: phone,
           tax_id: taxId,
+          how_heard_about_us: heardAboutUsValue,
+          how_heard_about_us_other: heardAboutUsValue === 'other' ? heardAboutUsOtherValue : null,
         },
       },
     });
@@ -125,6 +147,7 @@ Email: ${email}
 Phone: ${phone}
 Address: ${formattedBusinessAddress}
 Tax ID: ${taxId}
+How Heard About Us: ${HEAR_ABOUT_US_LABELS[heardAboutUsValue]}${heardAboutUsValue === 'other' ? ` - ${heardAboutUsOtherValue}` : ''}
         `.trim(),
       });
     } catch (emailError) {
