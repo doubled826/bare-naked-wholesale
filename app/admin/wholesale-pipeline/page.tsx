@@ -143,6 +143,7 @@ export default function WholesalePipelinePage() {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('all');
   const [selectedLead, setSelectedLead] = useState<WholesaleLead | null>(null);
+  const [approvingLeadId, setApprovingLeadId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchLeads();
@@ -167,6 +168,31 @@ export default function WholesalePipelinePage() {
 
     setLeads((data || []) as WholesaleLead[]);
     setIsLoading(false);
+  };
+
+  const approveLead = async (lead: WholesaleLead) => {
+    setApprovingLeadId(lead.id);
+    setNotice('');
+
+    try {
+      const response = await fetch(`/api/admin/wholesale-leads/${lead.id}/approve`, {
+        method: 'POST',
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || 'Unable to approve sample request.');
+      }
+
+      const updatedLead = payload.lead as WholesaleLead;
+      setLeads((current) => current.map((item) => (item.id === updatedLead.id ? updatedLead : item)));
+      setSelectedLead(updatedLead);
+      setNotice(`Approved ${updatedLead.store_name}. Fulfillment email sent to info@barenakedpet.com.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to approve sample request.');
+    } finally {
+      setApprovingLeadId(null);
+    }
   };
 
   const filteredLeads = useMemo(() => {
@@ -366,6 +392,27 @@ export default function WholesalePipelinePage() {
                   <span className="inline-flex rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">Converted</span>
                 )}
               </div>
+
+              {selectedLead.status === 'new' && (
+                <button
+                  type="button"
+                  onClick={() => approveLead(selectedLead)}
+                  disabled={approvingLeadId === selectedLead.id}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-bark-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-bark-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                >
+                  {approvingLeadId === selectedLead.id ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      Approving...
+                    </>
+                  ) : (
+                    <>
+                      <Truck className="h-4 w-4" />
+                      Approve Sample Request
+                    </>
+                  )}
+                </button>
+              )}
 
               <section className="rounded-lg border border-gray-200 p-5">
                 <h3 className="font-semibold text-gray-900">Contact</h3>
