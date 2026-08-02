@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { sendEmail } from '@/lib/email';
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
 export const dynamic = 'force-dynamic';
@@ -70,6 +71,130 @@ const validateToken = (request: Request) => {
   }
 
   return getBearerToken(request) === expectedToken;
+};
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
+const getPortalUrl = () => {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://wholesale.barenakedpet.com';
+  return `${baseUrl.replace(/\/$/, '')}/admin/wholesale-pipeline`;
+};
+
+const formatAddress = (lead: {
+  shipping_address_1: string;
+  shipping_address_2?: string | null;
+  shipping_city: string;
+  shipping_state: string;
+  shipping_postal_code: string;
+}) =>
+  [
+    lead.shipping_address_1,
+    lead.shipping_address_2,
+    `${lead.shipping_city}, ${lead.shipping_state} ${lead.shipping_postal_code}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+const sendInboundLeadNotification = async (lead: {
+  contact_name: string;
+  email: string;
+  store_name: string;
+  phone?: string | null;
+  store_url?: string | null;
+  store_type?: string | null;
+  shipping_address_1: string;
+  shipping_address_2?: string | null;
+  shipping_city: string;
+  shipping_state: string;
+  shipping_postal_code: string;
+  source?: string | null;
+  utm_campaign?: string | null;
+}) => {
+  const portalUrl = getPortalUrl();
+  const address = formatAddress(lead);
+  const notifyTo = process.env.WHOLESALE_LEAD_NOTIFY_TO || 'info@barenakedpet.com';
+  const from = process.env.PORTAL_EMAIL_FROM || process.env.ORDER_EMAIL_FROM || process.env.SMTP_USER || 'info@barenakedpet.com';
+
+  const text = `
+New wholesale sample request received.
+
+Store: ${lead.store_name}
+Contact: ${lead.contact_name}
+Email: ${lead.email}
+Phone: ${lead.phone || 'Not provided'}
+Store Type: ${lead.store_type || 'Not provided'}
+Website/Instagram: ${lead.store_url || 'Not provided'}
+
+Shipping address:
+${address}
+
+Source: ${lead.source || 'landing_page'}
+Campaign: ${lead.utm_campaign || 'Not captured'}
+
+Review and approve in the portal:
+${portalUrl}
+  `.trim();
+
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f8f4ec;font-family:Arial,Helvetica,sans-serif;color:#3b2a1e;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8f4ec;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfce;border-radius:14px;overflow:hidden;">
+            <tr>
+              <td style="padding:26px 28px 8px;">
+                <p style="margin:0;color:#7a4f2a;font-weight:700;font-size:13px;letter-spacing:.04em;text-transform:uppercase;">Bare Naked Pet Co.</p>
+                <h1 style="margin:12px 0 8px;font-size:24px;line-height:1.25;color:#3b2a1e;">New sample request</h1>
+                <p style="margin:0 0 20px;color:#6b5f55;font-size:15px;line-height:1.55;">A retailer requested samples from the landing page. Review the lead and approve it in the portal.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 28px 24px;">
+                <div style="border:1px solid #eadfce;border-radius:12px;padding:18px;background:#fbf7ed;">
+                  <p style="margin:0 0 8px;font-size:20px;font-weight:700;color:#3b2a1e;">${escapeHtml(lead.store_name)}</p>
+                  <p style="margin:0;color:#6b5f55;font-size:14px;line-height:1.55;">
+                    ${escapeHtml(lead.contact_name)}<br />
+                    ${escapeHtml(lead.email)}<br />
+                    ${escapeHtml(lead.phone || 'Phone not provided')}
+                  </p>
+                </div>
+                <h2 style="margin:22px 0 8px;font-size:16px;color:#3b2a1e;">Shipping address</h2>
+                <p style="margin:0;color:#6b5f55;font-size:15px;line-height:1.6;white-space:pre-line;">${escapeHtml(address)}</p>
+                <h2 style="margin:22px 0 8px;font-size:16px;color:#3b2a1e;">Source</h2>
+                <p style="margin:0;color:#6b5f55;font-size:14px;line-height:1.6;">
+                  Source: ${escapeHtml(lead.source || 'landing_page')}<br />
+                  Campaign: ${escapeHtml(lead.utm_campaign || 'Not captured')}<br />
+                  Store type: ${escapeHtml(lead.store_type || 'Not provided')}<br />
+                  Website/Instagram: ${escapeHtml(lead.store_url || 'Not provided')}
+                </p>
+                <p style="margin:24px 0 0;">
+                  <a href="${escapeHtml(portalUrl)}" style="display:inline-block;background:#3b2a1e;color:#ffffff;text-decoration:none;font-weight:700;border-radius:8px;padding:12px 16px;">Review in portal</a>
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  await sendEmail({
+    from,
+    to: notifyTo,
+    replyTo: lead.email,
+    subject: `New sample request: ${lead.store_name}`,
+    text,
+    html,
+    tags: [{ name: 'feature', value: 'wholesale-leads' }],
+  });
 };
 
 export async function OPTIONS() {
@@ -164,6 +289,10 @@ export async function POST(request: Request) {
       console.error('Wholesale lead insert error:', error);
       return NextResponse.json({ error: 'Unable to save sample request.' }, { status: 500 });
     }
+
+    await sendInboundLeadNotification(row).catch((emailError) => {
+      console.error('Wholesale lead notification email error:', emailError);
+    });
 
     return NextResponse.json({
       success: true,
