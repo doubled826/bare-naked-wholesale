@@ -210,18 +210,6 @@ const formatHearAboutUs = (retailer: Retailer) => {
   return label || '—';
 };
 
-const isMissingShelfTalkerTableError = (error: unknown) => {
-  const maybeError = error as { code?: string; message?: string };
-  return Boolean(
-    maybeError && (
-      maybeError.code === 'PGRST205' ||
-      maybeError.code === 'PGRST200' ||
-      maybeError.code === '42P01' ||
-      maybeError.message?.includes('shelf_talker_fulfillments')
-    ),
-  );
-};
-
 const getStatusColor = (status: string) => {
   switch (status) {
     case 'pending':
@@ -494,53 +482,19 @@ export default function AdminRetailerDetailPage() {
       setIsLoading(true);
       setError('');
       try {
-        const ordersWithShelfTalkersSelect = 'id, order_number, status, total, subtotal, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category)), shelf_talker_fulfillments(id, retailer_id, location_id, flavor, status, fulfilled_order_id, qualified_at, fulfilled_at)';
-        const ordersBaseSelect = 'id, order_number, status, total, subtotal, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category))';
-        const [
-          retailerResponse,
-          ordersResult,
-          { data: locationsData, error: locationsError },
-          { data: successProfileData },
-          { data: promoData },
-          shelfTalkerResult,
-        ] = await Promise.all([
-          fetch(`/api/admin/retailers/${retailerId}`),
-          supabase.from('orders').select(ordersWithShelfTalkersSelect).eq('retailer_id', retailerId).order('created_at', { ascending: false }),
-          supabase.from('retailer_locations').select('id, location_name, business_address, phone, is_default, created_at').eq('retailer_id', retailerId).order('is_default', { ascending: false }).order('created_at', { ascending: true }),
-          supabase.from('retailer_success_profiles').select('*').eq('retailer_id', retailerId).maybeSingle(),
-          supabase.from('retailer_success_promo_settings').select('*').eq('id', 'current').maybeSingle(),
-          supabase.from('shelf_talker_fulfillments').select('*').eq('retailer_id', retailerId).order('created_at', { ascending: false }),
-        ]);
-
+        const retailerResponse = await fetch(`/api/admin/retailers/${retailerId}`, { cache: 'no-store' });
         const retailerPayload = await retailerResponse.json();
         if (!retailerResponse.ok || !retailerPayload?.retailer) {
           throw new Error(retailerPayload?.error || 'Failed to load retailer details.');
         }
-        let ordersData = ordersResult.data as unknown;
-        if (ordersResult.error) {
-          if (!isMissingShelfTalkerTableError(ordersResult.error)) throw ordersResult.error;
-
-          const fallbackOrdersResult = await supabase
-            .from('orders')
-            .select(ordersBaseSelect)
-            .eq('retailer_id', retailerId)
-            .order('created_at', { ascending: false });
-
-          if (fallbackOrdersResult.error) throw fallbackOrdersResult.error;
-          ordersData = fallbackOrdersResult.data as unknown;
-        }
-        if (locationsError) throw locationsError;
-        if (shelfTalkerResult.error && !isMissingShelfTalkerTableError(shelfTalkerResult.error)) {
-          throw shelfTalkerResult.error;
-        }
 
         const retailerData = retailerPayload.retailer as Retailer;
+        const nextLocations = (retailerPayload.locations || []) as RetailerLocation[];
         setRetailer(retailerData);
-        setOrders(normalizeOrders((ordersData || []) as unknown as Order[]));
-        setSuccessProfileRow(successProfileData || null);
-        setCurrentPromo(normalizeCurrentAstroPromo(promoData));
-        setShelfTalkerFulfillments((shelfTalkerResult.data || []) as ShelfTalkerFulfillment[]);
-        const nextLocations = (locationsData || []) as RetailerLocation[];
+        setOrders(normalizeOrders((retailerPayload.orders || []) as Order[]));
+        setSuccessProfileRow(retailerPayload.successProfile || null);
+        setCurrentPromo(normalizeCurrentAstroPromo(retailerPayload.currentPromo));
+        setShelfTalkerFulfillments((retailerPayload.shelfTalkerFulfillments || []) as ShelfTalkerFulfillment[]);
         setLocations(nextLocations);
 
         if (!hasSyncedProfileLocationRef.current && retailerData?.business_address) {

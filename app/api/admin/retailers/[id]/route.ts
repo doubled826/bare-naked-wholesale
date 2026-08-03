@@ -8,6 +8,20 @@ type RouteContext = {
   };
 };
 
+const ORDERS_SELECT_WITH_SHELF_TALKERS = 'id, order_number, status, total, subtotal, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category)), shelf_talker_fulfillments(id, retailer_id, location_id, flavor, status, fulfilled_order_id, qualified_at, fulfilled_at)';
+const ORDERS_SELECT = 'id, order_number, status, total, subtotal, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category))';
+
+function isMissingOptionalRelationError(error: { code?: string; message?: string } | null) {
+  if (!error) return false;
+  const message = error.message || '';
+  return (
+    error.code === 'PGRST205' ||
+    error.code === 'PGRST200' ||
+    error.code === '42P01' ||
+    message.includes('shelf_talker_fulfillments')
+  );
+}
+
 export async function GET(_request: Request, { params }: RouteContext) {
   try {
     const { adminClient } = await requireAdminAccess();
@@ -21,6 +35,11 @@ export async function GET(_request: Request, { params }: RouteContext) {
       { data: retailer, error: retailerError },
       { data: onboarding },
       { data: retailerUser, error: userError },
+      ordersResult,
+      { data: locations, error: locationsError },
+      { data: successProfile },
+      { data: currentPromo },
+      shelfTalkerResult,
     ] = await Promise.all([
       adminClient
         .from('retailers')
@@ -33,23 +52,84 @@ export async function GET(_request: Request, { params }: RouteContext) {
         .eq('retailer_id', retailerId)
         .maybeSingle(),
       adminClient.auth.admin.getUserById(retailerId),
+      adminClient
+        .from('orders')
+        .select(ORDERS_SELECT_WITH_SHELF_TALKERS)
+        .eq('retailer_id', retailerId)
+        .order('created_at', { ascending: false }),
+      adminClient
+        .from('retailer_locations')
+        .select('id, location_name, business_address, phone, is_default, created_at')
+        .eq('retailer_id', retailerId)
+        .order('is_default', { ascending: false })
+        .order('created_at', { ascending: true }),
+      adminClient
+        .from('retailer_success_profiles')
+        .select('*')
+        .eq('retailer_id', retailerId)
+        .maybeSingle(),
+      adminClient
+        .from('retailer_success_promo_settings')
+        .select('*')
+        .eq('id', 'current')
+        .maybeSingle(),
+      adminClient
+        .from('shelf_talker_fulfillments')
+        .select('*')
+        .eq('retailer_id', retailerId)
+        .order('created_at', { ascending: false }),
     ]);
 
     if (retailerError || !retailer) {
       return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
     }
 
+    let orders = ordersResult.data || [];
+    if (ordersResult.error) {
+      if (!isMissingOptionalRelationError(ordersResult.error)) {
+        throw ordersResult.error;
+      }
+
+      const fallbackOrdersResult = await adminClient
+        .from('orders')
+        .select(ORDERS_SELECT)
+        .eq('retailer_id', retailerId)
+        .order('created_at', { ascending: false });
+
+      if (fallbackOrdersResult.error) {
+        throw fallbackOrdersResult.error;
+      }
+
+      orders = (fallbackOrdersResult.data || []).map((order) => ({
+        ...order,
+        shelf_talker_fulfillments: [],
+      }));
+    }
+
+    if (locationsError) {
+      throw locationsError;
+    }
+
+    if (shelfTalkerResult.error && !isMissingOptionalRelationError(shelfTalkerResult.error)) {
+      throw shelfTalkerResult.error;
+    }
+
     if (userError || !retailerUser?.user) {
-      return NextResponse.json({ error: 'Retailer auth record not found' }, { status: 404 });
+      console.warn(`Retailer ${retailerId} loaded without a matching auth user record.`);
     }
 
     return NextResponse.json({
       retailer: {
         ...retailer,
-        email: retailerUser.user.email || '',
+        email: retailerUser?.user?.email || '',
         pipedrive_deal_id: onboarding?.pipedrive_deal_id || null,
         pipedrive_stage_name: onboarding?.pipedrive_stage_name || null,
       },
+      orders,
+      locations: locations || [],
+      successProfile: successProfile || null,
+      currentPromo: currentPromo || null,
+      shelfTalkerFulfillments: shelfTalkerResult.data || [],
     });
   } catch (error) {
     if (error instanceof AdminAuthorizationError) {
