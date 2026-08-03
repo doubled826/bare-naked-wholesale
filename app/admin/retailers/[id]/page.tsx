@@ -483,9 +483,28 @@ export default function AdminRetailerDetailPage() {
       setError('');
       try {
         const retailerResponse = await fetch(`/api/admin/retailers/${retailerId}`, { cache: 'no-store' });
-        const retailerPayload = await retailerResponse.json();
+        let retailerPayload = await retailerResponse.json();
         if (!retailerResponse.ok || !retailerPayload?.retailer) {
-          throw new Error(retailerPayload?.error || 'Failed to load retailer details.');
+          console.warn('Admin retailer API failed, retrying with client data:', retailerPayload?.error || retailerResponse.status);
+
+          const { data: fallbackRetailer, error: fallbackRetailerError } = await supabase
+            .from('retailers')
+            .select('id, company_name, business_address, phone, account_number, status, created_at')
+            .eq('id', retailerId)
+            .single();
+
+          if (fallbackRetailerError || !fallbackRetailer) {
+            throw new Error(retailerPayload?.error || 'Failed to load retailer details.');
+          }
+
+          retailerPayload = {
+            retailer: fallbackRetailer,
+            orders: [],
+            locations: [],
+            successProfile: null,
+            currentPromo: null,
+            shelfTalkerFulfillments: [],
+          };
         }
 
         const retailerData = retailerPayload.retailer as Retailer;

@@ -33,7 +33,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
 
     const { data: retailer, error: retailerError } = await adminClient
       .from('retailers')
-      .select('id, company_name, business_address, phone, account_number, status, created_at, how_heard_about_us, how_heard_about_us_other')
+      .select('id, company_name, business_address, phone, account_number, status, created_at')
       .eq('id', retailerId)
       .single();
 
@@ -49,6 +49,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
       successProfileResult,
       currentPromoResult,
       shelfTalkerResult,
+      sourceResult,
     ] = await Promise.all([
       adminClient
         .from('retailer_onboarding')
@@ -82,6 +83,11 @@ export async function GET(_request: Request, { params }: RouteContext) {
         .select('*')
         .eq('retailer_id', retailerId)
         .order('created_at', { ascending: false }),
+      adminClient
+        .from('retailers')
+        .select('how_heard_about_us, how_heard_about_us_other')
+        .eq('id', retailerId)
+        .maybeSingle(),
     ]);
 
     let orders = ordersResult.data || [];
@@ -122,6 +128,10 @@ export async function GET(_request: Request, { params }: RouteContext) {
       console.warn(`Retailer ${retailerId} onboarding failed to load:`, onboardingResult.error);
     }
 
+    if (sourceResult.error) {
+      console.warn(`Retailer ${retailerId} source fields failed to load:`, sourceResult.error);
+    }
+
     if (shelfTalkerResult.error && !isMissingOptionalRelationError(shelfTalkerResult.error)) {
       console.warn(`Retailer ${retailerId} shelf talkers failed to load:`, shelfTalkerResult.error);
     }
@@ -133,6 +143,8 @@ export async function GET(_request: Request, { params }: RouteContext) {
     return NextResponse.json({
       retailer: {
         ...retailer,
+        how_heard_about_us: sourceResult.data?.how_heard_about_us || null,
+        how_heard_about_us_other: sourceResult.data?.how_heard_about_us_other || null,
         email: retailerUserResult.data?.user?.email || '',
         pipedrive_deal_id: onboardingResult.data?.pipedrive_deal_id || null,
         pipedrive_stage_name: onboardingResult.data?.pipedrive_stage_name || null,
