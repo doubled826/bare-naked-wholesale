@@ -31,21 +31,25 @@ export async function GET(_request: Request, { params }: RouteContext) {
       return NextResponse.json({ error: 'Missing retailerId' }, { status: 400 });
     }
 
+    const { data: retailer, error: retailerError } = await adminClient
+      .from('retailers')
+      .select('id, company_name, business_address, phone, account_number, status, created_at, how_heard_about_us, how_heard_about_us_other')
+      .eq('id', retailerId)
+      .single();
+
+    if (retailerError || !retailer) {
+      return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
+    }
+
     const [
-      { data: retailer, error: retailerError },
-      { data: onboarding },
-      { data: retailerUser, error: userError },
+      onboardingResult,
+      retailerUserResult,
       ordersResult,
-      { data: locations, error: locationsError },
-      { data: successProfile },
-      { data: currentPromo },
+      locationsResult,
+      successProfileResult,
+      currentPromoResult,
       shelfTalkerResult,
     ] = await Promise.all([
-      adminClient
-        .from('retailers')
-        .select('id, company_name, business_address, phone, account_number, status, created_at, how_heard_about_us, how_heard_about_us_other')
-        .eq('id', retailerId)
-        .single(),
       adminClient
         .from('retailer_onboarding')
         .select('pipedrive_deal_id, pipedrive_stage_name')
@@ -80,55 +84,63 @@ export async function GET(_request: Request, { params }: RouteContext) {
         .order('created_at', { ascending: false }),
     ]);
 
-    if (retailerError || !retailer) {
-      return NextResponse.json({ error: 'Retailer not found' }, { status: 404 });
-    }
-
     let orders = ordersResult.data || [];
     if (ordersResult.error) {
       if (!isMissingOptionalRelationError(ordersResult.error)) {
-        throw ordersResult.error;
+        console.warn(`Retailer ${retailerId} orders failed to load:`, ordersResult.error);
+      } else {
+        const fallbackOrdersResult = await adminClient
+          .from('orders')
+          .select(ORDERS_SELECT)
+          .eq('retailer_id', retailerId)
+          .order('created_at', { ascending: false });
+
+        if (fallbackOrdersResult.error) {
+          console.warn(`Retailer ${retailerId} fallback orders failed to load:`, fallbackOrdersResult.error);
+        } else {
+          orders = (fallbackOrdersResult.data || []).map((order) => ({
+            ...order,
+            shelf_talker_fulfillments: [],
+          }));
+        }
       }
-
-      const fallbackOrdersResult = await adminClient
-        .from('orders')
-        .select(ORDERS_SELECT)
-        .eq('retailer_id', retailerId)
-        .order('created_at', { ascending: false });
-
-      if (fallbackOrdersResult.error) {
-        throw fallbackOrdersResult.error;
-      }
-
-      orders = (fallbackOrdersResult.data || []).map((order) => ({
-        ...order,
-        shelf_talker_fulfillments: [],
-      }));
     }
 
-    if (locationsError) {
-      throw locationsError;
+    if (locationsResult.error) {
+      console.warn(`Retailer ${retailerId} locations failed to load:`, locationsResult.error);
+    }
+
+    if (successProfileResult.error) {
+      console.warn(`Retailer ${retailerId} success profile failed to load:`, successProfileResult.error);
+    }
+
+    if (currentPromoResult.error) {
+      console.warn(`Retailer ${retailerId} current promo failed to load:`, currentPromoResult.error);
+    }
+
+    if (onboardingResult.error) {
+      console.warn(`Retailer ${retailerId} onboarding failed to load:`, onboardingResult.error);
     }
 
     if (shelfTalkerResult.error && !isMissingOptionalRelationError(shelfTalkerResult.error)) {
-      throw shelfTalkerResult.error;
+      console.warn(`Retailer ${retailerId} shelf talkers failed to load:`, shelfTalkerResult.error);
     }
 
-    if (userError || !retailerUser?.user) {
+    if (retailerUserResult.error || !retailerUserResult.data?.user) {
       console.warn(`Retailer ${retailerId} loaded without a matching auth user record.`);
     }
 
     return NextResponse.json({
       retailer: {
         ...retailer,
-        email: retailerUser?.user?.email || '',
-        pipedrive_deal_id: onboarding?.pipedrive_deal_id || null,
-        pipedrive_stage_name: onboarding?.pipedrive_stage_name || null,
+        email: retailerUserResult.data?.user?.email || '',
+        pipedrive_deal_id: onboardingResult.data?.pipedrive_deal_id || null,
+        pipedrive_stage_name: onboardingResult.data?.pipedrive_stage_name || null,
       },
       orders,
-      locations: locations || [],
-      successProfile: successProfile || null,
-      currentPromo: currentPromo || null,
+      locations: locationsResult.data || [],
+      successProfile: successProfileResult.data || null,
+      currentPromo: currentPromoResult.data || null,
       shelfTalkerFulfillments: shelfTalkerResult.data || [],
     });
   } catch (error) {
