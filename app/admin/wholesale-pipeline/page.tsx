@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Search,
   Store,
+  Trash2,
   Truck,
   X,
 } from 'lucide-react';
@@ -144,6 +145,7 @@ export default function WholesalePipelinePage() {
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('all');
   const [selectedLead, setSelectedLead] = useState<WholesaleLead | null>(null);
   const [approvingLeadId, setApprovingLeadId] = useState<string | null>(null);
+  const [deletingLeadId, setDeletingLeadId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchLeads();
@@ -192,6 +194,33 @@ export default function WholesalePipelinePage() {
       setNotice(error instanceof Error ? error.message : 'Unable to approve sample request.');
     } finally {
       setApprovingLeadId(null);
+    }
+  };
+
+  const deleteLead = async (lead: WholesaleLead) => {
+    const confirmed = window.confirm(`Delete ${lead.store_name} from the Wholesale Pipeline? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setDeletingLeadId(lead.id);
+    setNotice('');
+
+    try {
+      const response = await fetch(`/api/admin/wholesale-leads/${lead.id}`, {
+        method: 'DELETE',
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || 'Unable to delete wholesale lead.');
+      }
+
+      setLeads((current) => current.filter((item) => item.id !== lead.id));
+      setSelectedLead(null);
+      setNotice(`Deleted ${lead.store_name} from the Wholesale Pipeline.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Unable to delete wholesale lead.');
+    } finally {
+      setDeletingLeadId(null);
     }
   };
 
@@ -393,26 +422,46 @@ export default function WholesalePipelinePage() {
                 )}
               </div>
 
-              {selectedLead.status === 'new' && (
+              <div className="flex flex-col gap-3 sm:flex-row">
+                {selectedLead.status === 'new' && (
+                  <button
+                    type="button"
+                    onClick={() => approveLead(selectedLead)}
+                    disabled={approvingLeadId === selectedLead.id || deletingLeadId === selectedLead.id}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-bark-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-bark-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                  >
+                    {approvingLeadId === selectedLead.id ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Approving...
+                      </>
+                    ) : (
+                      <>
+                        <Truck className="h-4 w-4" />
+                        Approve Sample Request
+                      </>
+                    )}
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => approveLead(selectedLead)}
-                  disabled={approvingLeadId === selectedLead.id}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-bark-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-bark-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                  onClick={() => deleteLead(selectedLead)}
+                  disabled={approvingLeadId === selectedLead.id || deletingLeadId === selectedLead.id}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 >
-                  {approvingLeadId === selectedLead.id ? (
+                  {deletingLeadId === selectedLead.id ? (
                     <>
                       <RefreshCw className="h-4 w-4 animate-spin" />
-                      Approving...
+                      Deleting...
                     </>
                   ) : (
                     <>
-                      <Truck className="h-4 w-4" />
-                      Approve Sample Request
+                      <Trash2 className="h-4 w-4" />
+                      Delete Lead
                     </>
                   )}
                 </button>
-              )}
+              </div>
 
               <section className="rounded-lg border border-gray-200 p-5">
                 <h3 className="font-semibold text-gray-900">Contact</h3>
