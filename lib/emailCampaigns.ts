@@ -93,7 +93,9 @@ const escapeHtml = (value: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 
-const isLikelyEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+export const normalizeEmailAddress = (value: string) => value.trim().replace(/[;,]+$/g, '').trim().toLowerCase();
+
+export const isLikelyEmail = (value: string) => /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(value.trim());
 
 const getFirstName = (contactName?: string | null) => {
   const firstName = (contactName || '').trim().split(/\s+/)[0];
@@ -343,7 +345,7 @@ export function parseManualRecipients(value?: string | null): EmailCampaignRecip
 
   for (const token of tokens) {
     const match = token.match(/^(?:(.*?)\s*)?<([^>]+)>$/);
-    const email = (match?.[2] || token).trim().toLowerCase();
+    const email = normalizeEmailAddress(match?.[2] || token);
     const companyName = (match?.[1] || '').trim() || null;
     if (!isLikelyEmail(email) || unique.has(email)) continue;
     unique.set(email, {
@@ -407,6 +409,16 @@ const getFromAddress = () =>
 
 const getReplyToEmail = () => process.env.REPLY_TO_EMAIL || getTeamEmailTo();
 
+export class ResendCampaignEmailError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ResendCampaignEmailError';
+    this.status = status;
+  }
+}
+
 export async function sendResendCampaignEmail(options: {
   to: string;
   subject: string;
@@ -443,7 +455,8 @@ export async function sendResendCampaignEmail(options: {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(payload?.message || payload?.error || 'Resend request failed.');
+    const message = payload?.message || payload?.error || 'Resend request failed.';
+    throw new ResendCampaignEmailError(`Resend rejected the email (${response.status}): ${message}`, response.status);
   }
 
   return payload as { id?: string };

@@ -2,19 +2,20 @@ import { NextResponse } from 'next/server';
 import { AdminAuthorizationError, requireAdminAccess } from '@/lib/admin';
 import {
   getCampaignValidationError,
+  isLikelyEmail,
+  normalizeEmailAddress,
   renderEmailCampaign,
+  ResendCampaignEmailError,
   sendResendCampaignEmail,
 } from '@/lib/emailCampaigns';
 
 export const dynamic = 'force-dynamic';
 
-const isLikelyEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-
 export async function POST(request: Request) {
   try {
     await requireAdminAccess();
     const body = await request.json().catch(() => ({}));
-    const testEmail = typeof body?.testEmail === 'string' ? body.testEmail.trim().toLowerCase() : '';
+    const testEmail = typeof body?.testEmail === 'string' ? normalizeEmailAddress(body.testEmail) : '';
     const campaign = body?.campaign || {};
 
     if (!testEmail || !isLikelyEmail(testEmail)) {
@@ -45,6 +46,9 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof AdminAuthorizationError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof ResendCampaignEmailError) {
+      return NextResponse.json({ error: error.message }, { status: 502 });
     }
 
     console.error('Email campaign draft test send error:', error);

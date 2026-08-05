@@ -158,6 +158,8 @@ const formatDateTime = (value?: string | null) => {
 };
 
 const getTimestamp = (value?: string | null) => (value ? new Date(value).getTime() : 0);
+const normalizeTestEmailInput = (value: string) => value.trim().replace(/[;,]+$/g, '').trim().toLowerCase();
+const isLikelyTestEmail = (value: string) => /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(value.trim());
 
 const getRecipientEngagementTime = (recipient: DeliveryDetails['recipients'][number]) =>
   Math.max(
@@ -182,6 +184,7 @@ export default function AdminEmailCampaignsPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testStatus, setTestStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [sending, setSending] = useState(false);
   const [manualSearch, setManualSearch] = useState('');
   const [manualSuggestions, setManualSuggestions] = useState<RetailerRecipientOption[]>([]);
@@ -603,26 +606,40 @@ export default function AdminEmailCampaignsPage() {
       return;
     }
 
+    const normalizedTestEmail = normalizeTestEmailInput(testEmail);
+    if (!normalizedTestEmail || !isLikelyTestEmail(normalizedTestEmail)) {
+      setTestEmail(normalizedTestEmail);
+      setTestStatus({ type: 'error', message: 'Enter one valid test recipient email.' });
+      setNotice({ type: 'error', message: 'Enter one valid test recipient email.' });
+      return;
+    }
+
+    setTestEmail(normalizedTestEmail);
     setTesting(true);
+    setTestStatus(null);
     setNotice(null);
 
     try {
       const response = await fetch('/api/admin/email-campaigns/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ campaign: form, testEmail }),
+        body: JSON.stringify({ campaign: form, testEmail: normalizedTestEmail }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Unable to send test email.');
       const resendMessageId = typeof payload?.resendMessageId === 'string' ? payload.resendMessageId : '';
+      const successMessage = resendMessageId
+        ? `Accepted by Resend for ${normalizedTestEmail}. Message ID: ${resendMessageId}.`
+        : `Accepted by Resend for ${normalizedTestEmail}.`;
+      setTestStatus({ type: 'success', message: successMessage });
       setNotice({
         type: 'success',
-        message: resendMessageId
-          ? `Test email accepted by Resend for ${testEmail}. Message ID: ${resendMessageId}.`
-          : `Test email accepted by Resend for ${testEmail}.`,
+        message: `Test email ${successMessage.charAt(0).toLowerCase()}${successMessage.slice(1)}`,
       });
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to send test email.' });
+      const message = error instanceof Error ? error.message : 'Unable to send test email.';
+      setTestStatus({ type: 'error', message });
+      setNotice({ type: 'error', message });
     } finally {
       setTesting(false);
     }
@@ -1030,6 +1047,7 @@ export default function AdminEmailCampaignsPage() {
                     type="email"
                     value={testEmail}
                     onChange={(event) => setTestEmail(event.target.value)}
+                    onBlur={() => setTestEmail((value) => normalizeTestEmailInput(value))}
                     className="input"
                     placeholder="name@barenakedpet.com"
                   />
@@ -1038,6 +1056,23 @@ export default function AdminEmailCampaignsPage() {
                     {testing ? 'Sending...' : 'Send test'}
                   </button>
                 </div>
+                {testStatus && (
+                  <div
+                    className={cn(
+                      'flex items-start gap-2 rounded-xl border p-3 text-sm',
+                      testStatus.type === 'success'
+                        ? 'border-green-200 bg-green-50 text-green-700'
+                        : 'border-red-200 bg-red-50 text-red-700',
+                    )}
+                  >
+                    {testStatus.type === 'success' ? (
+                      <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    )}
+                    <span>{testStatus.message}</span>
+                  </div>
+                )}
 
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                   <div className="flex items-start gap-2">
