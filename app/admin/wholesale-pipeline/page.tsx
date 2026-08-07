@@ -72,6 +72,35 @@ type WholesaleLead = {
 
 type LeadTab = 'all' | 'samples' | 'canada';
 
+const provinceMeta = [
+  { key: 'BC', label: 'British Columbia', x: 14, y: 57 },
+  { key: 'AB', label: 'Alberta', x: 25, y: 56 },
+  { key: 'SK', label: 'Saskatchewan', x: 35, y: 57 },
+  { key: 'MB', label: 'Manitoba', x: 45, y: 58 },
+  { key: 'ON', label: 'Ontario', x: 58, y: 68 },
+  { key: 'QC', label: 'Quebec', x: 72, y: 62 },
+  { key: 'NB', label: 'New Brunswick', x: 80, y: 72 },
+  { key: 'NS', label: 'Nova Scotia', x: 86, y: 76 },
+  { key: 'PE', label: 'Prince Edward Island', x: 85, y: 70 },
+  { key: 'NL', label: 'Newfoundland and Labrador', x: 91, y: 55 },
+  { key: 'YT', label: 'Yukon', x: 16, y: 28 },
+  { key: 'NT', label: 'Northwest Territories', x: 34, y: 31 },
+  { key: 'NU', label: 'Nunavut', x: 55, y: 27 },
+] as const;
+
+const provinceAliases = provinceMeta.reduce<Record<string, string>>((aliases, province) => {
+  aliases[province.key.toLowerCase()] = province.key;
+  aliases[province.label.toLowerCase()] = province.key;
+  return aliases;
+}, {
+  nwt: 'NT',
+  'northwest territory': 'NT',
+  'newfoundland': 'NL',
+  labrador: 'NL',
+  pei: 'PE',
+  'p.e.i.': 'PE',
+});
+
 const statusOptions: Array<{ value: LeadStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All leads' },
   { value: 'new', label: 'New' },
@@ -204,6 +233,14 @@ const getLeadScore = (lead: WholesaleLead) => rawNumber(lead, ['leadScore', 'lea
 const getProvince = (lead: WholesaleLead) =>
   rawString(lead, ['province', 'provinceTerritory', 'province_territory']) || lead.shipping_state;
 
+const getProvinceKey = (value?: string | null) => {
+  const normalized = (value || '').trim().toLowerCase();
+  if (!normalized) return '';
+  return provinceAliases[normalized] || value?.trim().toUpperCase() || '';
+};
+
+const getLeadProvinceKey = (lead: WholesaleLead) => getProvinceKey(getProvince(lead));
+
 const normalizeUrl = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) return '';
@@ -220,6 +257,7 @@ export default function WholesalePipelinePage() {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('all');
   const [activeTab, setActiveTab] = useState<LeadTab>('all');
+  const [selectedProvinceKey, setSelectedProvinceKey] = useState('');
   const [selectedLead, setSelectedLead] = useState<WholesaleLead | null>(null);
   const [approvingLeadId, setApprovingLeadId] = useState<string | null>(null);
   const [deletingLeadId, setDeletingLeadId] = useState<string | null>(null);
@@ -307,6 +345,7 @@ export default function WholesalePipelinePage() {
     return leads.filter((lead) => {
       if (activeTab === 'samples' && !isSampleLead(lead)) return false;
       if (activeTab === 'canada' && !isCanadaLead(lead)) return false;
+      if (activeTab === 'canada' && selectedProvinceKey && getLeadProvinceKey(lead) !== selectedProvinceKey) return false;
       if (statusFilter !== 'all' && lead.status !== statusFilter) return false;
       if (!normalizedQuery) return true;
 
@@ -324,11 +363,12 @@ export default function WholesalePipelinePage() {
         getDistributorMentions(lead).join(' '),
         getProductInterest(lead).join(' '),
         getFirstOrderRange(lead),
+        getProvince(lead),
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalizedQuery));
     });
-  }, [activeTab, leads, query, statusFilter]);
+  }, [activeTab, leads, query, selectedProvinceKey, statusFilter]);
 
   const stats = useMemo(() => {
     const sampleLeads = leads.filter(isSampleLead);
@@ -362,7 +402,7 @@ export default function WholesalePipelinePage() {
   const canadaStats = useMemo(() => {
     const canadaLeads = leads.filter(isCanadaLead);
     const provinceCounts = canadaLeads.reduce<Record<string, number>>((counts, lead) => {
-      const province = getProvince(lead) || 'Unknown';
+      const province = getLeadProvinceKey(lead) || 'Unknown';
       counts[province] = (counts[province] || 0) + 1;
       return counts;
     }, {});
@@ -375,10 +415,19 @@ export default function WholesalePipelinePage() {
     const scores = canadaLeads.map(getLeadScore).filter((score): score is number => score !== null);
     const topProvince = Object.entries(provinceCounts).sort((a, b) => b[1] - a[1])[0];
     const topDistributor = Object.entries(distributorCounts).sort((a, b) => b[1] - a[1])[0];
+    const provinceRows = provinceMeta
+      .map((province) => ({
+        ...province,
+        count: provinceCounts[province.key] || 0,
+      }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    const maxProvinceCount = Math.max(...provinceRows.map((province) => province.count), 0);
 
     return {
       total: canadaLeads.length,
-      topProvince: topProvince ? `${topProvince[0]} (${topProvince[1]})` : 'None yet',
+      provinceRows,
+      maxProvinceCount,
+      topProvince: topProvince ? `${provinceMeta.find((province) => province.key === topProvince[0])?.label || topProvince[0]} (${topProvince[1]})` : 'None yet',
       averageScore: scores.length ? (scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1) : 'Not scored',
       topDistributor: topDistributor ? `${topDistributor[0]} (${topDistributor[1]})` : 'None captured',
     };
@@ -469,6 +518,111 @@ export default function WholesalePipelinePage() {
                   <p className="mt-1 text-sm font-semibold text-gray-900">{value}</p>
                 </div>
               ))}
+            </div>
+            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <section className="rounded-lg border border-cream-200 bg-white p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h2 className="text-sm font-semibold text-gray-900">Store Interest Map</h2>
+                    <p className="mt-1 text-xs text-gray-500">Canadian retailer interest by province and territory.</p>
+                  </div>
+                  {selectedProvinceKey && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProvinceKey('')}
+                      className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 transition hover:border-bark-500 hover:text-bark-500"
+                    >
+                      Clear province
+                    </button>
+                  )}
+                </div>
+
+                <div className="relative mt-4 h-[320px] overflow-hidden rounded-lg border border-cream-200 bg-[#f6efe2]">
+                  <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(59,42,30,0.05)_1px,transparent_1px),linear-gradient(rgba(59,42,30,0.05)_1px,transparent_1px)] bg-[size:48px_48px]" />
+                  <div className="absolute left-[7%] top-[18%] h-[68%] w-[84%] rounded-[45%] border border-bark-500/10 bg-white/35 shadow-inner" />
+                  <div className="absolute left-[49%] top-[12%] h-[44%] w-[30%] rotate-[-10deg] rounded-[45%] border border-bark-500/10 bg-white/25" />
+                  <div className="absolute left-[68%] top-[48%] h-[28%] w-[25%] rotate-[12deg] rounded-[45%] border border-bark-500/10 bg-white/30" />
+
+                  {canadaStats.provinceRows.map((province) => {
+                    const isSelected = selectedProvinceKey === province.key;
+                    const hasLeads = province.count > 0;
+                    const size = hasLeads && canadaStats.maxProvinceCount
+                      ? 18 + Math.round((province.count / canadaStats.maxProvinceCount) * 28)
+                      : 12;
+
+                    return (
+                      <button
+                        key={province.key}
+                        type="button"
+                        disabled={!hasLeads}
+                        onClick={() => setSelectedProvinceKey(isSelected ? '' : province.key)}
+                        className={cn(
+                          'absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 text-[10px] font-bold shadow-sm transition',
+                          hasLeads
+                            ? 'border-white bg-bark-500 text-white hover:scale-110 hover:bg-bark-600'
+                            : 'border-cream-300 bg-white/80 text-gray-400',
+                          isSelected && 'scale-125 ring-4 ring-bark-500/20'
+                        )}
+                        style={{
+                          left: `${province.x}%`,
+                          top: `${province.y}%`,
+                          width: size,
+                          height: size,
+                        }}
+                        aria-label={`${province.label}: ${province.count} leads`}
+                        title={`${province.label}: ${province.count} leads`}
+                      >
+                        {hasLeads ? province.count : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-cream-200 bg-white p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-gray-900">Province Density</h2>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {selectedProvinceKey
+                        ? `${provinceMeta.find((province) => province.key === selectedProvinceKey)?.label || selectedProvinceKey} selected`
+                        : 'Ranked by Canadian lead count.'}
+                    </p>
+                  </div>
+                  <MapPin className="h-4 w-4 text-bark-500/55" />
+                </div>
+                <div className="mt-4 space-y-2">
+                  {canadaStats.provinceRows.slice(0, 8).map((province) => {
+                    const isSelected = selectedProvinceKey === province.key;
+                    const percent = canadaStats.maxProvinceCount ? (province.count / canadaStats.maxProvinceCount) * 100 : 0;
+
+                    return (
+                      <button
+                        key={province.key}
+                        type="button"
+                        onClick={() => setSelectedProvinceKey(isSelected ? '' : province.key)}
+                        className={cn(
+                          'w-full rounded-md border px-3 py-2 text-left transition',
+                          isSelected
+                            ? 'border-bark-500 bg-bark-50'
+                            : 'border-gray-100 hover:border-bark-500/40 hover:bg-gray-50'
+                        )}
+                      >
+                        <span className="flex items-center justify-between gap-3">
+                          <span className="text-sm font-semibold text-gray-800">{province.label}</span>
+                          <span className="text-xs font-semibold text-gray-500">{province.count}</span>
+                        </span>
+                        <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-gray-100">
+                          <span
+                            className="block h-full rounded-full bg-bark-500"
+                            style={{ width: `${percent}%` }}
+                          />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
           </div>
         )}
