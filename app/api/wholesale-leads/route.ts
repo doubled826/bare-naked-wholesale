@@ -44,6 +44,15 @@ const normalizeBuyingWholesale = (value: string) => {
   return BUYING_WHOLESALE_VALUES.has(normalized) ? normalized : null;
 };
 
+const isCanadaEarlyAccessLead = (body: LeadBody) => {
+  const source = getString(body, ['source']).toLowerCase();
+  const campaign = getString(body, ['utmCampaign', 'utm_campaign']).toLowerCase();
+  const country = getString(body, ['country']).toLowerCase();
+  const province = getString(body, ['province', 'provinceTerritory', 'province_territory']);
+
+  return source.includes('canada') || campaign.includes('canada') || country === 'canada' || Boolean(province);
+};
+
 const getLocationCount = (body: LeadBody) => {
   const rawValue = getString(body, ['locationCount', 'location_count', 'numberOfLocations', 'number_of_locations']);
   if (!rawValue) return null;
@@ -118,11 +127,13 @@ const sendInboundLeadNotification = async (lead: {
 }) => {
   const portalUrl = getPortalUrl();
   const address = formatAddress(lead);
+  const isCanadaLead = (lead.source || '').toLowerCase().includes('canada') || (lead.utm_campaign || '').toLowerCase().includes('canada');
+  const leadLabel = isCanadaLead ? 'Canadian early-access lead' : 'sample request';
   const notifyTo = process.env.WHOLESALE_LEAD_NOTIFY_TO || 'info@barenakedpet.com';
   const from = process.env.PORTAL_EMAIL_FROM || process.env.ORDER_EMAIL_FROM || process.env.SMTP_USER || 'info@barenakedpet.com';
 
   const text = `
-New wholesale sample request received.
+New wholesale ${leadLabel} received.
 
 Store: ${lead.store_name}
 Contact: ${lead.contact_name}
@@ -137,7 +148,7 @@ ${address}
 Source: ${lead.source || 'landing_page'}
 Campaign: ${lead.utm_campaign || 'Not captured'}
 
-Review and approve in the portal:
+Review in the portal:
 ${portalUrl}
   `.trim();
 
@@ -151,8 +162,8 @@ ${portalUrl}
             <tr>
               <td style="padding:26px 28px 8px;">
                 <p style="margin:0;color:#7a4f2a;font-weight:700;font-size:13px;letter-spacing:.04em;text-transform:uppercase;">Bare Naked Pet Co.</p>
-                <h1 style="margin:12px 0 8px;font-size:24px;line-height:1.25;color:#3b2a1e;">New sample request</h1>
-                <p style="margin:0 0 20px;color:#6b5f55;font-size:15px;line-height:1.55;">A retailer requested samples from the landing page. Review the lead and approve it in the portal.</p>
+                <h1 style="margin:12px 0 8px;font-size:24px;line-height:1.25;color:#3b2a1e;">New wholesale lead</h1>
+                <p style="margin:0 0 20px;color:#6b5f55;font-size:15px;line-height:1.55;">A retailer submitted interest from a landing page. Review the lead in the portal.</p>
               </td>
             </tr>
             <tr>
@@ -190,7 +201,7 @@ ${portalUrl}
     from,
     to: notifyTo,
     replyTo: lead.email,
-    subject: `New sample request: ${lead.store_name}`,
+    subject: `New wholesale lead: ${lead.store_name}`,
     text,
     html,
     tags: [{ name: 'feature', value: 'wholesale-leads' }],
@@ -223,16 +234,21 @@ export async function POST(request: Request) {
     const contactName = getString(body, ['contactName', 'contact_name', 'name']);
     const email = normalizeEmail(getString(body, ['email']));
     const storeName = getString(body, ['storeName', 'store_name', 'businessName', 'business_name']);
+    const isCanadaLead = isCanadaEarlyAccessLead(body);
     const shippingAddress1 = getString(body, ['shippingAddress1', 'shipping_address_1', 'address1', 'address']);
     const shippingCity = getString(body, ['shippingCity', 'shipping_city', 'city']);
-    const shippingState = getString(body, ['shippingState', 'shipping_state', 'state']);
+    const shippingState = getString(body, ['shippingState', 'shipping_state', 'state', 'province', 'provinceTerritory', 'province_territory']);
     const shippingPostalCode = getString(body, ['shippingPostalCode', 'shipping_postal_code', 'zip', 'postalCode', 'postal_code']);
 
-    if (!contactName || !email || !storeName || !shippingAddress1 || !shippingCity || !shippingState || !shippingPostalCode) {
+    const hasRequiredContactFields = contactName && email && storeName && shippingCity && shippingState;
+    const hasSampleShippingFields = shippingAddress1 && shippingPostalCode;
+
+    if (!hasRequiredContactFields || (!isCanadaLead && !hasSampleShippingFields)) {
       return NextResponse.json(
         {
-          error:
-            'Missing required fields. Include contactName, email, storeName, shippingAddress1, shippingCity, shippingState, and shippingPostalCode.',
+          error: isCanadaLead
+            ? 'Missing required fields. Include contactName, email, storeName, city, and province.'
+            : 'Missing required fields. Include contactName, email, storeName, shippingAddress1, shippingCity, shippingState, and shippingPostalCode.',
         },
         { status: 400 },
       );
@@ -254,12 +270,12 @@ export async function POST(request: Request) {
       currently_buying_wholesale: normalizeBuyingWholesale(
         getString(body, ['currentlyBuyingWholesale', 'currently_buying_wholesale', 'buysWholesale', 'buys_wholesale']),
       ),
-      shipping_address_1: shippingAddress1,
+      shipping_address_1: shippingAddress1 || 'Not collected',
       shipping_address_2: getOptionalString(body, ['shippingAddress2', 'shipping_address_2', 'address2']),
       shipping_city: shippingCity,
       shipping_state: shippingState,
-      shipping_postal_code: shippingPostalCode,
-      source: getString(body, ['source']) || 'landing_page',
+      shipping_postal_code: shippingPostalCode || 'Not collected',
+      source: getString(body, ['source']) || (isCanadaLead ? 'canada_retailer_early_access' : 'landing_page'),
       utm_source: getOptionalString(body, ['utmSource', 'utm_source']),
       utm_medium: getOptionalString(body, ['utmMedium', 'utm_medium']),
       utm_campaign: getOptionalString(body, ['utmCampaign', 'utm_campaign']),
@@ -297,7 +313,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       lead: data,
-      message: 'Sample request received.',
+      message: isCanadaLead ? 'Canadian retailer early-access request received.' : 'Sample request received.',
     });
   } catch (error) {
     console.error('Wholesale lead intake error:', error);

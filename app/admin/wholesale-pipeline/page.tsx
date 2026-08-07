@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowUpRight,
+  BarChart3,
   Clock,
   ExternalLink,
+  Globe2,
   Mail,
   MapPin,
   Phone,
@@ -66,7 +67,10 @@ type WholesaleLead = {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  raw_payload: Record<string, unknown> | null;
 };
+
+type LeadTab = 'all' | 'samples' | 'canada';
 
 const statusOptions: Array<{ value: LeadStatus | 'all'; label: string }> = [
   { value: 'all', label: 'All leads' },
@@ -119,6 +123,59 @@ const formatDate = (value?: string | null) => {
   }).format(new Date(value));
 };
 
+const rawString = (lead: WholesaleLead, keys: string[]) => {
+  const payload = lead.raw_payload || {};
+
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  }
+
+  return '';
+};
+
+const rawNumber = (lead: WholesaleLead, keys: string[]) => {
+  const value = rawString(lead, keys);
+  if (!value) return null;
+
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const rawList = (lead: WholesaleLead, keys: string[]) => {
+  const payload = lead.raw_payload || {};
+
+  for (const key of keys) {
+    const value = payload[key];
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item).trim()).filter(Boolean);
+    }
+    if (typeof value === 'string' && value.trim()) {
+      return value
+        .split(/[,;\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+  }
+
+  return [];
+};
+
+const isCanadaLead = (lead: WholesaleLead) => {
+  const source = (lead.source || '').toLowerCase();
+  const campaign = (lead.utm_campaign || '').toLowerCase();
+  const country = rawString(lead, ['country']).toLowerCase();
+  const province = rawString(lead, ['province', 'provinceTerritory', 'province_territory']);
+
+  return source.includes('canada') || campaign.includes('canada') || country === 'canada' || Boolean(province);
+};
+
+const isSampleLead = (lead: WholesaleLead) => !isCanadaLead(lead) || (lead.source || '').toLowerCase().includes('sample');
+
+const getLeadTypeLabel = (lead: WholesaleLead) => (isCanadaLead(lead) ? 'Canada early access' : 'Sample request');
+
 const getAddress = (lead: WholesaleLead) =>
   [
     lead.shipping_address_1,
@@ -127,6 +184,25 @@ const getAddress = (lead: WholesaleLead) =>
   ]
     .filter(Boolean)
     .join('\n');
+
+const getLocation = (lead: WholesaleLead) =>
+  [lead.shipping_city, lead.shipping_state, lead.shipping_postal_code]
+    .filter((value) => value && value !== 'Not collected')
+    .join(', ');
+
+const getDistributorMentions = (lead: WholesaleLead) =>
+  rawList(lead, ['distributors', 'currentDistributors', 'current_distributors', 'distributorsCurrentlyUsed']);
+
+const getProductInterest = (lead: WholesaleLead) =>
+  rawList(lead, ['productInterest', 'product_interest', 'interestedProducts', 'products_interest']);
+
+const getFirstOrderRange = (lead: WholesaleLead) =>
+  rawString(lead, ['estimatedFirstOrderRange', 'estimated_first_order_range', 'firstOrderRange', 'comfortableFirstOrder']);
+
+const getLeadScore = (lead: WholesaleLead) => rawNumber(lead, ['leadScore', 'lead_score']);
+
+const getProvince = (lead: WholesaleLead) =>
+  rawString(lead, ['province', 'provinceTerritory', 'province_territory']) || lead.shipping_state;
 
 const normalizeUrl = (value: string) => {
   const trimmed = value.trim();
@@ -143,6 +219,7 @@ export default function WholesalePipelinePage() {
   const [notice, setNotice] = useState('');
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('all');
+  const [activeTab, setActiveTab] = useState<LeadTab>('all');
   const [selectedLead, setSelectedLead] = useState<WholesaleLead | null>(null);
   const [approvingLeadId, setApprovingLeadId] = useState<string | null>(null);
   const [deletingLeadId, setDeletingLeadId] = useState<string | null>(null);
@@ -228,6 +305,8 @@ export default function WholesalePipelinePage() {
     const normalizedQuery = query.trim().toLowerCase();
 
     return leads.filter((lead) => {
+      if (activeTab === 'samples' && !isSampleLead(lead)) return false;
+      if (activeTab === 'canada' && !isCanadaLead(lead)) return false;
       if (statusFilter !== 'all' && lead.status !== statusFilter) return false;
       if (!normalizedQuery) return true;
 
@@ -240,17 +319,26 @@ export default function WholesalePipelinePage() {
         lead.shipping_state,
         lead.store_url,
         lead.utm_campaign,
+        lead.source,
+        getLeadTypeLabel(lead),
+        getDistributorMentions(lead).join(' '),
+        getProductInterest(lead).join(' '),
+        getFirstOrderRange(lead),
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalizedQuery));
     });
-  }, [leads, query, statusFilter]);
+  }, [activeTab, leads, query, statusFilter]);
 
   const stats = useMemo(() => {
-    const pendingSamples = leads.filter((lead) => ['new', 'approved', 'sample_pack_pending'].includes(lead.status)).length;
+    const sampleLeads = leads.filter(isSampleLead);
+    const canadaLeads = leads.filter(isCanadaLead);
+    const pendingSamples = sampleLeads.filter((lead) => ['new', 'approved', 'sample_pack_pending'].includes(lead.status)).length;
     return {
       total: leads.length,
       new: leads.filter((lead) => lead.status === 'new').length,
+      samples: sampleLeads.length,
+      canada: canadaLeads.length,
       trackingAdded: leads.filter((lead) => lead.status === 'tracking_added').length,
       converted: leads.filter((lead) => lead.status === 'converted').length,
       pendingSamples,
@@ -260,10 +348,41 @@ export default function WholesalePipelinePage() {
   const statCards: StatCard[] = [
     { label: 'Total leads', value: stats.total, icon: Store },
     { label: 'New', value: stats.new, icon: Clock },
+    { label: 'Canada early access', value: stats.canada, icon: Globe2 },
     { label: 'Needs sample action', value: stats.pendingSamples, icon: Truck },
-    { label: 'Tracking added', value: stats.trackingAdded, icon: ArrowUpRight },
-    { label: 'Converted', value: stats.converted, icon: Store },
+    { label: 'Converted', value: stats.converted, icon: BarChart3 },
   ];
+
+  const leadTabs: Array<{ id: LeadTab; label: string; count: number; description: string }> = [
+    { id: 'all', label: 'All Leads', count: stats.total, description: 'Every wholesale inquiry in one view.' },
+    { id: 'samples', label: 'Sample Requests', count: stats.samples, description: 'Requests that need fulfillment and tracking.' },
+    { id: 'canada', label: 'Canada Early Access', count: stats.canada, description: 'Canadian retailers interested in launch availability.' },
+  ];
+
+  const canadaStats = useMemo(() => {
+    const canadaLeads = leads.filter(isCanadaLead);
+    const provinceCounts = canadaLeads.reduce<Record<string, number>>((counts, lead) => {
+      const province = getProvince(lead) || 'Unknown';
+      counts[province] = (counts[province] || 0) + 1;
+      return counts;
+    }, {});
+    const distributorCounts = canadaLeads.reduce<Record<string, number>>((counts, lead) => {
+      getDistributorMentions(lead).forEach((distributor) => {
+        counts[distributor] = (counts[distributor] || 0) + 1;
+      });
+      return counts;
+    }, {});
+    const scores = canadaLeads.map(getLeadScore).filter((score): score is number => score !== null);
+    const topProvince = Object.entries(provinceCounts).sort((a, b) => b[1] - a[1])[0];
+    const topDistributor = Object.entries(distributorCounts).sort((a, b) => b[1] - a[1])[0];
+
+    return {
+      total: canadaLeads.length,
+      topProvince: topProvince ? `${topProvince[0]} (${topProvince[1]})` : 'None yet',
+      averageScore: scores.length ? (scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1) : 'Not scored',
+      topDistributor: topDistributor ? `${topDistributor[0]} (${topDistributor[1]})` : 'None captured',
+    };
+  }, [leads]);
 
   return (
     <div className="space-y-6">
@@ -271,7 +390,7 @@ export default function WholesalePipelinePage() {
         <div>
           <h1 className="page-title">Wholesale Pipeline</h1>
           <p className="mt-2 text-sm text-gray-600">
-            Sample requests from the retailer landing page and ad campaigns.
+            Review sample requests and Canadian retailer early-access leads from landing pages and campaigns.
           </p>
         </div>
         <button
@@ -303,6 +422,57 @@ export default function WholesalePipelinePage() {
       </div>
 
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 p-2">
+          <div className="grid gap-2 lg:grid-cols-3">
+            {leadTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  'rounded-md px-4 py-3 text-left transition',
+                  activeTab === tab.id
+                    ? 'bg-bark-500 text-white shadow-sm'
+                    : 'text-gray-700 hover:bg-gray-50'
+                )}
+              >
+                <span className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-semibold">{tab.label}</span>
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-0.5 text-xs font-semibold',
+                      activeTab === tab.id ? 'bg-white/15 text-white' : 'bg-gray-100 text-gray-600'
+                    )}
+                  >
+                    {tab.count}
+                  </span>
+                </span>
+                <span className={cn('mt-1 block text-xs', activeTab === tab.id ? 'text-cream-100/80' : 'text-gray-500')}>
+                  {tab.description}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {activeTab === 'canada' && (
+          <div className="border-b border-gray-200 bg-cream-50 p-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                ['Canada leads', canadaStats.total],
+                ['Top province', canadaStats.topProvince],
+                ['Average lead score', canadaStats.averageScore],
+                ['Top distributor', canadaStats.topDistributor],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-md border border-cream-200 bg-white px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/60">{label}</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-900">{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-3 border-b border-gray-200 p-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative max-w-xl flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -345,7 +515,7 @@ export default function WholesalePipelinePage() {
                 <tr>
                   <th className="table-header px-5 py-3">Store</th>
                   <th className="table-header px-5 py-3">Contact</th>
-                  <th className="table-header px-5 py-3">Ship To</th>
+                  <th className="table-header px-5 py-3">Location</th>
                   <th className="table-header px-5 py-3">Source</th>
                   <th className="table-header px-5 py-3">Status</th>
                   <th className="table-header px-5 py-3">Received</th>
@@ -358,6 +528,7 @@ export default function WholesalePipelinePage() {
                     <td className="px-5 py-4">
                       <p className="font-semibold text-gray-900">{lead.store_name}</p>
                       <p className="mt-1 text-xs text-gray-500">{lead.store_type || 'Store type not provided'}</p>
+                      <p className="mt-1 text-xs font-semibold text-bark-500/70">{getLeadTypeLabel(lead)}</p>
                     </td>
                     <td className="px-5 py-4 text-sm text-gray-700">
                       <p className="font-medium text-gray-900">{lead.contact_name}</p>
@@ -365,7 +536,7 @@ export default function WholesalePipelinePage() {
                       {lead.phone && <p className="mt-1 text-gray-500">{lead.phone}</p>}
                     </td>
                     <td className="px-5 py-4 text-sm text-gray-700">
-                      {lead.shipping_city}, {lead.shipping_state} {lead.shipping_postal_code}
+                      {getLocation(lead) || 'Not captured'}
                     </td>
                     <td className="px-5 py-4 text-sm text-gray-700">
                       <p className="font-medium">{lead.utm_campaign || lead.source || 'landing_page'}</p>
@@ -417,13 +588,16 @@ export default function WholesalePipelinePage() {
                 <span className={cn('inline-flex rounded-full px-2.5 py-1 text-xs font-semibold', statusStyles[selectedLead.status])}>
                   {statusLabels[selectedLead.status]}
                 </span>
+                <span className="inline-flex rounded-full bg-cream-100 px-2.5 py-1 text-xs font-semibold text-bark-500">
+                  {getLeadTypeLabel(selectedLead)}
+                </span>
                 {selectedLead.converted_retailer_id && (
                   <span className="inline-flex rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">Converted</span>
                 )}
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row">
-                {selectedLead.status === 'new' && (
+                {selectedLead.status === 'new' && isSampleLead(selectedLead) && (
                   <button
                     type="button"
                     onClick={() => approveLead(selectedLead)}
@@ -507,12 +681,41 @@ export default function WholesalePipelinePage() {
               </section>
 
               <section className="rounded-lg border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-900">Shipping</h3>
+                <h3 className="font-semibold text-gray-900">{isSampleLead(selectedLead) ? 'Shipping' : 'Location'}</h3>
                 <div className="mt-4 flex gap-3 whitespace-pre-line text-sm text-gray-700">
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
-                  {getAddress(selectedLead)}
+                  {isSampleLead(selectedLead) ? getAddress(selectedLead) : getLocation(selectedLead) || 'Not captured'}
                 </div>
               </section>
+
+              {isCanadaLead(selectedLead) && (
+                <section className="rounded-lg border border-gray-200 p-5">
+                  <h3 className="font-semibold text-gray-900">Canada Launch Planning</h3>
+                  <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                    {[
+                      ['Province', getProvince(selectedLead)],
+                      ['Lead score', getLeadScore(selectedLead)?.toString()],
+                      ['Product interest', getProductInterest(selectedLead).join(', ')],
+                      ['Estimated first order', getFirstOrderRange(selectedLead)],
+                      ['Distributors', getDistributorMentions(selectedLead).join(', ')],
+                      ['Consent', rawString(selectedLead, ['consentAccepted', 'consent_accepted'])],
+                    ].map(([label, value]) => (
+                      <div key={label} className="rounded-md bg-gray-50 p-3">
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</dt>
+                        <dd className="mt-1 break-words font-medium text-gray-900">{value || 'Not captured'}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {rawString(selectedLead, ['additionalNotes', 'anythingElse', 'notes', 'anything_else']) && (
+                    <div className="mt-4 rounded-md bg-gray-50 p-3 text-sm">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Retailer notes</p>
+                      <p className="mt-1 whitespace-pre-line font-medium text-gray-900">
+                        {rawString(selectedLead, ['additionalNotes', 'anythingElse', 'notes', 'anything_else'])}
+                      </p>
+                    </div>
+                  )}
+                </section>
+              )}
 
               <section className="rounded-lg border border-gray-200 p-5">
                 <h3 className="font-semibold text-gray-900">Attribution</h3>
@@ -551,23 +754,25 @@ export default function WholesalePipelinePage() {
                 )}
               </section>
 
-              <section className="rounded-lg border border-gray-200 p-5">
-                <h3 className="font-semibold text-gray-900">Fulfillment</h3>
-                <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                  <div>
-                    <dt className="text-gray-500">Approved</dt>
-                    <dd className="mt-1 font-medium text-gray-900">{formatDate(selectedLead.approved_at)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500">Tracking</dt>
-                    <dd className="mt-1 font-medium text-gray-900">
-                      {selectedLead.tracking_number
-                        ? [selectedLead.tracking_carrier, selectedLead.tracking_number].filter(Boolean).join(' ')
-                        : 'Not added'}
-                    </dd>
-                  </div>
-                </dl>
-              </section>
+              {isSampleLead(selectedLead) && (
+                <section className="rounded-lg border border-gray-200 p-5">
+                  <h3 className="font-semibold text-gray-900">Fulfillment</h3>
+                  <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <dt className="text-gray-500">Approved</dt>
+                      <dd className="mt-1 font-medium text-gray-900">{formatDate(selectedLead.approved_at)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500">Tracking</dt>
+                      <dd className="mt-1 font-medium text-gray-900">
+                        {selectedLead.tracking_number
+                          ? [selectedLead.tracking_carrier, selectedLead.tracking_number].filter(Boolean).join(' ')
+                          : 'Not added'}
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+              )}
             </div>
           </div>
         </div>
