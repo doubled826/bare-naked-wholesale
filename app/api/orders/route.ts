@@ -3,16 +3,11 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { formatOrderItemsText, formatTeamOrderItemsText, sendRetailerEmail, sendTeamEmail } from '@/lib/email';
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
-import { applyRetailerCredits } from '@/lib/retailerCredits';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 import { formatShelfTalkerList, queueShelfTalkersForOrder } from '@/lib/shelfTalkers';
-import {
-  BARE_LAUNCH_OFFER_CODE,
-  BARE_LAUNCH_OFFER_NAME,
-  calculateBareLaunchOfferDiscount,
-  getBareLaunchOfferStatus,
-} from '@/lib/bareLaunchOffer';
-import { findApplicableDiscount, recordDiscountRedemption } from '@/lib/discountCodes';
+import { BARE_LAUNCH_OFFER_CODE, BARE_LAUNCH_OFFER_NAME } from '@/lib/bareLaunchOffer';
+import { getOfferResolution, toPublicOfferBenefit } from '@/lib/offerResolver';
+import { createOrderWithPromotions } from '@/lib/orderTransactions';
 
 export async function POST(request: Request) {
   try {
@@ -25,7 +20,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { items, deliveryDate, promotionCode, locationId, includeSamples } = await request.json();
+    const { items, deliveryDate, promotionCode, locationId, includeSamples, orderSubmissionKey } = await request.json();
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ error: 'Your cart is empty.' }, { status: 400 });
+    }
 
     let shipToLocation: { id: string; location_name: string; business_address: string; phone: string | null } | null = null;
     if (locationId) {
@@ -45,11 +44,31 @@ export async function POST(request: Request) {
 
     const adminClient = createSupabaseAdminClient();
 
-    // Calculate totals
-    const subtotal = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+    const productIds = items.map((item: any) => item.id).filter(Boolean);
+    const { data: products, error: productsError } = await adminClient
+      .from('products')
+      .select('id, name, size, price')
+      .in('id', productIds);
+
+    if (productsError || !products) {
+      return NextResponse.json({ error: 'Unable to validate cart items.' }, { status: 500 });
+    }
+
+    const productMap = new Map(products.map((product: any) => [product.id, product]));
+    const normalizedItems: Array<{ product: any; quantity: number }> = [];
+    for (const item of items) {
+      const product = productMap.get(item.id);
+      if (!product) {
+        return NextResponse.json({ error: 'One or more cart items are no longer available.' }, { status: 400 });
+      }
+      const quantity = Math.max(1, Number(item.quantity) || 1);
+      normalizedItems.push({ product, quantity });
+    }
+
+    const subtotal = normalizedItems.reduce((sum: number, item: any) => sum + (Number(item.product.price || 0) * item.quantity), 0);
     const { data: retailerForOffer } = await supabase
       .from('retailers')
-      .select('created_at')
+      .select('id, created_at')
       .eq('id', user.id)
       .single();
 
@@ -63,26 +82,24 @@ export async function POST(request: Request) {
       console.error('Launch offer order count error:', orderCountError);
     }
 
-    const launchOfferStatus = getBareLaunchOfferStatus({
-      accountCreatedAt: retailerForOffer?.created_at,
-      activeOrderCount: activeOrderCount || 0,
-    });
-    const launchOfferDiscount = launchOfferStatus.eligible
-      ? calculateBareLaunchOfferDiscount(subtotal)
-      : 0;
-    const discountResult = await findApplicableDiscount({
+    const offerResolution = await getOfferResolution({
       adminClient,
-      code: promotionCode,
-      retailerId: user.id,
+      retailer: { id: user.id, created_at: retailerForOffer?.created_at },
+      activeOrderCount: activeOrderCount || 0,
       subtotal,
+      promotionCode,
     });
 
-    if (discountResult.error) {
-      return NextResponse.json({ error: discountResult.error }, { status: 400 });
+    if (offerResolution.error) {
+      return NextResponse.json({ error: offerResolution.error }, { status: 400 });
     }
 
-    const promotionDiscount = discountResult.amount;
-    const totalDiscount = launchOfferDiscount + promotionDiscount;
+    const appliedDiscountCodeBenefits = offerResolution.appliedBenefits.filter((benefit) => benefit.sourceType === 'discount_code');
+    const launchOfferBenefit = offerResolution.appliedBenefits.find((benefit) => benefit.sourceType === 'welcome_offer');
+    const welcomeOfferCandidate = offerResolution.candidates.find((benefit) => benefit.sourceType === 'welcome_offer');
+    const promotionDiscount = offerResolution.totalDiscount;
+    const launchOfferDiscount = launchOfferBenefit?.amount || 0;
+    const totalDiscount = offerResolution.totalDiscount;
     const total = Math.max(0, subtotal - totalDiscount); // Add tax/shipping logic if needed
 
     // Generate order number (avoid collisions with unique constraint)
@@ -104,100 +121,78 @@ export async function POST(request: Request) {
       .limit(1)
       .maybeSingle();
 
-    const shouldIncludeSamples = Boolean(includeSamples) || Boolean(sampleRequest?.id) || launchOfferDiscount > 0;
+    const shouldIncludeSamples = Boolean(includeSamples) || Boolean(sampleRequest?.id) || Boolean(welcomeOfferCandidate);
     const shouldIncludeMarketingMaterials = Boolean(marketingMaterialsRequest?.id);
     const marketingMaterialsType = shouldIncludeMarketingMaterials
       ? marketingMaterialsRequest?.materials_type || 'both'
       : null;
     const orderPromotionCode = [
-      discountResult.discount?.code || promotionCode || null,
+      ...appliedDiscountCodeBenefits.map((benefit) => benefit.code || null),
       launchOfferDiscount > 0 ? BARE_LAUNCH_OFFER_CODE : null,
     ].filter(Boolean).join(', ') || null;
 
-    // Create the order
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert({
-        order_number: orderNumber,
-        retailer_id: user.id,
-        location_id: shipToLocation?.id ?? null,
-        status: 'pending',
-        delivery_date: deliveryDate || null,
-        promotion_code: orderPromotionCode,
+    const transactionResult = await createOrderWithPromotions({
+      adminClient,
+      order: {
+        orderNumber,
+        retailerId: user.id,
+        locationId: shipToLocation?.id ?? null,
+        deliveryDate: deliveryDate || null,
+        promotionCode: orderPromotionCode,
         subtotal,
-        total,
-        include_samples: shouldIncludeSamples,
-        include_marketing_materials: shouldIncludeMarketingMaterials,
-        marketing_materials_type: marketingMaterialsType,
-        credit_applied: totalDiscount,
-      })
-      .select()
-      .single();
+        promotionDiscountApplied: totalDiscount,
+        includeSamples: shouldIncludeSamples,
+        includeMarketingMaterials: shouldIncludeMarketingMaterials,
+        marketingMaterialsType,
+        orderSubmissionKey: typeof orderSubmissionKey === 'string' ? orderSubmissionKey : null,
+      },
+      items: normalizedItems.map((item: any) => ({
+        productId: item.product.id,
+        quantity: item.quantity,
+        unitPrice: Number(item.product.price || 0),
+      })),
+      appliedBenefits: offerResolution.appliedBenefits,
+    });
 
-    if (orderError) {
-      console.error('Order error:', orderError);
-      return NextResponse.json(
-        {
-          error: 'Failed to create order',
-          details: orderError.message,
-          code: orderError.code,
-          hint: orderError.hint,
-        },
-        { status: 500 }
-      );
-    }
+    const order = {
+      id: transactionResult.order_id,
+      order_number: transactionResult.order_number,
+      include_samples: shouldIncludeSamples,
+      include_marketing_materials: shouldIncludeMarketingMaterials,
+      marketing_materials_type: marketingMaterialsType,
+    };
+    const creditApplied = Number(transactionResult.credit_applied || 0);
+    const finalTotal = Number(transactionResult.total || 0);
 
-    // Create order items
-    const orderItems = items.map((item: any) => ({
-      order_id: order.id,
-      product_id: item.id,
-      quantity: item.quantity,
-      unit_price: item.price,
-      total_price: item.price * item.quantity,
-    }));
-
-    const { error: itemsError } = await supabase
-      .from('order_items')
-      .insert(orderItems);
-
-    if (itemsError) {
-      console.error('Order items error:', itemsError);
+    if (transactionResult.duplicate) {
+      return NextResponse.json({
+        success: true,
+        duplicate: true,
+        orderNumber: transactionResult.order_number,
+        orderId: transactionResult.order_id,
+        includeSamples: shouldIncludeSamples,
+        includeMarketingMaterials: shouldIncludeMarketingMaterials,
+        creditApplied,
+        launchOfferDiscountApplied: launchOfferDiscount,
+        promotionDiscountApplied: promotionDiscount,
+        appliedBenefits: offerResolution.appliedBenefits.map(toPublicOfferBenefit),
+        enteredCodeStatus: offerResolution.enteredCodeStatus,
+        enteredCodeMessage: offerResolution.enteredCodeMessage,
+        total: finalTotal,
+      });
     }
 
     let queuedShelfTalkers: Awaited<ReturnType<typeof queueShelfTalkersForOrder>> = [];
-    if (!itemsError) {
-      try {
-        queuedShelfTalkers = await queueShelfTalkersForOrder({
-          adminClient,
-          retailerId: user.id,
-          locationId: shipToLocation?.id ?? null,
-          orderId: order.id,
-        });
-      } catch (shelfTalkerError) {
-        console.error('Shelf talker queue error:', shelfTalkerError);
-      }
-    }
-
     try {
-      await recordDiscountRedemption({
+      queuedShelfTalkers = await queueShelfTalkersForOrder({
         adminClient,
-        discount: discountResult.discount,
         retailerId: user.id,
+        locationId: shipToLocation?.id ?? null,
         orderId: order.id,
-        discountAmount: promotionDiscount,
       });
-    } catch (redemptionError) {
-      console.error('Discount redemption tracking error:', redemptionError);
+    } catch (shelfTalkerError) {
+      console.error('Shelf talker queue error:', shelfTalkerError);
     }
-
-    const creditResult = await applyRetailerCredits({
-      adminClient,
-      retailerId: user.id,
-      orderId: order.id,
-      subtotal,
-      currentCreditApplied: totalDiscount,
-      maxApplyAmount: Math.max(0, subtotal - totalDiscount),
-    });
 
     if (sampleRequest?.id) {
       const { error: sampleUpdateError } = await adminClient
@@ -251,20 +246,20 @@ export async function POST(request: Request) {
 
       // Format order items for email
       const itemsList = formatOrderItemsText(
-        items.map((item: any) => ({
-          name: item.name,
-          size: item.size,
+        normalizedItems.map((item: any) => ({
+          name: item.product.name,
+          size: item.product.size,
           quantity: item.quantity,
-          price: item.price,
+          price: Number(item.product.price || 0),
         }))
       );
 
       const teamItemsList = formatTeamOrderItemsText(
-        items.map((item: any) => ({
-          name: item.name,
-          size: item.size,
+        normalizedItems.map((item: any) => ({
+          name: item.product.name,
+          size: item.product.size,
           quantity: item.quantity,
-          price: item.price,
+          price: Number(item.product.price || 0),
         }))
       );
 
@@ -292,22 +287,22 @@ export async function POST(request: Request) {
         : '';
       const launchOfferTeamNote = launchOfferDiscount > 0
         ? `\nWelcome Offer: CLAIMED
-- 10% off your first order applied: $${launchOfferDiscount.toFixed(2)}
+- First-order discount applied: $${launchOfferDiscount.toFixed(2)}
 - Samples: INCLUDE SAMPLES
 - Private promo support: FOLLOW UP WITH RETAILER\n`
         : '';
       const launchOfferRetailerNote = launchOfferDiscount > 0
-        ? `${BARE_LAUNCH_OFFER_NAME}: -$${launchOfferDiscount.toFixed(2)}
-Samples Added: Yes
+        ? `Samples Added: Yes
 Private Promo Support: Our team will follow up with next steps.
 `
         : '';
 
-      const creditSummary = creditResult.creditApplied > 0
-        ? `Discounts/Credits Applied: -$${(totalDiscount + creditResult.creditApplied).toFixed(2)}
-Total: $${creditResult.totalAfterCredit.toFixed(2)}`
+      const creditSummary = creditApplied > 0
+        ? `Promotion Discount: -$${totalDiscount.toFixed(2)}
+Account Credit Applied: -$${creditApplied.toFixed(2)}
+Total: $${finalTotal.toFixed(2)}`
         : totalDiscount > 0
-          ? `Discounts/Credits Applied: -$${totalDiscount.toFixed(2)}
+          ? `Promotion Discount: -$${totalDiscount.toFixed(2)}
 Total: $${total.toFixed(2)}`
           : `Total: $${total.toFixed(2)}`;
 
@@ -370,9 +365,9 @@ ${shelfTalkerRetailerNote}
 ${launchOfferRetailerNote}
 Subtotal: $${subtotal.toFixed(2)}
 ${launchOfferDiscount > 0 ? `${BARE_LAUNCH_OFFER_NAME}: -$${launchOfferDiscount.toFixed(2)}
-` : ''}${promotionDiscount > 0 ? `Promotion Discount (${discountResult.discount?.code || promotionCode}): -$${promotionDiscount.toFixed(2)}
-` : ''}${creditResult.creditApplied > 0 ? `Account Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
-` : ''}Total: $${creditResult.totalAfterCredit.toFixed(2)}
+` : ''}${offerResolution.appliedBenefits.map((benefit) => `${benefit.name}${benefit.discountType === 'percent' ? ` (${benefit.discountValue}%)` : ` ($${benefit.discountValue} off)`}: -$${benefit.amount.toFixed(2)}
+`).join('')}${creditApplied > 0 ? `Account Credit Applied: -$${creditApplied.toFixed(2)}
+` : ''}Total: $${finalTotal.toFixed(2)}
 
 Ship-To Location:
 - Name: ${shipToName}
@@ -398,10 +393,13 @@ Thank you for choosing Bare Naked Pet Co.!
       includeSamples: shouldIncludeSamples,
       includeMarketingMaterials: shouldIncludeMarketingMaterials,
       shelfTalkersAdded: queuedShelfTalkers.map((talker) => talker.flavor),
-      creditApplied: creditResult.creditApplied,
+      creditApplied,
       launchOfferDiscountApplied: launchOfferDiscount,
       promotionDiscountApplied: promotionDiscount,
-      total: creditResult.totalAfterCredit,
+      appliedBenefits: offerResolution.appliedBenefits.map(toPublicOfferBenefit),
+      enteredCodeStatus: offerResolution.enteredCodeStatus,
+      enteredCodeMessage: offerResolution.enteredCodeMessage,
+      total: finalTotal,
     });
 
   } catch (error) {

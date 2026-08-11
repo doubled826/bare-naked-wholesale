@@ -30,7 +30,7 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
 
     const { data: order, error: orderError } = await adminClient
       .from('orders')
-      .select('id, retailer_id, status, subtotal, total, credit_applied, order_number')
+      .select('id, retailer_id, status, subtotal, total, credit_applied, promotion_discount_applied, order_number')
       .eq('id', orderId)
       .single();
 
@@ -53,6 +53,7 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
       orderId: order.id,
       subtotal: Number(order.subtotal || 0),
       currentCreditApplied: Number(order.credit_applied || 0),
+      promotionDiscountApplied: Number(order.promotion_discount_applied || 0),
       maxApplyAmount: remainingEligibleAmount,
     });
 

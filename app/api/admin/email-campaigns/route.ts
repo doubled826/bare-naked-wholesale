@@ -4,6 +4,8 @@ import { defaultEmailCampaign, getCampaignValidationError, renderEmailCampaign }
 
 export const dynamic = 'force-dynamic';
 
+const campaignSelect = 'id, template_key, name, subject, preheader, headline, body, cta_label, cta_url, hero_image_url, audience_filter, manual_recipients, status, scheduled_at, schedule_error, sent_at, created_at, updated_at';
+
 const isMissingCampaignTableError = (error: unknown) => {
   const maybeError = error as { code?: string; message?: string };
   return (
@@ -18,7 +20,7 @@ export async function GET() {
     const { adminClient } = await requireAdminAccess();
     const { data, error } = await adminClient
       .from('email_campaigns')
-      .select('id, template_key, name, subject, preheader, headline, body, cta_label, cta_url, hero_image_url, audience_filter, manual_recipients, status, sent_at, created_at, updated_at')
+      .select(campaignSelect)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -62,7 +64,7 @@ export async function POST(request: Request) {
         ...rendered.campaign,
         created_by: user.id,
       })
-      .select('id, template_key, name, subject, preheader, headline, body, cta_label, cta_url, hero_image_url, audience_filter, manual_recipients, status, sent_at, created_at, updated_at')
+      .select(campaignSelect)
       .single();
 
     if (error) throw error;

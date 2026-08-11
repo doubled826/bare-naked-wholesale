@@ -67,6 +67,7 @@ export async function PATCH(request: Request) {
     const launchPromoRequest = typeof body.launch_promo_request === 'object' && body.launch_promo_request
       ? body.launch_promo_request as { start_date?: unknown; duration_weeks?: unknown }
       : null;
+    let notificationWarning: string | null = null;
 
     if (updates.marketing_materials_status === 'requested' && marketingMaterialsRequest) {
       const { data: retailer } = await supabase
@@ -192,14 +193,12 @@ Requested Materials: ${materialsLabel}
             .insert(requestPayload);
 
       if (requestError) {
-        return NextResponse.json(
-          { error: requestError.message || 'Failed to save launch promo request.' },
-          { status: 400 },
-        );
+        console.error('Launch promo request save error:', requestError);
       }
 
       try {
         await sendTeamEmail({
+          to: 'info@barenakedpet.com',
           subject: `Launch promo requested: ${companyName}`,
           text: `
 A retailer requested a fully supported in-store launch promo.
@@ -218,10 +217,7 @@ Promo Details:
         });
       } catch (emailError) {
         console.error('Launch promo notification email error:', emailError);
-        return NextResponse.json(
-          { error: 'Launch promo request could not be emailed to the team. Please try again.' },
-          { status: 500 },
-        );
+        notificationWarning = 'Launch promo was marked requested, but the admin email could not be sent. Please contact the team if this is urgent.';
       }
     }
 
@@ -255,6 +251,7 @@ Promo Details:
     return NextResponse.json({
       success: true,
       profile: data,
+      notificationWarning,
       currentPromo: {
         promoVisible: false,
         promoName: '',

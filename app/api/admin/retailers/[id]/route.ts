@@ -8,8 +8,8 @@ type RouteContext = {
   };
 };
 
-const ORDERS_SELECT_WITH_SHELF_TALKERS = 'id, order_number, status, total, subtotal, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category)), shelf_talker_fulfillments(id, retailer_id, location_id, flavor, status, fulfilled_order_id, qualified_at, fulfilled_at)';
-const ORDERS_SELECT = 'id, order_number, status, total, subtotal, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category))';
+const ORDERS_SELECT_WITH_SHELF_TALKERS = 'id, order_number, status, total, subtotal, promotion_discount_applied, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category)), shelf_talker_fulfillments(id, retailer_id, location_id, flavor, status, fulfilled_order_id, qualified_at, fulfilled_at)';
+const ORDERS_SELECT = 'id, order_number, status, total, subtotal, promotion_discount_applied, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category))';
 
 function isMissingOptionalRelationError(error: { code?: string; message?: string } | null) {
   if (!error) return false;

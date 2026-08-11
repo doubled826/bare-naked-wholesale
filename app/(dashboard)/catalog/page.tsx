@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { 
   Search, 
   Plus, 
@@ -13,16 +13,28 @@ import {
   Loader2,
   Sparkles,
 } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { cn, formatCurrency } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import type { Product, RetailerLocation } from '@/types';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 import {
   BARE_LAUNCH_OFFER_NAME,
-  calculateBareLaunchOfferDiscount,
   getBareLaunchOfferStatus,
 } from '@/lib/bareLaunchOffer';
+
+type ResolvedOfferBenefit = {
+  id: string;
+  name: string;
+  label: string;
+  discountType: 'percent' | 'fixed_amount';
+  discountValue: number;
+  amount: number;
+  expiresAt: string | null;
+  daysRemaining?: number;
+  isFirstOrderBenefit: boolean;
+  isWelcomeOffer: boolean;
+};
 
 export default function CatalogPage() {
   const supabase = createClientComponentClient();
@@ -42,6 +54,11 @@ export default function CatalogPage() {
   const [orderSuccessMessage, setOrderSuccessMessage] = useState('Check your email for confirmation.');
   const [notification, setNotification] = useState('');
   const [submitError, setSubmitError] = useState('');
+  const [appliedBenefits, setAppliedBenefits] = useState<ResolvedOfferBenefit[]>([]);
+  const [primaryFirstOrderOffer, setPrimaryFirstOrderOffer] = useState<ResolvedOfferBenefit | null>(null);
+  const [resolvedDiscountTotal, setResolvedDiscountTotal] = useState(0);
+  const [promoCodeFeedback, setPromoCodeFeedback] = useState<{ type: 'success' | 'info' | 'error'; message: string } | null>(null);
+  const submissionKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     const fetchLocations = async () => {
@@ -215,8 +232,55 @@ export default function CatalogPage() {
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const launchOfferDiscount = bareLaunchOffer.eligible ? calculateBareLaunchOfferDiscount(cartTotal) : 0;
-  const launchOfferTotal = Math.max(0, cartTotal - launchOfferDiscount);
+  const launchOfferDiscount = appliedBenefits
+    .filter((benefit) => benefit.isWelcomeOffer)
+    .reduce((sum, benefit) => sum + Number(benefit.amount || 0), 0);
+  const checkoutTotal = Math.max(0, cartTotal - resolvedDiscountTotal);
+
+  useEffect(() => {
+    let isMounted = true;
+    const controller = new AbortController();
+
+    async function loadResolvedOffer() {
+      try {
+        const params = new URLSearchParams();
+        params.set('subtotal', String(cartTotal));
+        if (promoCode.trim()) params.set('promotionCode', promoCode.trim());
+        const response = await fetch(`/api/offers?${params.toString()}`, {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || 'Unable to resolve offers.');
+        if (!isMounted) return;
+        setAppliedBenefits(data?.resolution?.appliedBenefits || []);
+        setPrimaryFirstOrderOffer(data?.resolution?.primaryFirstOrderOffer || null);
+        setResolvedDiscountTotal(Number(data?.resolution?.totalDiscount || 0));
+        if (promoCode.trim() && data?.resolution?.enteredCodeMessage) {
+          const status = data?.resolution?.enteredCodeStatus;
+          setPromoCodeFeedback({
+            type: status === 'applied' ? 'success' : status === 'blocked' ? 'info' : 'error',
+            message: data.resolution.enteredCodeMessage,
+          });
+        } else {
+          setPromoCodeFeedback(null);
+        }
+      } catch (error) {
+        if ((error as { name?: string })?.name === 'AbortError') return;
+        console.error('Offer resolution error:', error);
+        if (promoCode.trim()) {
+          setPromoCodeFeedback({ type: 'error', message: 'Unable to validate this promo code right now.' });
+        }
+      }
+    }
+
+    loadResolvedOffer();
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, [cartTotal, promoCode, retailer?.id, orders.length]);
 
   const showNotificationMessage = (message: string) => {
     setNotification(message);
@@ -233,6 +297,9 @@ export default function CatalogPage() {
     
     setIsSubmitting(true);
     setSubmitError('');
+    if (!submissionKeyRef.current) {
+      submissionKeyRef.current = `retailer:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    }
     
     try {
       const locationIdToSubmit =
@@ -246,6 +313,7 @@ export default function CatalogPage() {
           promotionCode: promoCode || null,
           locationId: locationIdToSubmit || null,
           includeSamples,
+          orderSubmissionKey: submissionKeyRef.current,
         }),
       });
 
@@ -282,6 +350,7 @@ export default function CatalogPage() {
             : 'Check your email for confirmation.'
         );
         clearCart();
+        submissionKeyRef.current = null;
         setShowCheckout(false);
         setIncludeSamples(false);
         setHasPendingSampleRequest(false);
@@ -344,7 +413,7 @@ export default function CatalogPage() {
         </button>
       </div>
 
-      {bareLaunchOffer.eligible && (
+      {primaryFirstOrderOffer && (
         <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
@@ -352,14 +421,18 @@ export default function CatalogPage() {
                 <Sparkles className="h-5 w-5" />
               </div>
               <div>
-                <p className="font-bold text-bark-500">{BARE_LAUNCH_OFFER_NAME} is active</p>
+                <p className="font-bold text-bark-500">{primaryFirstOrderOffer.name} is active</p>
                 <p className="text-sm text-bark-500/70">
-                  Your 10% off your first order, free samples, and private promo support are ready. {bareLaunchOffer.daysRemaining} {bareLaunchOffer.daysRemaining === 1 ? 'day' : 'days'} left.
+                  {primaryFirstOrderOffer.discountValue}% off your first order is available now.
+                  {!primaryFirstOrderOffer.isWelcomeOffer && bareLaunchOffer.eligible
+                    ? ' Your other Welcome Offer benefits remain available.'
+                    : ' Free samples and private promo support are ready with your Welcome Offer.'}
+                  {primaryFirstOrderOffer.daysRemaining ? ` ${primaryFirstOrderOffer.daysRemaining} ${primaryFirstOrderOffer.daysRemaining === 1 ? 'day' : 'days'} left.` : ''}
                 </p>
               </div>
             </div>
             <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-amber-800">
-              10% auto-applies
+              {primaryFirstOrderOffer.discountValue}% available
             </span>
           </div>
         </div>
@@ -516,6 +589,18 @@ export default function CatalogPage() {
                         placeholder="Enter code"
                         className="input"
                       />
+                      {promoCodeFeedback && (
+                        <p className={cn(
+                          'mt-2 text-xs font-semibold',
+                          promoCodeFeedback.type === 'success'
+                            ? 'text-emerald-700'
+                            : promoCodeFeedback.type === 'error'
+                              ? 'text-red-600'
+                              : 'text-amber-700',
+                        )}>
+                          {promoCodeFeedback.message}
+                        </p>
+                      )}
                     </div>
                     <label className="flex items-start gap-3 rounded-xl border border-cream-200 bg-cream-200/60 p-4 cursor-pointer">
                       <input
@@ -534,15 +619,16 @@ export default function CatalogPage() {
                         </span>
                       </div>
                     </label>
-                    {bareLaunchOffer.eligible && (
+                    {primaryFirstOrderOffer && (
                       <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
                         <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
                         <div>
                           <span className="block text-sm font-medium text-bark-500">
-                            {BARE_LAUNCH_OFFER_NAME} will apply
+                            {primaryFirstOrderOffer.name} is available
                           </span>
                           <span className="block text-xs text-bark-500/70">
-                            Your 10% off your first order is calculated automatically. Samples are included with this welcome order.
+                            {primaryFirstOrderOffer.discountValue}% off your first order is resolved automatically at checkout.
+                            {bareLaunchOffer.eligible ? ' Samples are included with this first order.' : ''}
                           </span>
                         </div>
                       </div>
@@ -592,15 +678,15 @@ export default function CatalogPage() {
                           <span>Subtotal</span>
                           <span>{formatCurrency(cartTotal)}</span>
                         </div>
-                        {launchOfferDiscount > 0 && (
-                          <div className="flex justify-between text-sm font-semibold text-emerald-700">
-                            <span>{BARE_LAUNCH_OFFER_NAME}</span>
-                            <span>-{formatCurrency(launchOfferDiscount)}</span>
+                        {appliedBenefits.map((benefit) => (
+                          <div key={benefit.id} className="flex justify-between gap-4 text-sm font-semibold text-emerald-700">
+                            <span>{benefit.label}</span>
+                            <span>-{formatCurrency(Number(benefit.amount || 0))}</span>
                           </div>
-                        )}
+                        ))}
                         <div className="flex justify-between text-lg font-bold text-bark-500 pt-2 border-t border-cream-200">
                           <span>Total</span>
-                          <span>{formatCurrency(launchOfferTotal)}</span>
+                          <span>{formatCurrency(checkoutTotal)}</span>
                         </div>
                       </div>
                     <button

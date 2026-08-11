@@ -304,7 +304,7 @@ export default function OrdersPage() {
                       )}
                       {Number(order.credit_applied || 0) > 0 && (
                         <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1">
-                          Credit applied: {formatCurrency(Number(order.credit_applied || 0))}
+                          Account credit: {formatCurrency(Number(order.credit_applied || 0))}
                         </div>
                       )}
                       {(shipToName || shipToAddress || shipToPhone) && (
@@ -356,9 +356,15 @@ export default function OrdersPage() {
                           <span className="text-bark-500/70">Subtotal</span>
                           <span className="text-bark-500">{formatCurrency(Number(order.subtotal))}</span>
                         </div>
+                        {Number(order.promotion_discount_applied || 0) > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-bark-500/70">Promotion Discount</span>
+                            <span className="font-medium text-emerald-700">-{formatCurrency(Number(order.promotion_discount_applied || 0))}</span>
+                          </div>
+                        )}
                         {Number(order.credit_applied || 0) > 0 && (
                           <div className="flex justify-between text-sm">
-                            <span className="text-bark-500/70">Credit Applied</span>
+                            <span className="text-bark-500/70">Account Credit</span>
                             <span className="font-medium text-blue-700">-{formatCurrency(Number(order.credit_applied || 0))}</span>
                           </div>
                         )}

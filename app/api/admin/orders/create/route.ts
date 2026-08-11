@@ -3,10 +3,10 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import { formatOrderItemsText, formatTeamOrderItemsText, sendRetailerEmail, sendTeamEmail } from '@/lib/email';
-import { applyRetailerCredits } from '@/lib/retailerCredits';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 import { formatShelfTalkerList, queueShelfTalkersForOrder } from '@/lib/shelfTalkers';
-import { findApplicableDiscount, recordDiscountRedemption } from '@/lib/discountCodes';
+import { getOfferResolution } from '@/lib/offerResolver';
+import { createOrderWithPromotions } from '@/lib/orderTransactions';
 
 interface CreateOrderItemInput {
   productId: string;
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const { retailerId, items, deliveryDate, promotionCode, locationId, includeSamples } = await request.json();
+    const { retailerId, items, deliveryDate, promotionCode, locationId, includeSamples, orderSubmissionKey } = await request.json();
 
     if (!retailerId || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: 'Invalid order payload' }, { status: 400 });
@@ -52,35 +52,55 @@ export async function POST(request: Request) {
 
     const productMap = new Map(products.map((product) => [product.id, product]));
 
-    const normalizedItems = (items as CreateOrderItemInput[]).map((item) => {
+    const normalizedItems: Array<{ product: any; quantity: number }> = [];
+    for (const item of items as CreateOrderItemInput[]) {
       const product = productMap.get(item.productId);
       if (!product) {
-        throw new Error('Invalid product selection');
+        return NextResponse.json({ error: 'Invalid product selection' }, { status: 400 });
       }
-      return {
+      normalizedItems.push({
         product,
         quantity: Math.max(1, Number(item.quantity) || 1),
-      };
-    });
+      });
+    }
 
     const subtotal = normalizedItems.reduce(
       (sum, item) => sum + Number(item.product.price) * item.quantity,
       0
     );
-    const discountResult = await findApplicableDiscount({
-      adminClient,
-      code: promotionCode,
-      retailerId,
-      subtotal,
-    });
 
-    if (discountResult.error) {
-      return NextResponse.json({ error: discountResult.error }, { status: 400 });
+    const { data: retailerForOffer } = await adminClient
+      .from('retailers')
+      .select('id, created_at')
+      .eq('id', retailerId)
+      .single();
+
+    const { count: activeOrderCount, error: orderCountError } = await adminClient
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('retailer_id', retailerId)
+      .neq('status', 'canceled');
+
+    if (orderCountError) {
+      console.error('Admin launch offer order count error:', orderCountError);
     }
 
-    const promotionDiscount = discountResult.amount;
+    const offerResolution = await getOfferResolution({
+      adminClient,
+      retailer: { id: retailerId, created_at: retailerForOffer?.created_at },
+      activeOrderCount: activeOrderCount || 0,
+      subtotal,
+      promotionCode,
+    });
+
+    if (offerResolution.error) {
+      return NextResponse.json({ error: offerResolution.error }, { status: 400 });
+    }
+
+    const welcomeOfferCandidate = offerResolution.candidates.find((benefit) => benefit.sourceType === 'welcome_offer');
+    const promotionDiscount = offerResolution.totalDiscount;
     const total = Math.max(0, subtotal - promotionDiscount);
-    const orderNumber = `ORD-${Date.now().toString().slice(-8)}`;
+    const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
     const { data: sampleRequest } = await adminClient
       .from('sample_requests')
@@ -114,85 +134,68 @@ export async function POST(request: Request) {
       shipToLocation = location;
     }
 
-    const shouldIncludeSamples = Boolean(includeSamples) || Boolean(sampleRequest?.id);
+    const shouldIncludeSamples = Boolean(includeSamples) || Boolean(sampleRequest?.id) || Boolean(welcomeOfferCandidate);
     const shouldIncludeMarketingMaterials = Boolean(marketingMaterialsRequest?.id);
     const marketingMaterialsType = shouldIncludeMarketingMaterials
       ? marketingMaterialsRequest?.materials_type || 'both'
       : null;
 
-    const { data: order, error: orderError } = await adminClient
-      .from('orders')
-      .insert({
-        order_number: orderNumber,
-        retailer_id: retailerId,
-        location_id: shipToLocation?.id ?? null,
-        status: 'pending',
-        delivery_date: deliveryDate || null,
-        promotion_code: discountResult.discount?.code || promotionCode || null,
+    const transactionResult = await createOrderWithPromotions({
+      adminClient,
+      order: {
+        orderNumber,
+        retailerId,
+        locationId: shipToLocation?.id ?? null,
+        deliveryDate: deliveryDate || null,
+        promotionCode: offerResolution.appliedBenefits.map((benefit) => benefit.code).filter(Boolean).join(', ') || promotionCode || null,
         subtotal,
-        total,
-        include_samples: shouldIncludeSamples,
-        include_marketing_materials: shouldIncludeMarketingMaterials,
-        marketing_materials_type: marketingMaterialsType,
-        credit_applied: promotionDiscount,
-      })
-      .select()
-      .single();
+        promotionDiscountApplied: promotionDiscount,
+        includeSamples: shouldIncludeSamples,
+        includeMarketingMaterials: shouldIncludeMarketingMaterials,
+        marketingMaterialsType,
+        orderSubmissionKey: typeof orderSubmissionKey === 'string' ? orderSubmissionKey : null,
+      },
+      items: normalizedItems.map((item) => ({
+        productId: item.product.id,
+        quantity: item.quantity,
+        unitPrice: Number(item.product.price || 0),
+      })),
+      appliedBenefits: offerResolution.appliedBenefits,
+    });
 
-    if (orderError || !order) {
-      return NextResponse.json({ error: 'Failed to create order' }, { status: 500 });
-    }
+    const order = {
+      id: transactionResult.order_id,
+      order_number: transactionResult.order_number,
+      include_samples: shouldIncludeSamples,
+      include_marketing_materials: shouldIncludeMarketingMaterials,
+      marketing_materials_type: marketingMaterialsType,
+    };
+    const creditApplied = Number(transactionResult.credit_applied || 0);
+    const finalTotal = Number(transactionResult.total || 0);
 
-    const orderItems = normalizedItems.map((item) => ({
-      order_id: order.id,
-      product_id: item.product.id,
-      quantity: item.quantity,
-      unit_price: item.product.price,
-      total_price: Number(item.product.price) * item.quantity,
-    }));
-
-    const { error: itemsError } = await adminClient
-      .from('order_items')
-      .insert(orderItems);
-
-    if (itemsError) {
-      console.error('Order items error:', itemsError);
+    if (transactionResult.duplicate) {
+      return NextResponse.json({
+        success: true,
+        duplicate: true,
+        orderId: transactionResult.order_id,
+        orderNumber: transactionResult.order_number,
+        creditApplied,
+        promotionDiscountApplied: Number(transactionResult.promotion_discount_applied || 0),
+        total: finalTotal,
+      });
     }
 
     let queuedShelfTalkers: Awaited<ReturnType<typeof queueShelfTalkersForOrder>> = [];
-    if (!itemsError) {
-      try {
-        queuedShelfTalkers = await queueShelfTalkersForOrder({
-          adminClient,
-          retailerId,
-          locationId: shipToLocation?.id ?? null,
-          orderId: order.id,
-        });
-      } catch (shelfTalkerError) {
-        console.error('Shelf talker queue error:', shelfTalkerError);
-      }
-    }
-
     try {
-      await recordDiscountRedemption({
+      queuedShelfTalkers = await queueShelfTalkersForOrder({
         adminClient,
-        discount: discountResult.discount,
         retailerId,
+        locationId: shipToLocation?.id ?? null,
         orderId: order.id,
-        discountAmount: promotionDiscount,
       });
-    } catch (redemptionError) {
-      console.error('Discount redemption tracking error:', redemptionError);
+    } catch (shelfTalkerError) {
+      console.error('Shelf talker queue error:', shelfTalkerError);
     }
-
-    const creditResult = await applyRetailerCredits({
-      adminClient,
-      retailerId,
-      orderId: order.id,
-      subtotal,
-      currentCreditApplied: promotionDiscount,
-      maxApplyAmount: Math.max(0, subtotal - promotionDiscount),
-    });
 
     if (sampleRequest?.id && shouldIncludeSamples) {
       const { error: sampleUpdateError } = await adminClient
@@ -277,9 +280,10 @@ export async function POST(request: Request) {
       const shipToAddress = shipToLocation?.business_address || retailer?.business_address || 'Not provided';
       const shipToPhone = shipToLocation?.phone || retailer?.phone || 'Not provided';
 
-      const creditSummary = creditResult.creditApplied > 0
-        ? `Discounts/Credits Applied: -$${(promotionDiscount + creditResult.creditApplied).toFixed(2)}
-Total: $${creditResult.totalAfterCredit.toFixed(2)}`
+      const creditSummary = creditApplied > 0
+        ? `Promotion Discount: -$${promotionDiscount.toFixed(2)}
+Account Credit Applied: -$${creditApplied.toFixed(2)}
+Total: $${finalTotal.toFixed(2)}`
         : promotionDiscount > 0
           ? `Promotion Discount: -$${promotionDiscount.toFixed(2)}
 Total: $${total.toFixed(2)}`
@@ -338,9 +342,9 @@ ${retailerSamplesNote}
 ${retailerMaterialsNote}
 ${shelfTalkerRetailerNote}
 Subtotal: $${subtotal.toFixed(2)}
-${promotionDiscount > 0 ? `Promotion Discount (${discountResult.discount?.code || promotionCode}): -$${promotionDiscount.toFixed(2)}
-` : ''}${creditResult.creditApplied > 0 ? `Account Credit Applied: -$${creditResult.creditApplied.toFixed(2)}
-` : ''}Total: $${creditResult.totalAfterCredit.toFixed(2)}
+${offerResolution.appliedBenefits.map((benefit) => `${benefit.name}${benefit.discountType === 'percent' ? ` (${benefit.discountValue}%)` : ''}: -$${benefit.amount.toFixed(2)}
+`).join('')}${creditApplied > 0 ? `Account Credit Applied: -$${creditApplied.toFixed(2)}
+` : ''}Total: $${finalTotal.toFixed(2)}
 
 Ship-To Location:
 - Name: ${shipToName}
@@ -360,11 +364,11 @@ Thank you for choosing Bare Naked Pet Co.!
     return NextResponse.json({
       success: true,
       orderId: order.id,
-      orderNumber,
+      orderNumber: transactionResult.order_number,
       shelfTalkersAdded: queuedShelfTalkers.map((talker) => talker.flavor),
-      creditApplied: creditResult.creditApplied,
+      creditApplied,
       promotionDiscountApplied: promotionDiscount,
-      total: creditResult.totalAfterCredit,
+      total: finalTotal,
     });
   } catch (error) {
     console.error('Admin create order error:', error);

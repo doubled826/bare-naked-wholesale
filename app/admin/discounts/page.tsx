@@ -18,8 +18,11 @@ import {
 import { cn, formatCurrency } from '@/lib/utils';
 import {
   type DiscountCode,
+  type DiscountApplicationMethod,
+  type DiscountBenefitCategory,
   type DiscountEligibility,
   type DiscountPayload,
+  type DiscountQualificationType,
   type DiscountStatus,
   type DiscountType,
   normalizeDiscountCode,
@@ -39,10 +42,36 @@ type DiscountResponse = {
   error?: string;
 };
 
+type LinkedAnnouncement = {
+  id: string;
+  title: string;
+  bar_message?: string | null;
+  message?: string | null;
+  is_active: boolean;
+  popup_enabled?: boolean | null;
+  popup_headline?: string | null;
+  popup_body?: string | null;
+  cta_label?: string | null;
+  cta_url?: string | null;
+  linked_discount_code_id?: string | null;
+};
+
+type MessagingForm = {
+  enabled: boolean;
+  title: string;
+  bar_message: string;
+  popup_enabled: boolean;
+  popup_headline: string;
+  popup_body: string;
+  cta_label: string;
+  cta_url: string;
+};
+
 const emptyDiscount: DiscountPayload = {
   code: '',
   name: '',
   description: '',
+  application_method: 'promo_code',
   discount_type: 'percent',
   discount_value: 10,
   status: 'active',
@@ -53,6 +82,26 @@ const emptyDiscount: DiscountPayload = {
   max_redemptions_per_retailer: 1,
   starts_at: null,
   ends_at: null,
+  benefit_category: 'order_discount',
+  priority: 0,
+  priority_override: false,
+  stackable_with_other_discounts: false,
+  qualification_type: 'none',
+  qualification_starts_at: null,
+  qualification_ends_at: null,
+  redemption_starts_at: null,
+  redemption_ends_at: null,
+};
+
+const emptyMessagingForm: MessagingForm = {
+  enabled: false,
+  title: '',
+  bar_message: '',
+  popup_enabled: false,
+  popup_headline: '',
+  popup_body: '',
+  cta_label: '',
+  cta_url: '',
 };
 
 const discountTypeOptions: Array<{ value: DiscountType; label: string; icon: typeof BadgePercent }> = [
@@ -67,9 +116,24 @@ const eligibilityOptions: Array<{ value: DiscountEligibility; label: string }> =
   { value: 'manual', label: 'Selected retailers' },
 ];
 
+const benefitCategoryOptions: Array<{ value: DiscountBenefitCategory; label: string }> = [
+  { value: 'order_discount', label: 'General order discount' },
+  { value: 'first_order_discount', label: 'First-order discount' },
+];
+
+const qualificationOptions: Array<{ value: DiscountQualificationType; label: string }> = [
+  { value: 'none', label: 'No persistent qualification' },
+  { value: 'retailer_signup_window', label: 'Retailer signed up during window' },
+];
+
 const statusOptions: Array<{ value: DiscountStatus; label: string }> = [
   { value: 'active', label: 'Active' },
   { value: 'inactive', label: 'Inactive' },
+];
+
+const applicationMethodOptions: Array<{ value: DiscountApplicationMethod; label: string; description: string }> = [
+  { value: 'automatic', label: 'Automatic', description: 'Applied automatically when an eligible retailer checks out.' },
+  { value: 'promo_code', label: 'Promo Code', description: 'Retailer must enter this code at checkout.' },
 ];
 
 const formatDate = (value?: string | null) => {
@@ -104,6 +168,8 @@ export default function AdminDiscountsPage() {
   const [retailers, setRetailers] = useState<RetailerOption[]>([]);
   const [selectedId, setSelectedId] = useState('new');
   const [form, setForm] = useState<DiscountPayload>(emptyDiscount);
+  const [messagingForm, setMessagingForm] = useState<MessagingForm>(emptyMessagingForm);
+  const [linkedAnnouncementId, setLinkedAnnouncementId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [retailerSearch, setRetailerSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -131,6 +197,12 @@ export default function AdminDiscountsPage() {
   const selectedRetailers = useMemo(
     () => retailers.filter((retailer) => selectedRetailerIds.has(retailer.id)),
     [retailers, selectedRetailerIds],
+  );
+  const isAutomaticToPromoWithInternalCode = Boolean(
+    selectedDiscount &&
+    (selectedDiscount.application_method || 'promo_code') === 'automatic' &&
+    form.application_method === 'promo_code' &&
+    normalizeDiscountCode(form.code).startsWith('AUTO_'),
   );
   const visibleRetailers = useMemo(() => {
     const query = retailerSearch.trim().toLowerCase();
@@ -162,6 +234,7 @@ export default function AdminDiscountsPage() {
       code: selectedDiscount.code,
       name: selectedDiscount.name,
       description: selectedDiscount.description || '',
+      application_method: selectedDiscount.application_method || 'promo_code',
       discount_type: selectedDiscount.discount_type,
       discount_value: Number(selectedDiscount.discount_value || 0),
       status: selectedDiscount.status,
@@ -172,8 +245,18 @@ export default function AdminDiscountsPage() {
       max_redemptions_per_retailer: selectedDiscount.max_redemptions_per_retailer ?? null,
       starts_at: selectedDiscount.starts_at || null,
       ends_at: selectedDiscount.ends_at || null,
+      benefit_category: selectedDiscount.benefit_category || 'order_discount',
+      priority: Number(selectedDiscount.priority || 0),
+      priority_override: Boolean(selectedDiscount.priority_override),
+      stackable_with_other_discounts: Boolean(selectedDiscount.stackable_with_other_discounts),
+      qualification_type: selectedDiscount.qualification_type || 'none',
+      qualification_starts_at: selectedDiscount.qualification_starts_at || null,
+      qualification_ends_at: selectedDiscount.qualification_ends_at || null,
+      redemption_starts_at: selectedDiscount.redemption_starts_at || selectedDiscount.starts_at || null,
+      redemption_ends_at: selectedDiscount.redemption_ends_at || selectedDiscount.ends_at || null,
     });
     setRetailerSearch('');
+    loadLinkedAnnouncement(selectedDiscount.id);
   }, [selectedDiscount]);
 
   const showNotice = (type: 'success' | 'error', message: string) => {
@@ -210,14 +293,54 @@ export default function AdminDiscountsPage() {
     setRetailers(data || []);
   };
 
+  const loadLinkedAnnouncement = async (discountId: string) => {
+    try {
+      const response = await fetch('/api/admin/announcements', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'Unable to load linked announcement.');
+      const linked = ((data.announcements || []) as LinkedAnnouncement[])
+        .find((announcement) => announcement.linked_discount_code_id === discountId);
+
+      if (!linked) {
+        setLinkedAnnouncementId(null);
+        setMessagingForm({
+          ...emptyMessagingForm,
+          title: selectedDiscount?.name || '',
+          bar_message: selectedDiscount?.description || '',
+        });
+        return;
+      }
+
+      setLinkedAnnouncementId(linked.id);
+      setMessagingForm({
+        enabled: true,
+        title: linked.title || '',
+        bar_message: linked.bar_message || linked.message || '',
+        popup_enabled: Boolean(linked.popup_enabled),
+        popup_headline: linked.popup_headline || '',
+        popup_body: linked.popup_body || '',
+        cta_label: linked.cta_label || '',
+        cta_url: linked.cta_url || '',
+      });
+    } catch (error) {
+      console.error('Linked announcement load error:', error);
+    }
+  };
+
   const startNewDiscount = () => {
     setSelectedId('new');
     setForm(emptyDiscount);
+    setMessagingForm(emptyMessagingForm);
+    setLinkedAnnouncementId(null);
     setRetailerSearch('');
   };
 
   const updateForm = <K extends keyof DiscountPayload>(key: K, value: DiscountPayload[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateMessagingForm = <K extends keyof MessagingForm>(key: K, value: MessagingForm[K]) => {
+    setMessagingForm((current) => ({ ...current, [key]: value }));
   };
 
   const toggleRetailer = (retailerId: string) => {
@@ -231,11 +354,18 @@ export default function AdminDiscountsPage() {
   };
 
   const saveDiscount = async () => {
+    if (isAutomaticToPromoWithInternalCode) {
+      showNotice('error', 'Enter a customer-facing promo code before saving this as Promo Code.');
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = {
         ...form,
         code: normalizeDiscountCode(form.code),
+        starts_at: form.starts_at || form.redemption_starts_at,
+        ends_at: form.ends_at || form.redemption_ends_at,
         manual_retailer_ids: form.eligibility === 'manual' ? form.manual_retailer_ids : [],
       };
       const endpoint = selectedDiscount ? `/api/admin/discount-codes/${selectedDiscount.id}` : '/api/admin/discount-codes';
@@ -252,6 +382,34 @@ export default function AdminDiscountsPage() {
         return [data.discount as DiscountCode, ...current];
       });
       setSelectedId(data.discount.id);
+      if (messagingForm.enabled) {
+        const announcementPayload = {
+          title: messagingForm.title || data.discount.name,
+          bar_message: messagingForm.bar_message || data.discount.description || data.discount.name,
+          is_active: data.discount.status === 'active',
+          popup_enabled: messagingForm.popup_enabled,
+          popup_headline: messagingForm.popup_headline,
+          popup_body: messagingForm.popup_body,
+          cta_label: messagingForm.cta_label,
+          cta_url: messagingForm.cta_url,
+          targeting_type: 'linked_discount',
+          linked_discount_code_id: data.discount.id,
+          inherit_discount_eligibility: true,
+          starts_at: data.discount.redemption_starts_at || data.discount.starts_at,
+          ends_at: data.discount.redemption_ends_at || data.discount.ends_at,
+        };
+        const announcementResponse = await fetch(
+          linkedAnnouncementId ? `/api/admin/announcements?id=${linkedAnnouncementId}` : '/api/admin/announcements',
+          {
+            method: linkedAnnouncementId ? 'PATCH' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(announcementPayload),
+          },
+        );
+        const announcementData = await announcementResponse.json();
+        if (!announcementResponse.ok) throw new Error(announcementData?.error || 'Discount saved, but messaging could not be saved.');
+        setLinkedAnnouncementId(announcementData.announcement?.id || linkedAnnouncementId);
+      }
       showNotice('success', 'Discount saved.');
     } catch (error) {
       showNotice('error', error instanceof Error ? error.message : 'Unable to save discount.');
@@ -408,6 +566,9 @@ export default function AdminDiscountsPage() {
                           >
                             {discount.status}
                           </span>
+                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                            {(discount.application_method || 'promo_code') === 'automatic' ? 'Auto' : 'Code'}
+                          </span>
                         </div>
                         <p className="mt-2 truncate font-semibold text-gray-900">{discount.name}</p>
                         <p className="mt-1 text-sm text-gray-500">
@@ -431,7 +592,7 @@ export default function AdminDiscountsPage() {
                   {selectedDiscount ? selectedDiscount.code : 'New Discount'}
                 </h2>
                 <p className="mt-1 text-sm text-gray-500">
-                  {getDiscountLabel(form)} off · {form.eligibility.replace('_', ' ')}
+                  {getDiscountLabel(form)} off · {form.eligibility.replace('_', ' ')} · {(form.application_method || 'promo_code') === 'automatic' ? 'automatic' : 'promo code'}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -460,16 +621,53 @@ export default function AdminDiscountsPage() {
           </div>
 
           <div className="space-y-6 p-5">
+            <div>
+              <span className="text-xs font-semibold uppercase text-gray-500">Application Method</span>
+              <div className="mt-2 grid gap-3 lg:grid-cols-2">
+                {applicationMethodOptions.map((option) => {
+                  const isActive = (form.application_method || 'promo_code') === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => updateForm('application_method', option.value)}
+                      className={cn(
+                        'rounded-lg border p-4 text-left transition-colors',
+                        isActive
+                          ? 'border-bark-500 bg-cream-100 text-bark-500'
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-cream-300 hover:bg-cream-50',
+                      )}
+                    >
+                      <span className="block font-semibold">{option.label}</span>
+                      <span className="mt-1 block text-xs leading-5 opacity-80">{option.description}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="grid gap-4 lg:grid-cols-2">
               <label className="block">
-                <span className="text-xs font-semibold uppercase text-gray-500">Code</span>
+                <span className="text-xs font-semibold uppercase text-gray-500">
+                  {form.application_method === 'automatic' ? 'Internal Code' : 'Promo Code'}
+                </span>
                 <input
                   type="text"
                   value={form.code}
                   onChange={(event) => updateForm('code', normalizeDiscountCode(event.target.value))}
-                  placeholder="SUMMER10"
+                  placeholder={form.application_method === 'automatic' ? 'Generated if left blank' : 'SUMMER10'}
                   className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm font-semibold uppercase focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
                 />
+                <span className="mt-1 block text-xs text-gray-500">
+                  {form.application_method === 'automatic'
+                    ? 'Retailers do not need this code; it is only for admin identification.'
+                    : 'Retailers must enter this code at checkout.'}
+                </span>
+                {isAutomaticToPromoWithInternalCode && (
+                  <span className="mt-2 block rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                    This looks like an internal automatic-offer code. Enter the public code retailers should type before saving.
+                  </span>
+                )}
               </label>
               <label className="block">
                 <span className="text-xs font-semibold uppercase text-gray-500">Name</span>
@@ -562,6 +760,109 @@ export default function AdminDiscountsPage() {
                   className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
                 />
               </label>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 p-4">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase text-gray-500">Benefit Category</span>
+                  <select
+                    value={form.benefit_category || 'order_discount'}
+                    onChange={(event) => updateForm('benefit_category', event.target.value as DiscountBenefitCategory)}
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                  >
+                    {benefitCategoryOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase text-gray-500">Qualification</span>
+                  <select
+                    value={form.qualification_type || 'none'}
+                    onChange={(event) => updateForm('qualification_type', event.target.value as DiscountQualificationType)}
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                  >
+                    {qualificationOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {form.qualification_type === 'retailer_signup_window' && (
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  <label className="block">
+                    <span className="text-xs font-semibold uppercase text-gray-500">Signup Window Starts</span>
+                    <input
+                      type="datetime-local"
+                      value={toDatetimeInput(form.qualification_starts_at)}
+                      onChange={(event) => updateForm('qualification_starts_at', fromDatetimeInput(event.target.value))}
+                      className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold uppercase text-gray-500">Signup Window Ends</span>
+                    <input
+                      type="datetime-local"
+                      value={toDatetimeInput(form.qualification_ends_at)}
+                      onChange={(event) => updateForm('qualification_ends_at', fromDatetimeInput(event.target.value))}
+                      className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                    />
+                  </label>
+                </div>
+              )}
+
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase text-gray-500">Redemption Starts</span>
+                  <input
+                    type="datetime-local"
+                    value={toDatetimeInput(form.redemption_starts_at)}
+                    onChange={(event) => updateForm('redemption_starts_at', fromDatetimeInput(event.target.value))}
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase text-gray-500">Redemption Ends</span>
+                  <input
+                    type="datetime-local"
+                    value={toDatetimeInput(form.redemption_ends_at)}
+                    onChange={(event) => updateForm('redemption_ends_at', fromDatetimeInput(event.target.value))}
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-4 grid gap-4 lg:grid-cols-[160px_1fr_1fr]">
+                <label className="block">
+                  <span className="text-xs font-semibold uppercase text-gray-500">Priority</span>
+                  <input
+                    type="number"
+                    value={form.priority || 0}
+                    onChange={(event) => updateForm('priority', Number(event.target.value))}
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                  />
+                </label>
+                <label className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.priority_override)}
+                    onChange={(event) => updateForm('priority_override', event.target.checked)}
+                    className="rounded border-gray-300 text-bark-500 focus:ring-bark-500"
+                  />
+                  Priority can override better value
+                </label>
+                <label className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.stackable_with_other_discounts)}
+                    onChange={(event) => updateForm('stackable_with_other_discounts', event.target.checked)}
+                    className="rounded border-gray-300 text-bark-500 focus:ring-bark-500"
+                  />
+                  Can stack with other discounts
+                </label>
+              </div>
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
@@ -672,6 +973,100 @@ export default function AdminDiscountsPage() {
                 </div>
               </div>
             )}
+
+            <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4">
+              <label className="inline-flex items-center gap-2 text-sm font-semibold text-bark-500">
+                <input
+                  type="checkbox"
+                  checked={messagingForm.enabled}
+                  onChange={(event) => updateMessagingForm('enabled', event.target.checked)}
+                  className="rounded border-cream-300 text-bark-500 focus:ring-bark-500"
+                />
+                Create retailer-facing promotion messaging
+              </label>
+
+              {messagingForm.enabled && (
+                <div className="mt-4 space-y-4">
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase text-gray-500">Announcement Title</span>
+                      <input
+                        type="text"
+                        value={messagingForm.title}
+                        onChange={(event) => updateMessagingForm('title', event.target.value)}
+                        placeholder={form.name || 'SuperZoo first-order offer'}
+                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase text-gray-500">CTA URL</span>
+                      <input
+                        type="url"
+                        value={messagingForm.cta_url}
+                        onChange={(event) => updateMessagingForm('cta_url', event.target.value)}
+                        placeholder="/catalog"
+                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                      />
+                    </label>
+                  </div>
+                  <label className="block">
+                    <span className="text-xs font-semibold uppercase text-gray-500">Announcement Bar Message</span>
+                    <textarea
+                      value={messagingForm.bar_message}
+                      onChange={(event) => updateMessagingForm('bar_message', event.target.value)}
+                      rows={2}
+                      placeholder="SuperZoo retailers receive 15% off their first wholesale order this week."
+                      className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                    />
+                  </label>
+                  <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+                    <label className="inline-flex items-center gap-2 text-sm font-semibold text-bark-500">
+                      <input
+                        type="checkbox"
+                        checked={messagingForm.popup_enabled}
+                        onChange={(event) => updateMessagingForm('popup_enabled', event.target.checked)}
+                        className="rounded border-cream-300 text-bark-500 focus:ring-bark-500"
+                      />
+                      Show popup once per version
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase text-gray-500">CTA Label</span>
+                      <input
+                        type="text"
+                        value={messagingForm.cta_label}
+                        onChange={(event) => updateMessagingForm('cta_label', event.target.value)}
+                        placeholder="Build My First Order"
+                        className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                      />
+                    </label>
+                  </div>
+                  {messagingForm.popup_enabled && (
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <label className="block">
+                        <span className="text-xs font-semibold uppercase text-gray-500">Popup Headline</span>
+                        <input
+                          type="text"
+                          value={messagingForm.popup_headline}
+                          onChange={(event) => updateMessagingForm('popup_headline', event.target.value)}
+                          placeholder="Your SuperZoo launch offer is ready."
+                          className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-xs font-semibold uppercase text-gray-500">Popup Body</span>
+                        <textarea
+                          value={messagingForm.popup_body}
+                          onChange={(event) => updateMessagingForm('popup_body', event.target.value)}
+                          rows={3}
+                          placeholder="For a limited time, your first wholesale order receives the stronger SuperZoo discount while your other Welcome Offer benefits stay intact."
+                          className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {selectedDiscount && (
               <div className="rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-600">

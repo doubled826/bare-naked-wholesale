@@ -20,6 +20,9 @@ export type EmailCampaignInput = {
   hero_image_url?: string | null;
   audience_filter: EmailCampaignAudienceFilter;
   manual_recipients?: string | null;
+  status?: 'draft' | 'scheduled' | 'sending' | 'sent';
+  scheduled_at?: string | null;
+  schedule_error?: string | null;
 };
 
 export type EmailCampaignRecipient = {
@@ -83,6 +86,9 @@ Thanks for carrying Bare Naked Pet Co. and helping more pet parents discover sim
   hero_image_url: '',
   audience_filter: 'all_retailers',
   manual_recipients: '',
+  status: 'draft',
+  scheduled_at: null,
+  schedule_error: null,
 };
 
 const escapeHtml = (value: string) =>
@@ -96,6 +102,11 @@ const escapeHtml = (value: string) =>
 export const normalizeEmailAddress = (value: string) => value.trim().replace(/[;,]+$/g, '').trim().toLowerCase();
 
 export const isLikelyEmail = (value: string) => /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(value.trim());
+
+const SEND_BATCH_SIZE = 8;
+const SEND_BATCH_DELAY_MS = 1100;
+
+const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const getFirstName = (contactName?: string | null) => {
   const firstName = (contactName || '').trim().split(/\s+/)[0];
@@ -466,6 +477,107 @@ export function summarizeRecipients(recipients: EmailCampaignRecipient[]) {
   return {
     recipientCount: recipients.length,
     sampleRecipients: recipients.slice(0, 6),
+  };
+}
+
+export async function deliverEmailCampaign(
+  adminClient: any,
+  campaign: EmailCampaignInput & { id: string },
+  sentBy?: string | null,
+) {
+  const validationError = getCampaignValidationError(campaign);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  const recipients = await loadCampaignRecipients(adminClient, campaign);
+  if (recipients.length === 0) {
+    throw new Error('No eligible recipients were found.');
+  }
+
+  const recipientLogs: Array<{
+    campaign_id: string;
+    retailer_id?: string | null;
+    email: string;
+    company_name?: string | null;
+    contact_name?: string | null;
+    resend_message_id?: string | null;
+    status: 'sent' | 'failed';
+    error?: string | null;
+  }> = [];
+
+  for (let index = 0; index < recipients.length; index += 1) {
+    const recipient = recipients[index]!;
+    const rendered = renderEmailCampaign(campaign, recipient);
+
+    try {
+      const response = await sendResendCampaignEmail({
+        to: recipient.email,
+        subject: rendered.subject,
+        text: rendered.text,
+        html: rendered.html,
+        campaignId: campaign.id,
+      });
+      recipientLogs.push({
+        campaign_id: campaign.id,
+        retailer_id: recipient.retailer_id || null,
+        email: recipient.email,
+        company_name: recipient.company_name || null,
+        contact_name: recipient.contact_name || null,
+        resend_message_id: response.id || null,
+        status: 'sent',
+      });
+    } catch (sendError) {
+      recipientLogs.push({
+        campaign_id: campaign.id,
+        retailer_id: recipient.retailer_id || null,
+        email: recipient.email,
+        company_name: recipient.company_name || null,
+        contact_name: recipient.contact_name || null,
+        status: 'failed',
+        error: sendError instanceof Error ? sendError.message : 'Unable to send email.',
+      });
+    }
+
+    if ((index + 1) % SEND_BATCH_SIZE === 0 && index < recipients.length - 1) {
+      await sleep(SEND_BATCH_DELAY_MS);
+    }
+  }
+
+  const { error: logError } = await adminClient
+    .from('email_campaign_recipients')
+    .insert(recipientLogs);
+
+  if (logError) throw logError;
+
+  const sentCount = recipientLogs.filter((recipient) => recipient.status === 'sent').length;
+  const failedCount = recipientLogs.length - sentCount;
+  const { error: updateError } = await adminClient
+    .from('email_campaigns')
+    .update({
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+      sent_by: sentBy || null,
+      scheduled_at: null,
+      schedule_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', campaign.id);
+
+  if (updateError) throw updateError;
+
+  return {
+    recipientCount: recipients.length,
+    sentCount,
+    failedCount,
+    sent: recipientLogs
+      .filter((recipient) => recipient.status === 'sent')
+      .slice(0, 10)
+      .map((recipient) => ({
+        email: recipient.email,
+        resendMessageId: recipient.resend_message_id || null,
+      })),
+    failed: recipientLogs.filter((recipient) => recipient.status === 'failed').slice(0, 10),
   };
 }
 

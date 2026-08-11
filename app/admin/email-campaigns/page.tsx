@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Bold,
+  CalendarClock,
   CheckCircle,
+  Clock,
   Eye,
   FileText,
   Image as ImageIcon,
@@ -38,7 +40,9 @@ type Campaign = {
   hero_image_url?: string | null;
   audience_filter: AudienceFilter;
   manual_recipients?: string | null;
-  status?: 'draft' | 'sent';
+  status?: 'draft' | 'scheduled' | 'sending' | 'sent';
+  scheduled_at?: string | null;
+  schedule_error?: string | null;
   sent_at?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -160,6 +164,39 @@ const formatDateTime = (value?: string | null) => {
 const getTimestamp = (value?: string | null) => (value ? new Date(value).getTime() : 0);
 const normalizeTestEmailInput = (value: string) => value.trim().replace(/[;,]+$/g, '').trim().toLowerCase();
 const isLikelyTestEmail = (value: string) => /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(value.trim());
+const toDateTimeLocalValue = (date: Date) => {
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+};
+const nextScheduledDate = (hour: number, dayOffset = 1) => {
+  const date = new Date();
+  date.setDate(date.getDate() + dayOffset);
+  date.setHours(hour, 0, 0, 0);
+  if (date.getTime() <= Date.now() + 60 * 1000) {
+    date.setDate(date.getDate() + 1);
+  }
+  return date;
+};
+const scheduleQuickOptions = () => [
+  { label: 'Tomorrow morning', description: '9:00 AM', value: nextScheduledDate(9, 1) },
+  { label: 'Tomorrow afternoon', description: '1:00 PM', value: nextScheduledDate(13, 1) },
+  { label: 'Monday morning', description: '9:00 AM', value: (() => {
+    const date = nextScheduledDate(9, 1);
+    const daysUntilMonday = (8 - date.getDay()) % 7;
+    date.setDate(date.getDate() + daysUntilMonday);
+    return date;
+  })() },
+];
+const formatScheduleDate = (value?: string | null) => {
+  if (!value) return '';
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+};
 
 const getRecipientEngagementTime = (recipient: DeliveryDetails['recipients'][number]) =>
   Math.max(
@@ -186,6 +223,9 @@ export default function AdminEmailCampaignsPage() {
   const [testing, setTesting] = useState(false);
   const [testStatus, setTestStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [sending, setSending] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduledAtLocal, setScheduledAtLocal] = useState('');
   const [manualSearch, setManualSearch] = useState('');
   const [manualSuggestions, setManualSuggestions] = useState<RetailerRecipientOption[]>([]);
   const [manualSearchLoading, setManualSearchLoading] = useState(false);
@@ -210,7 +250,10 @@ export default function AdminEmailCampaignsPage() {
   );
 
   const isSent = form?.status === 'sent';
-  const canSend = Boolean(form?.id && !isSent && preview && !preview.validationError && preview.recipientCount > 0);
+  const isLocked = form?.status === 'sent' || form?.status === 'sending';
+  const isScheduled = form?.status === 'scheduled';
+  const canSend = Boolean(form?.id && !isLocked && !isScheduled && preview && !preview.validationError && preview.recipientCount > 0);
+  const canSchedule = Boolean(form && !isLocked && preview && !preview.validationError && preview.recipientCount > 0);
   const selectedManualRecipients = useMemo(
     () => parseSelectedManualRecipients(form?.manual_recipients),
     [form?.manual_recipients],
@@ -345,7 +388,7 @@ export default function AdminEmailCampaignsPage() {
   }
 
   function applyBodyFormat(format: typeof bodyFormatControls[number]) {
-    if (!form || isSent) return;
+    if (!form || isLocked) return;
 
     const textarea = bodyTextareaRef.current;
     const value = form.body || '';
@@ -366,7 +409,7 @@ export default function AdminEmailCampaignsPage() {
   }
 
   function insertBodyImageToken(image: LibraryImage) {
-    if (!form || isSent) return;
+    if (!form || isLocked) return;
 
     const token = `{{image:${image.url}|${image.name}}}`;
     const textarea = bodyTextareaRef.current;
@@ -468,6 +511,8 @@ export default function AdminEmailCampaignsPage() {
         id: undefined,
         status: 'draft' as const,
         sent_at: null,
+        scheduled_at: null,
+        schedule_error: null,
         name: `${form.name} - failed retry`,
         audience_filter: 'manual' as const,
         manual_recipients: failedRecipients
@@ -568,6 +613,8 @@ export default function AdminEmailCampaignsPage() {
       id: undefined,
       status: 'draft' as const,
       name: `Retailer campaign ${new Date().toLocaleDateString()}`,
+      scheduled_at: null,
+      schedule_error: null,
     };
     setSelectedId('new');
     setForm(nextCampaign);
@@ -576,7 +623,7 @@ export default function AdminEmailCampaignsPage() {
   }
 
   async function saveCampaign() {
-    if (!form || isSent) return;
+    if (!form || isLocked) return null;
     setSaving(true);
     setNotice(null);
 
@@ -594,8 +641,10 @@ export default function AdminEmailCampaignsPage() {
       const saved = payload.campaign as Campaign;
       setNotice({ type: 'success', message: 'Campaign draft saved.' });
       await loadCampaigns(saved.id);
+      return saved;
     } catch (error) {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to save email campaign.' });
+      return null;
     } finally {
       setSaving(false);
     }
@@ -681,6 +730,75 @@ export default function AdminEmailCampaignsPage() {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to send email campaign.' });
     } finally {
       setSending(false);
+    }
+  }
+
+  function openScheduleModal() {
+    if (!canSchedule || !form) return;
+    const defaultDate = form.scheduled_at ? new Date(form.scheduled_at) : nextScheduledDate(9, 1);
+    setScheduledAtLocal(toDateTimeLocalValue(defaultDate));
+    setScheduleOpen(true);
+    setNotice(null);
+  }
+
+  async function scheduleCampaign() {
+    if (!form) return;
+
+    const scheduledDate = new Date(scheduledAtLocal);
+    if (!scheduledAtLocal || Number.isNaN(scheduledDate.getTime())) {
+      setNotice({ type: 'error', message: 'Choose a valid scheduled send time.' });
+      return;
+    }
+    if (scheduledDate.getTime() <= Date.now() + 60 * 1000) {
+      setNotice({ type: 'error', message: 'Schedule the send at least one minute from now.' });
+      return;
+    }
+
+    setScheduleSaving(true);
+    setNotice(null);
+
+    try {
+      const saved = await saveCampaign();
+      if (!saved?.id) return;
+
+      const response = await fetch(`/api/admin/email-campaigns/${saved.id}/schedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduledAt: scheduledDate.toISOString() }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to schedule email campaign.');
+
+      const scheduledCampaign = payload.campaign as Campaign;
+      setScheduleOpen(false);
+      setConfirmText('');
+      setNotice({ type: 'success', message: `Campaign scheduled for ${formatScheduleDate(scheduledCampaign.scheduled_at)}.` });
+      await loadCampaigns(scheduledCampaign.id);
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to schedule email campaign.' });
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
+
+  async function cancelScheduledSend() {
+    if (!form?.id || !isScheduled) return;
+
+    setScheduleSaving(true);
+    setNotice(null);
+
+    try {
+      const response = await fetch(`/api/admin/email-campaigns/${form.id}/schedule`, { method: 'DELETE' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to cancel scheduled send.');
+
+      const campaign = payload.campaign as Campaign;
+      setNotice({ type: 'success', message: 'Scheduled send canceled. The campaign is back in drafts.' });
+      await loadCampaigns(campaign.id);
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to cancel scheduled send.' });
+    } finally {
+      setScheduleSaving(false);
     }
   }
 
@@ -799,13 +917,28 @@ export default function AdminEmailCampaignsPage() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <p className="font-semibold text-bark-500">{campaign.name}</p>
-                  <span className={cn('rounded-full px-2 py-1 text-[11px] font-semibold uppercase', campaign.status === 'sent' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>
+                  <span className={cn(
+                    'rounded-full px-2 py-1 text-[11px] font-semibold uppercase',
+                    campaign.status === 'sent'
+                      ? 'bg-green-50 text-green-700'
+                      : campaign.status === 'scheduled'
+                        ? 'bg-blue-50 text-blue-700'
+                        : campaign.status === 'sending'
+                          ? 'bg-cream-100 text-bark-500/70'
+                          : 'bg-amber-50 text-amber-700',
+                  )}>
                     {campaign.status || 'draft'}
                   </span>
                 </div>
                 <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-bark-500/60">{campaign.subject}</p>
+                {campaign.status === 'scheduled' && campaign.scheduled_at && (
+                  <p className="mt-2 text-xs font-semibold text-blue-700">Scheduled for {formatScheduleDate(campaign.scheduled_at)}</p>
+                )}
                 {campaign.status === 'sent' && (
                   <p className="mt-2 text-xs font-semibold text-bark-500/70">View delivery details</p>
+                )}
+                {campaign.schedule_error && (
+                  <p className="mt-2 text-xs font-semibold text-red-700">Schedule failed</p>
                 )}
               </button>
             ))}
@@ -817,16 +950,16 @@ export default function AdminEmailCampaignsPage() {
             <div className="space-y-5">
               <Panel title="Campaign Copy" icon={Mail}>
                 <Field label="Campaign name">
-                  <input value={form.name} onChange={(event) => updateForm({ name: event.target.value })} disabled={isSent} className="input" />
+                  <input value={form.name} onChange={(event) => updateForm({ name: event.target.value })} disabled={isLocked} className="input" />
                 </Field>
                 <Field label="Subject">
-                  <input value={form.subject} onChange={(event) => updateForm({ subject: event.target.value })} disabled={isSent} className="input" />
+                  <input value={form.subject} onChange={(event) => updateForm({ subject: event.target.value })} disabled={isLocked} className="input" />
                 </Field>
                 <Field label="Preheader">
-                  <input value={form.preheader || ''} onChange={(event) => updateForm({ preheader: event.target.value })} disabled={isSent} className="input" />
+                  <input value={form.preheader || ''} onChange={(event) => updateForm({ preheader: event.target.value })} disabled={isLocked} className="input" />
                 </Field>
                 <Field label="Headline">
-                  <input value={form.headline} onChange={(event) => updateForm({ headline: event.target.value })} disabled={isSent} className="input" />
+                  <input value={form.headline} onChange={(event) => updateForm({ headline: event.target.value })} disabled={isLocked} className="input" />
                 </Field>
                 <Field label="Body">
                   <div className="mb-2 flex flex-wrap gap-2">
@@ -835,7 +968,7 @@ export default function AdminEmailCampaignsPage() {
                         key={format.label}
                         type="button"
                         onClick={() => applyBodyFormat(format)}
-                        disabled={isSent}
+                        disabled={isLocked}
                         title={format.label}
                         aria-label={format.label}
                         className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-cream-300 bg-white text-bark-500 transition-colors hover:bg-cream-100 disabled:opacity-60"
@@ -846,7 +979,7 @@ export default function AdminEmailCampaignsPage() {
                     <button
                       type="button"
                       onClick={openImagePicker}
-                      disabled={isSent}
+                      disabled={isLocked}
                       title="Insert image"
                       aria-label="Insert image"
                       className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-cream-300 bg-white text-bark-500 transition-colors hover:bg-cream-100 disabled:opacity-60"
@@ -858,7 +991,7 @@ export default function AdminEmailCampaignsPage() {
                     ref={bodyTextareaRef}
                     value={form.body}
                     onChange={(event) => updateForm({ body: event.target.value })}
-                    disabled={isSent}
+                    disabled={isLocked}
                     rows={8}
                     className="input min-h-[210px] resize-y"
                   />
@@ -871,7 +1004,7 @@ export default function AdminEmailCampaignsPage() {
                         key={tag}
                         type="button"
                         onClick={() => appendMergeTag('body', tag)}
-                        disabled={isSent}
+                        disabled={isLocked}
                         className="rounded-lg border border-cream-300 bg-white px-3 py-2 text-xs font-semibold text-bark-500 hover:bg-cream-100 disabled:opacity-60"
                       >
                         {tag}
@@ -884,14 +1017,14 @@ export default function AdminEmailCampaignsPage() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Field label="CTA label">
-                    <input value={form.cta_label || ''} onChange={(event) => updateForm({ cta_label: event.target.value })} disabled={isSent} className="input" />
+                    <input value={form.cta_label || ''} onChange={(event) => updateForm({ cta_label: event.target.value })} disabled={isLocked} className="input" />
                   </Field>
                   <Field label="CTA URL">
-                    <input value={form.cta_url || ''} onChange={(event) => updateForm({ cta_url: event.target.value })} disabled={isSent} className="input" />
+                    <input value={form.cta_url || ''} onChange={(event) => updateForm({ cta_url: event.target.value })} disabled={isLocked} className="input" />
                   </Field>
                 </div>
                 <Field label="Hero image URL">
-                  <input value={form.hero_image_url || ''} onChange={(event) => updateForm({ hero_image_url: event.target.value })} disabled={isSent} className="input" />
+                  <input value={form.hero_image_url || ''} onChange={(event) => updateForm({ hero_image_url: event.target.value })} disabled={isLocked} className="input" />
                 </Field>
               </Panel>
 
@@ -902,7 +1035,7 @@ export default function AdminEmailCampaignsPage() {
                       key={option.value}
                       type="button"
                       onClick={() => updateForm({ audience_filter: option.value })}
-                      disabled={isSent}
+                      disabled={isLocked}
                       className={cn(
                         'rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-70',
                         form.audience_filter === option.value ? 'border-bark-500 bg-cream-100' : 'border-cream-200 hover:bg-cream-50',
@@ -923,7 +1056,7 @@ export default function AdminEmailCampaignsPage() {
                           value={manualSearch}
                           onChange={(event) => setManualSearch(event.target.value)}
                           onFocus={() => searchManualRecipients(manualSearch)}
-                          disabled={isSent}
+                          disabled={isLocked}
                           className="input pl-11"
                           placeholder="Search by store, contact, or email"
                         />
@@ -945,7 +1078,7 @@ export default function AdminEmailCampaignsPage() {
                               key={`${recipient.id}-${recipient.email}`}
                               type="button"
                               onClick={() => addManualRecipient(recipient)}
-                              disabled={isSent}
+                              disabled={isLocked}
                               className="flex w-full items-center justify-between gap-3 border-b border-cream-100 px-4 py-3 text-left last:border-b-0 hover:bg-cream-50 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               <span>
@@ -979,7 +1112,7 @@ export default function AdminEmailCampaignsPage() {
                               <button
                                 type="button"
                                 onClick={() => removeManualRecipient(recipient.email)}
-                                disabled={isSent}
+                                disabled={isLocked}
                                 aria-label={`Remove ${recipient.email}`}
                                 className="shrink-0 rounded-full p-0.5 text-bark-500/50 hover:bg-cream-100 hover:text-bark-500 disabled:opacity-60"
                               >
@@ -1031,16 +1164,49 @@ export default function AdminEmailCampaignsPage() {
                 )}
 
                 <div className="flex flex-col gap-3 md:flex-row">
-                  <button onClick={saveCampaign} disabled={saving || isSent} className="btn-primary gap-2">
+                  <button onClick={saveCampaign} disabled={saving || isLocked} className="btn-primary gap-2">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                     {saving ? 'Saving...' : 'Save draft'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={openScheduleModal}
+                    disabled={!canSchedule || saving || scheduleSaving}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-cream-300 bg-white px-4 py-3 text-sm font-semibold text-bark-500 transition-colors hover:bg-cream-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <CalendarClock className="h-4 w-4" />
+                    {isScheduled ? 'Reschedule' : 'Schedule send'}
+                  </button>
+                  {isScheduled && (
+                    <button
+                      type="button"
+                      onClick={cancelScheduledSend}
+                      disabled={scheduleSaving}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-cream-300 bg-white px-4 py-3 text-sm font-semibold text-bark-500/70 transition-colors hover:bg-cream-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {scheduleSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                      Cancel schedule
+                    </button>
+                  )}
                   {isSent && (
                     <span className="inline-flex items-center rounded-xl bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
                       Sent {form.sent_at ? new Date(form.sent_at).toLocaleString() : ''}
                     </span>
                   )}
+                  {isScheduled && (
+                    <span className="inline-flex items-center gap-2 rounded-xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
+                      <Clock className="h-4 w-4" />
+                      {formatScheduleDate(form.scheduled_at)}
+                    </span>
+                  )}
                 </div>
+
+                {form.schedule_error && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    Scheduled send failed: {form.schedule_error}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3">
                   <input
@@ -1079,6 +1245,7 @@ export default function AdminEmailCampaignsPage() {
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
                     <p className="text-sm leading-5 text-amber-800">
                       Save the draft, send a test, then type <span className="font-bold">SEND</span> to deliver this campaign through Resend.
+                      You can also schedule it for a future send time.
                     </p>
                   </div>
                 </div>
@@ -1089,7 +1256,7 @@ export default function AdminEmailCampaignsPage() {
                     onChange={(event) => setConfirmText(event.target.value)}
                     className="input"
                     placeholder="Type SEND to confirm"
-                    disabled={isSent}
+                    disabled={isLocked}
                   />
                   <button onClick={sendCampaign} disabled={sending || !canSend || confirmText !== 'SEND'} className="btn-primary gap-2">
                     {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -1126,6 +1293,75 @@ export default function AdminEmailCampaignsPage() {
           </div>
         </section>
       </div>
+
+      {scheduleOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-bark-900/40 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-cream-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-cream-200 px-5 py-4">
+              <div>
+                <h2 className="font-semibold text-bark-500">Schedule Send</h2>
+                <p className="mt-1 text-xs text-bark-500/60">Choose when this campaign should go out.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setScheduleOpen(false)}
+                className="rounded-lg p-2 text-bark-500/60 hover:bg-cream-100 hover:text-bark-500"
+                aria-label="Close schedule send"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="space-y-2">
+                {scheduleQuickOptions().map((option) => (
+                  <button
+                    key={option.label}
+                    type="button"
+                    onClick={() => setScheduledAtLocal(toDateTimeLocalValue(option.value))}
+                    className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-xl border border-cream-200 px-4 py-3 text-left transition-colors hover:bg-cream-50"
+                  >
+                    <span>
+                      <span className="block text-sm font-semibold text-bark-500">{option.label}</span>
+                      <span className="block text-xs text-bark-500/60">{formatScheduleDate(option.value.toISOString())}</span>
+                    </span>
+                    <span className="self-center text-xs font-semibold text-bark-500/60">{option.description}</span>
+                  </button>
+                ))}
+              </div>
+
+              <Field label="Pick date & time">
+                <input
+                  type="datetime-local"
+                  value={scheduledAtLocal}
+                  min={toDateTimeLocalValue(new Date(Date.now() + 60 * 1000))}
+                  onChange={(event) => setScheduledAtLocal(event.target.value)}
+                  className="input"
+                />
+              </Field>
+
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setScheduleOpen(false)}
+                  className="rounded-xl border border-cream-300 bg-white px-4 py-3 text-sm font-semibold text-bark-500 transition-colors hover:bg-cream-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={scheduleCampaign}
+                  disabled={scheduleSaving || saving}
+                  className="btn-primary gap-2"
+                >
+                  {scheduleSaving || saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
+                  {scheduleSaving || saving ? 'Scheduling...' : 'Schedule send'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deliveryOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-bark-900/40 p-4">

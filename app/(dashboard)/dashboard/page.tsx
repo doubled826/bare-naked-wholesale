@@ -56,6 +56,29 @@ type WelcomeOfferPopupState = {
   variant: WelcomeOfferPopupVariant;
 };
 
+type ResolvedOfferBenefit = {
+  id: string;
+  name: string;
+  label: string;
+  discountType: 'percent' | 'fixed_amount';
+  discountValue: number;
+  amount: number;
+  expiresAt: string | null;
+  daysRemaining?: number;
+  isFirstOrderBenefit: boolean;
+  isWelcomeOffer: boolean;
+};
+
+type RetailerAnnouncement = Announcement & {
+  bar_message?: string | null;
+  popup_enabled?: boolean | null;
+  popup_headline?: string | null;
+  popup_body?: string | null;
+  cta_label?: string | null;
+  cta_url?: string | null;
+  version?: number | null;
+};
+
 const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   pending: { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', label: 'Processing' },
   processing: { icon: Package, color: 'text-blue-600', bg: 'bg-blue-100', label: 'Processing' },
@@ -91,8 +114,11 @@ const trackWelcomeOfferEvent = (
 export default function DashboardPage() {
   const { retailer, orders, products, addNotification } = useAppStore();
   const supabase = createClientComponentClient();
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcements, setAnnouncements] = useState<RetailerAnnouncement[]>([]);
+  const [announcementPopup, setAnnouncementPopup] = useState<RetailerAnnouncement | null>(null);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+  const [primaryFirstOrderOffer, setPrimaryFirstOrderOffer] = useState<ResolvedOfferBenefit | null>(null);
+  const [offerResolutionLoaded, setOfferResolutionLoaded] = useState(false);
   const [successProfileRow, setSuccessProfileRow] = useState<RetailerSuccessProfileInput | null>(null);
   const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
   const [successSavingAction, setSuccessSavingAction] = useState<string | null>(null);
@@ -164,12 +190,11 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadAnnouncements = async () => {
       try {
-        const { data } = await supabase
-          .from('announcements')
-          .select('*')
-          .eq('is_active', true)
-          .order('created_at', { ascending: false });
-        setAnnouncements(data || []);
+        const response = await fetch('/api/announcements', { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || 'Unable to load announcements.');
+        setAnnouncements(data.announcements || []);
+        setAnnouncementPopup(data.popup || null);
       } catch (error) {
         console.error('Announcements error:', error);
       } finally {
@@ -177,7 +202,25 @@ export default function DashboardPage() {
       }
     };
     loadAnnouncements();
-  }, [supabase]);
+  }, []);
+
+  useEffect(() => {
+    const loadCurrentOffer = async () => {
+      try {
+        const response = await fetch('/api/offers', { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || 'Unable to load current offer.');
+        setPrimaryFirstOrderOffer(data?.resolution?.primaryFirstOrderOffer || null);
+      } catch (error) {
+        console.error('Current offer error:', error);
+      } finally {
+        setOfferResolutionLoaded(true);
+      }
+    };
+
+    setOfferResolutionLoaded(false);
+    loadCurrentOffer();
+  }, [retailer?.id, orders.length]);
 
   useEffect(() => {
     const loadRetailerSuccess = async () => {
@@ -245,7 +288,13 @@ export default function DashboardPage() {
     setWelcomeOfferPopupState(null);
 
     const scheduleWelcomeOfferModal = async () => {
-      if (!bareLaunchOffer.eligible || isDismissed || !retailer?.id) return;
+      if (
+        !offerResolutionLoaded ||
+        !bareLaunchOffer.eligible ||
+        !primaryFirstOrderOffer?.isWelcomeOffer ||
+        isDismissed ||
+        !retailer?.id
+      ) return;
 
       let initialPopupSeen = true;
       let reminderRequested = false;
@@ -333,7 +382,11 @@ export default function DashboardPage() {
       }, 1250);
     };
 
-    if (bareLaunchOffer.eligible) {
+    if (!offerResolutionLoaded) {
+      return;
+    }
+
+    if (bareLaunchOffer.eligible && primaryFirstOrderOffer?.isWelcomeOffer) {
       scheduleWelcomeOfferModal();
     } else {
       scheduleShelfTalkerModal();
@@ -350,7 +403,7 @@ export default function DashboardPage() {
         shelfTalkerTimerRef.current = null;
       }
     };
-  }, [bareLaunchOffer.eligible, retailer?.id]);
+  }, [bareLaunchOffer.eligible, offerResolutionLoaded, primaryFirstOrderOffer?.isWelcomeOffer, retailer?.id]);
 
   const dismissBareLaunchOffer = () => {
     const dismissedKey = getBareLaunchOfferDismissedKey(retailer?.id);
@@ -425,6 +478,25 @@ export default function DashboardPage() {
       shelfTalkerTimerRef.current = null;
     }
     setShowShelfTalkerModal(false);
+  };
+
+  const dismissAnnouncementPopup = async () => {
+    const popup = announcementPopup;
+    setAnnouncementPopup(null);
+    if (!popup) return;
+
+    try {
+      await fetch('/api/announcements/popup-state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          announcementId: popup.id,
+          version: popup.version || 1,
+        }),
+      });
+    } catch (error) {
+      console.error('Announcement popup dismiss error:', error);
+    }
   };
 
   const handleShelfTalkerShop = () => {
@@ -604,6 +676,16 @@ export default function DashboardPage() {
           onShop={handleShelfTalkerShop}
         />
       )}
+      {announcementPopup && (
+        <AnnouncementPopup
+          announcement={announcementPopup}
+          onClose={dismissAnnouncementPopup}
+        />
+      )}
+
+      {!announcementsLoading && announcements.length > 0 && (
+        <AnnouncementBar announcements={announcements} />
+      )}
 
       {/* Header */}
       <div className="mb-5 sm:mb-8">
@@ -701,20 +783,6 @@ export default function DashboardPage() {
 
         <div className="space-y-6">
           <NeedHelpCard />
-          {!announcementsLoading && announcements.length > 0 && (
-            <div className="card p-6">
-              <h2 className="section-title mb-4">Announcements</h2>
-              <div className="space-y-4">
-                {announcements.map((announcement) => (
-                  <div key={announcement.id} className="p-4 bg-cream-200 rounded-xl">
-                    <p className="font-semibold text-bark-500">{announcement.title}</p>
-                    <p className="text-sm text-bark-500/70 mt-1">{announcement.message}</p>
-                    <p className="text-xs text-bark-500/50 mt-2">{formatDate(announcement.created_at)}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -923,6 +991,86 @@ const undoableChecklistItems: Partial<Record<string, {
     message: 'Current promo response reset.',
   },
 };
+
+function AnnouncementBar({ announcements }: { announcements: RetailerAnnouncement[] }) {
+  const primary = announcements[0];
+  if (!primary) return null;
+
+  return (
+    <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-bark-500 shadow-sm sm:mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <Megaphone className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+          <div className="min-w-0">
+            <p className="text-sm font-bold">{primary.title}</p>
+            <p className="mt-0.5 text-sm leading-5 text-bark-500/75">
+              {primary.bar_message || primary.message}
+            </p>
+          </div>
+        </div>
+        {primary.cta_label && primary.cta_url && (
+          <a
+            href={primary.cta_url}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-bark-500 px-3 py-2 text-sm font-semibold text-white hover:bg-bark-600"
+          >
+            {primary.cta_label}
+            <ArrowRight className="h-4 w-4" />
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AnnouncementPopup({
+  announcement,
+  onClose,
+}: {
+  announcement: RetailerAnnouncement;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-bark-500/45 p-3 py-4 backdrop-blur-sm sm:items-center sm:p-4">
+      <div className="relative my-auto w-full max-w-2xl overflow-hidden rounded-2xl border border-amber-200 bg-cream-100 shadow-2xl">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 z-10 rounded-lg p-2 text-bark-500/60 hover:bg-cream-200 hover:text-bark-500"
+          aria-label="Close announcement"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        <div className="p-5 sm:p-8">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-800">
+            <Megaphone className="h-4 w-4" />
+            Announcement
+          </div>
+          <h2 className="pr-8 text-3xl font-bold leading-tight text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
+            {announcement.popup_headline || announcement.title}
+          </h2>
+          <p className="mt-4 whitespace-pre-line text-sm leading-6 text-bark-500/75 sm:text-base">
+            {announcement.popup_body || announcement.bar_message || announcement.message}
+          </p>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+            {announcement.cta_label && announcement.cta_url && (
+              <a href={announcement.cta_url} onClick={onClose} className="btn-primary">
+                {announcement.cta_label}
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-bark-500/20 px-5 py-3 font-semibold text-bark-500 hover:bg-cream-200"
+            >
+              Got It
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function BareLaunchOfferModal({
   offer,

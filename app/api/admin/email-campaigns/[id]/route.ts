@@ -4,6 +4,8 @@ import { getCampaignValidationError, renderEmailCampaign } from '@/lib/emailCamp
 
 export const dynamic = 'force-dynamic';
 
+const campaignSelect = 'id, template_key, name, subject, preheader, headline, body, cta_label, cta_url, hero_image_url, audience_filter, manual_recipients, status, scheduled_at, schedule_error, sent_at, created_at, updated_at';
+
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const { adminClient } = await requireAdminAccess();
@@ -25,18 +27,19 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     if (!existing) {
       return NextResponse.json({ error: 'Email campaign not found.' }, { status: 404 });
     }
-    if (existing.status === 'sent') {
-      return NextResponse.json({ error: 'Sent campaigns cannot be edited.' }, { status: 400 });
+    if (existing.status === 'sent' || existing.status === 'sending') {
+      return NextResponse.json({ error: 'This campaign can no longer be edited.' }, { status: 400 });
     }
 
     const { data, error } = await adminClient
       .from('email_campaigns')
       .update({
         ...rendered.campaign,
+        schedule_error: null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', params.id)
-      .select('id, template_key, name, subject, preheader, headline, body, cta_label, cta_url, hero_image_url, audience_filter, manual_recipients, status, sent_at, created_at, updated_at')
+      .select(campaignSelect)
       .single();
 
     if (error) throw error;

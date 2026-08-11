@@ -1,12 +1,16 @@
 export type DiscountType = 'percent' | 'fixed_amount';
 export type DiscountStatus = 'active' | 'inactive';
 export type DiscountEligibility = 'all_retailers' | 'first_order' | 'repeat_buyers' | 'manual';
+export type DiscountBenefitCategory = 'order_discount' | 'first_order_discount';
+export type DiscountQualificationType = 'none' | 'retailer_signup_window';
+export type DiscountApplicationMethod = 'automatic' | 'promo_code';
 
 export type DiscountCode = {
   id: string;
   code: string;
   name: string;
   description?: string | null;
+  application_method?: DiscountApplicationMethod | null;
   discount_type: DiscountType;
   discount_value: number;
   status: DiscountStatus;
@@ -17,6 +21,15 @@ export type DiscountCode = {
   max_redemptions_per_retailer?: number | null;
   starts_at?: string | null;
   ends_at?: string | null;
+  benefit_category?: DiscountBenefitCategory | null;
+  priority?: number | null;
+  priority_override?: boolean | null;
+  stackable_with_other_discounts?: boolean | null;
+  qualification_type?: DiscountQualificationType | null;
+  qualification_starts_at?: string | null;
+  qualification_ends_at?: string | null;
+  redemption_starts_at?: string | null;
+  redemption_ends_at?: string | null;
   usage_count?: number | null;
   created_by?: string | null;
   created_at?: string;
@@ -26,7 +39,7 @@ export type DiscountCode = {
 export type DiscountPayload = Omit<DiscountCode, 'id' | 'usage_count' | 'created_by' | 'created_at' | 'updated_at'>;
 
 export const DISCOUNT_CODE_SELECT =
-  'id, code, name, description, discount_type, discount_value, status, eligibility, manual_retailer_ids, min_order_subtotal, max_redemptions, max_redemptions_per_retailer, starts_at, ends_at, usage_count, created_by, created_at, updated_at';
+  'id, code, name, description, application_method, discount_type, discount_value, status, eligibility, manual_retailer_ids, min_order_subtotal, max_redemptions, max_redemptions_per_retailer, starts_at, ends_at, benefit_category, priority, priority_override, stackable_with_other_discounts, qualification_type, qualification_starts_at, qualification_ends_at, redemption_starts_at, redemption_ends_at, usage_count, created_by, created_at, updated_at';
 
 export const normalizeDiscountCode = (value: string) =>
   value
@@ -55,17 +68,31 @@ const toNullableDate = (value: unknown) => {
 export function sanitizeDiscountPayload(input: Partial<DiscountPayload>): DiscountPayload {
   const discountType = input.discount_type === 'fixed_amount' ? 'fixed_amount' : 'percent';
   const status = input.status === 'inactive' ? 'inactive' : 'active';
+  const applicationMethod: DiscountApplicationMethod = input.application_method === 'automatic' ? 'automatic' : 'promo_code';
   const eligibility: DiscountEligibility = ['all_retailers', 'first_order', 'repeat_buyers', 'manual'].includes(input.eligibility || '')
     ? (input.eligibility as DiscountEligibility)
     : 'all_retailers';
   const manualRetailerIds = Array.isArray(input.manual_retailer_ids)
     ? input.manual_retailer_ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
     : [];
+  const benefitCategory: DiscountBenefitCategory = input.benefit_category === 'first_order_discount'
+    ? 'first_order_discount'
+    : 'order_discount';
+  const qualificationType: DiscountQualificationType = input.qualification_type === 'retailer_signup_window'
+    ? 'retailer_signup_window'
+    : 'none';
+  const startsAt = toNullableDate(input.starts_at);
+  const endsAt = toNullableDate(input.ends_at);
+  const redemptionStartsAt = toNullableDate(input.redemption_starts_at) || startsAt;
+  const redemptionEndsAt = toNullableDate(input.redemption_ends_at) || endsAt;
+  const normalizedCode = normalizeDiscountCode(input.code || '');
+  const generatedCode = normalizeDiscountCode(`AUTO_${String(input.name || 'DISCOUNT')}_${Date.now().toString(36).toUpperCase()}`).slice(0, 48);
 
   return {
-    code: normalizeDiscountCode(input.code || ''),
+    code: normalizedCode || (applicationMethod === 'automatic' ? generatedCode : ''),
     name: String(input.name || '').trim(),
     description: input.description ? String(input.description).trim() : null,
+    application_method: applicationMethod,
     discount_type: discountType,
     discount_value: toMoney(input.discount_value),
     status,
@@ -74,14 +101,23 @@ export function sanitizeDiscountPayload(input: Partial<DiscountPayload>): Discou
     min_order_subtotal: toMoney(input.min_order_subtotal),
     max_redemptions: toNullableNumber(input.max_redemptions),
     max_redemptions_per_retailer: toNullableNumber(input.max_redemptions_per_retailer),
-    starts_at: toNullableDate(input.starts_at),
-    ends_at: toNullableDate(input.ends_at),
+    starts_at: startsAt,
+    ends_at: endsAt,
+    benefit_category: benefitCategory,
+    priority: Math.trunc(Number(input.priority || 0)),
+    priority_override: Boolean(input.priority_override),
+    stackable_with_other_discounts: Boolean(input.stackable_with_other_discounts),
+    qualification_type: qualificationType,
+    qualification_starts_at: toNullableDate(input.qualification_starts_at),
+    qualification_ends_at: toNullableDate(input.qualification_ends_at),
+    redemption_starts_at: redemptionStartsAt,
+    redemption_ends_at: redemptionEndsAt,
   };
 }
 
 export function getDiscountValidationError(discount: DiscountPayload) {
-  if (!discount.code) return 'Enter a discount code.';
-  if (discount.code.length < 3) return 'Discount codes must be at least 3 characters.';
+  if (discount.application_method !== 'automatic' && !discount.code) return 'Enter a discount code.';
+  if (discount.code && discount.code.length < 3) return 'Discount codes must be at least 3 characters.';
   if (!discount.name) return 'Enter a discount name.';
   if (discount.discount_value <= 0) return 'Enter a discount value greater than zero.';
   if (discount.discount_type === 'percent' && discount.discount_value > 100) return 'Percent discounts cannot be greater than 100%.';
@@ -94,6 +130,15 @@ export function getDiscountValidationError(discount: DiscountPayload) {
   }
   if (discount.starts_at && discount.ends_at && new Date(discount.starts_at) > new Date(discount.ends_at)) {
     return 'Start date must be before end date.';
+  }
+  if (discount.qualification_starts_at && discount.qualification_ends_at && new Date(discount.qualification_starts_at) > new Date(discount.qualification_ends_at)) {
+    return 'Qualification start must be before qualification end.';
+  }
+  if (discount.redemption_starts_at && discount.redemption_ends_at && new Date(discount.redemption_starts_at) > new Date(discount.redemption_ends_at)) {
+    return 'Redemption start must be before redemption end.';
+  }
+  if (discount.qualification_type === 'retailer_signup_window' && (!discount.qualification_starts_at || !discount.qualification_ends_at)) {
+    return 'Signup-window qualification needs a qualification start and end.';
   }
   return null;
 }

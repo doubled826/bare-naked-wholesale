@@ -1,17 +1,49 @@
 import { NextResponse } from 'next/server';
 import { AdminAuthorizationError, requireAdminAccess } from '@/lib/admin';
 
-const selectColumns = 'id, title, message, is_active, created_at, updated_at';
+const selectColumns = 'id, title, message, bar_message, is_active, popup_enabled, popup_headline, popup_body, cta_label, cta_url, starts_at, ends_at, version, targeting_type, manual_retailer_ids, linked_discount_code_id, inherit_discount_eligibility, created_at, updated_at';
+
+const toNullableDate = (value: unknown) => {
+  if (!value || typeof value !== 'string') return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
 
 function normalizeAnnouncementInput(body: unknown) {
   const source = body && typeof body === 'object' ? body as Record<string, unknown> : {};
   const title = typeof source.title === 'string' ? source.title.trim() : '';
-  const message = typeof source.message === 'string' ? source.message.trim() : '';
+  const barMessage = typeof source.bar_message === 'string'
+    ? source.bar_message.trim()
+    : typeof source.message === 'string'
+      ? source.message.trim()
+      : '';
+  const popupEnabled = Boolean(source.popup_enabled);
+  const targetingType = ['all_retailers', 'manual', 'new_retailers', 'linked_discount'].includes(String(source.targeting_type))
+    ? String(source.targeting_type)
+    : 'all_retailers';
+  const manualRetailerIds = Array.isArray(source.manual_retailer_ids)
+    ? source.manual_retailer_ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : [];
+  const linkedDiscountCodeId = typeof source.linked_discount_code_id === 'string' && source.linked_discount_code_id
+    ? source.linked_discount_code_id
+    : null;
 
   return {
     title,
-    message,
+    message: barMessage,
+    bar_message: barMessage,
     is_active: Boolean(source.is_active),
+    popup_enabled: popupEnabled,
+    popup_headline: typeof source.popup_headline === 'string' ? source.popup_headline.trim() || null : null,
+    popup_body: typeof source.popup_body === 'string' ? source.popup_body.trim() || null : null,
+    cta_label: typeof source.cta_label === 'string' ? source.cta_label.trim() || null : null,
+    cta_url: typeof source.cta_url === 'string' ? source.cta_url.trim() || null : null,
+    starts_at: toNullableDate(source.starts_at),
+    ends_at: toNullableDate(source.ends_at),
+    targeting_type: targetingType,
+    manual_retailer_ids: targetingType === 'manual' ? manualRetailerIds : [],
+    linked_discount_code_id: targetingType === 'linked_discount' ? linkedDiscountCodeId : null,
+    inherit_discount_eligibility: targetingType === 'linked_discount' ? Boolean(source.inherit_discount_eligibility) : false,
   };
 }
 
@@ -52,8 +84,11 @@ export async function POST(request: Request) {
     const { adminClient } = await requireAdminAccess();
     const announcement = normalizeAnnouncementInput(await request.json().catch(() => ({})));
 
-    if (!announcement.title || !announcement.message) {
-      return NextResponse.json({ error: 'Title and message are required.' }, { status: 400 });
+    if (!announcement.title || !announcement.bar_message) {
+      return NextResponse.json({ error: 'Title and announcement bar message are required.' }, { status: 400 });
+    }
+    if (announcement.popup_enabled && (!announcement.popup_headline || !announcement.popup_body)) {
+      return NextResponse.json({ error: 'Popup headline and body are required when popup is enabled.' }, { status: 400 });
     }
 
     const { data, error } = await adminClient
@@ -83,14 +118,34 @@ export async function PATCH(request: Request) {
     const { adminClient } = await requireAdminAccess();
     const announcement = normalizeAnnouncementInput(await request.json().catch(() => ({})));
 
-    if (!announcement.title || !announcement.message) {
-      return NextResponse.json({ error: 'Title and message are required.' }, { status: 400 });
+    if (!announcement.title || !announcement.bar_message) {
+      return NextResponse.json({ error: 'Title and announcement bar message are required.' }, { status: 400 });
     }
+    if (announcement.popup_enabled && (!announcement.popup_headline || !announcement.popup_body)) {
+      return NextResponse.json({ error: 'Popup headline and body are required when popup is enabled.' }, { status: 400 });
+    }
+
+    const { data: existing } = await adminClient
+      .from('announcements')
+      .select('popup_enabled, popup_headline, popup_body, cta_label, cta_url, version')
+      .eq('id', id)
+      .maybeSingle();
+
+    const popupChanged = existing
+      ? (
+          Boolean(existing.popup_enabled) !== announcement.popup_enabled ||
+          (existing.popup_headline || '') !== (announcement.popup_headline || '') ||
+          (existing.popup_body || '') !== (announcement.popup_body || '') ||
+          (existing.cta_label || '') !== (announcement.cta_label || '') ||
+          (existing.cta_url || '') !== (announcement.cta_url || '')
+        )
+      : false;
 
     const { data, error } = await adminClient
       .from('announcements')
       .update({
         ...announcement,
+        version: popupChanged ? Number(existing?.version || 1) + 1 : Number(existing?.version || 1),
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)

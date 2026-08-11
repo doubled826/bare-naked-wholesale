@@ -25,22 +25,48 @@ type DashboardAnnouncement = {
   id: string;
   title: string;
   message: string;
+  bar_message?: string | null;
   is_active: boolean;
+  popup_enabled?: boolean | null;
+  popup_headline?: string | null;
+  popup_body?: string | null;
+  cta_label?: string | null;
+  cta_url?: string | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  version?: number | null;
+  targeting_type?: string | null;
   created_at: string;
   updated_at?: string | null;
 };
 
 const emptyAnnouncementForm = {
   title: '',
-  message: '',
+  bar_message: '',
   is_active: true,
+  popup_enabled: false,
+  popup_headline: '',
+  popup_body: '',
+  cta_label: '',
+  cta_url: '',
+  starts_at: '',
+  ends_at: '',
+  targeting_type: 'all_retailers',
 };
 
 const shelfTalkerAnnouncementDraft = {
   title: 'New shelf talkers for trail mix toppers',
-  message:
+  bar_message:
     'Stores carrying both 6 oz and 12 oz of Chicken, Salmon, or Beef will automatically receive the matching shelf talker with their next order.',
   is_active: true,
+  popup_enabled: false,
+  popup_headline: '',
+  popup_body: '',
+  cta_label: '',
+  cta_url: '',
+  starts_at: '',
+  ends_at: '',
+  targeting_type: 'all_retailers',
 };
 
 function DashboardAnnouncementsManager() {
@@ -82,10 +108,10 @@ function DashboardAnnouncementsManager() {
 
   const saveAnnouncement = async () => {
     const title = form.title.trim();
-    const message = form.message.trim();
+    const barMessage = form.bar_message.trim();
 
-    if (!title || !message) {
-      setNotice('Title and message are required.');
+    if (!title || !barMessage) {
+      setNotice('Title and announcement bar message are required.');
       return;
     }
 
@@ -94,9 +120,16 @@ function DashboardAnnouncementsManager() {
     try {
       const payload = {
         title,
-        message,
+        bar_message: barMessage,
         is_active: form.is_active,
-        updated_at: new Date().toISOString(),
+        popup_enabled: form.popup_enabled,
+        popup_headline: form.popup_headline,
+        popup_body: form.popup_body,
+        cta_label: form.cta_label,
+        cta_url: form.cta_url,
+        starts_at: form.starts_at || null,
+        ends_at: form.ends_at || null,
+        targeting_type: form.targeting_type,
       };
 
       const response = await fetch(
@@ -127,8 +160,16 @@ function DashboardAnnouncementsManager() {
     setEditingId(announcement.id);
     setForm({
       title: announcement.title,
-      message: announcement.message,
+      bar_message: announcement.bar_message || announcement.message,
       is_active: announcement.is_active,
+      popup_enabled: Boolean(announcement.popup_enabled),
+      popup_headline: announcement.popup_headline || '',
+      popup_body: announcement.popup_body || '',
+      cta_label: announcement.cta_label || '',
+      cta_url: announcement.cta_url || '',
+      starts_at: announcement.starts_at ? announcement.starts_at.slice(0, 16) : '',
+      ends_at: announcement.ends_at ? announcement.ends_at.slice(0, 16) : '',
+      targeting_type: announcement.targeting_type || 'all_retailers',
     });
     setNotice('');
   };
@@ -141,8 +182,16 @@ function DashboardAnnouncementsManager() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: announcement.title,
-          message: announcement.message,
+          bar_message: announcement.bar_message || announcement.message,
           is_active: !announcement.is_active,
+          popup_enabled: Boolean(announcement.popup_enabled),
+          popup_headline: announcement.popup_headline,
+          popup_body: announcement.popup_body,
+          cta_label: announcement.cta_label,
+          cta_url: announcement.cta_url,
+          starts_at: announcement.starts_at,
+          ends_at: announcement.ends_at,
+          targeting_type: announcement.targeting_type || 'all_retailers',
           updated_at: new Date().toISOString(),
         }),
       });
@@ -241,15 +290,37 @@ function DashboardAnnouncementsManager() {
               />
             </div>
             <div>
-              <label className="label" htmlFor="announcement-message">Message</label>
+              <label className="label" htmlFor="announcement-message">Announcement Bar Message</label>
               <textarea
                 id="announcement-message"
-                value={form.message}
-                onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))}
+                value={form.bar_message}
+                onChange={(event) => setForm((current) => ({ ...current, bar_message: event.target.value }))}
                 placeholder="Keep it short, useful, and retailer-facing."
                 className="input min-h-[120px]"
                 rows={5}
               />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="label" htmlFor="announcement-start">Starts</label>
+                <input
+                  id="announcement-start"
+                  type="datetime-local"
+                  value={form.starts_at}
+                  onChange={(event) => setForm((current) => ({ ...current, starts_at: event.target.value }))}
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="announcement-end">Ends</label>
+                <input
+                  id="announcement-end"
+                  type="datetime-local"
+                  value={form.ends_at}
+                  onChange={(event) => setForm((current) => ({ ...current, ends_at: event.target.value }))}
+                  className="input"
+                />
+              </div>
             </div>
             <label className="inline-flex items-center gap-2 text-sm font-semibold text-bark-500">
               <input
@@ -260,6 +331,61 @@ function DashboardAnnouncementsManager() {
               />
               Publish on retailer dashboards
             </label>
+            <label className="inline-flex items-center gap-2 text-sm font-semibold text-bark-500">
+              <input
+                type="checkbox"
+                checked={form.popup_enabled}
+                onChange={(event) => setForm((current) => ({ ...current, popup_enabled: event.target.checked }))}
+                className="rounded border-cream-300 text-bark-500 focus:ring-bark-500"
+              />
+              Show popup once per retailer per version
+            </label>
+            {form.popup_enabled && (
+              <div className="rounded-xl border border-cream-200 bg-cream-50 p-4 space-y-4">
+                <div>
+                  <label className="label" htmlFor="announcement-popup-headline">Popup Headline</label>
+                  <input
+                    id="announcement-popup-headline"
+                    type="text"
+                    value={form.popup_headline}
+                    onChange={(event) => setForm((current) => ({ ...current, popup_headline: event.target.value }))}
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="announcement-popup-body">Popup Body</label>
+                  <textarea
+                    id="announcement-popup-body"
+                    value={form.popup_body}
+                    onChange={(event) => setForm((current) => ({ ...current, popup_body: event.target.value }))}
+                    className="input min-h-[100px]"
+                    rows={4}
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label" htmlFor="announcement-cta-label">CTA Label</label>
+                    <input
+                      id="announcement-cta-label"
+                      type="text"
+                      value={form.cta_label}
+                      onChange={(event) => setForm((current) => ({ ...current, cta_label: event.target.value }))}
+                      className="input"
+                    />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="announcement-cta-url">CTA URL</label>
+                    <input
+                      id="announcement-cta-url"
+                      type="url"
+                      value={form.cta_url}
+                      onChange={(event) => setForm((current) => ({ ...current, cta_url: event.target.value }))}
+                      className="input"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <button
                 type="button"
@@ -294,7 +420,10 @@ function DashboardAnnouncementsManager() {
                             {announcement.is_active ? 'Active' : 'Hidden'}
                           </span>
                         </div>
-                        <p className="mt-1 text-sm leading-6 text-bark-500/65">{announcement.message}</p>
+                        <p className="mt-1 text-sm leading-6 text-bark-500/65">{announcement.bar_message || announcement.message}</p>
+                        {announcement.popup_enabled && (
+                          <p className="mt-1 text-xs font-semibold text-amber-700">Popup v{announcement.version || 1} enabled</p>
+                        )}
                         <p className="mt-2 text-xs text-bark-500/45">
                           Created {new Date(announcement.created_at).toLocaleDateString()}
                         </p>
@@ -338,7 +467,7 @@ function DashboardAnnouncementsManager() {
           <div className="mt-3 rounded-xl bg-cream-200 p-4">
             <p className="font-semibold text-bark-500">{form.title || 'Announcement title'}</p>
             <p className="text-sm text-bark-500/70 mt-1">
-              {form.message || 'Your announcement message will appear here.'}
+              {form.bar_message || 'Your announcement message will appear here.'}
             </p>
             <p className="text-xs text-bark-500/50 mt-2">{new Date().toLocaleDateString()}</p>
           </div>

@@ -61,6 +61,7 @@ interface Order {
   include_samples?: boolean | null;
   include_marketing_materials?: boolean | null;
   marketing_materials_type?: string | null;
+  promotion_discount_applied?: number | null;
   credit_applied?: number | null;
   created_at: string;
   order_items: OrderItem[];
@@ -1973,6 +1974,7 @@ export default function AdminRetailerDetailPage() {
                     {order.include_samples && <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Samples</span>}
                     {order.include_marketing_materials && <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{formatMarketingMaterialsLabel(order.marketing_materials_type)}</span>}
                     {Boolean(order.shelf_talker_fulfillments?.length) && <span className="text-xs font-medium text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full">Shelf Talkers</span>}
+                    {Number(order.promotion_discount_applied || 0) > 0 && <span className="text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Promo</span>}
                     {Number(order.credit_applied || 0) > 0 && <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">Credit</span>}
                     <span className={cn("px-2.5 py-0.5 rounded-full text-xs font-medium capitalize", getStatusColor(order.status))}>{order.status}</span>
                     <span className="font-medium text-gray-900">{formatCurrency(order.total)}</span>

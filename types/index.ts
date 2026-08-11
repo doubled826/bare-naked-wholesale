@@ -64,6 +64,7 @@ export interface Order {
   tracking_carrier?: string;
   include_samples?: boolean;
   credit_applied?: number;
+  promotion_discount_applied?: number;
   invoice_url?: string;
   invoice_sent_at?: string;
   invoice_sent_count?: number;
@@ -80,7 +81,20 @@ export interface Announcement {
   id: string;
   title: string;
   message: string;
+  bar_message?: string | null;
   is_active: boolean;
+  popup_enabled?: boolean | null;
+  popup_headline?: string | null;
+  popup_body?: string | null;
+  cta_label?: string | null;
+  cta_url?: string | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  version?: number | null;
+  targeting_type?: string | null;
+  manual_retailer_ids?: string[] | null;
+  linked_discount_code_id?: string | null;
+  inherit_discount_eligibility?: boolean | null;
   created_at: string;
   updated_at?: string;
 }
