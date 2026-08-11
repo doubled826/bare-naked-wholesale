@@ -3,10 +3,6 @@
     {
       "path": "/api/cron/bare-launch-offer-reminders",
       "schedule": "0 14 * * *"
-    },
-    {
-      "path": "/api/cron/email-campaigns",
-      "schedule": "*/5 * * * *"
     }
   ]
 }
