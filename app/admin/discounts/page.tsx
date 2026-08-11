@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import {
+  ArrowRight,
   BadgePercent,
   CalendarDays,
   CheckCircle,
   DollarSign,
+  Eye,
   Loader2,
   Plus,
   Save,
@@ -74,7 +76,7 @@ const emptyDiscount: DiscountPayload = {
   application_method: 'promo_code',
   discount_type: 'percent',
   discount_value: 10,
-  status: 'active',
+  status: 'inactive',
   eligibility: 'all_retailers',
   manual_retailer_ids: [],
   min_order_subtotal: 0,
@@ -126,11 +128,6 @@ const qualificationOptions: Array<{ value: DiscountQualificationType; label: str
   { value: 'retailer_signup_window', label: 'Retailer signed up during window' },
 ];
 
-const statusOptions: Array<{ value: DiscountStatus; label: string }> = [
-  { value: 'active', label: 'Active' },
-  { value: 'inactive', label: 'Inactive' },
-];
-
 const applicationMethodOptions: Array<{ value: DiscountApplicationMethod; label: string; description: string }> = [
   { value: 'automatic', label: 'Automatic', description: 'Applied automatically when an eligible retailer checks out.' },
   { value: 'promo_code', label: 'Promo Code', description: 'Retailer must enter this code at checkout.' },
@@ -175,6 +172,7 @@ export default function AdminDiscountsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [previewingPopup, setPreviewingPopup] = useState(false);
   const [setupMessage, setSetupMessage] = useState('');
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -198,6 +196,7 @@ export default function AdminDiscountsPage() {
     () => retailers.filter((retailer) => selectedRetailerIds.has(retailer.id)),
     [retailers, selectedRetailerIds],
   );
+  const isLive = form.status === 'active';
   const isAutomaticToPromoWithInternalCode = Boolean(
     selectedDiscount &&
     (selectedDiscount.application_method || 'promo_code') === 'automatic' &&
@@ -333,6 +332,7 @@ export default function AdminDiscountsPage() {
     setMessagingForm(emptyMessagingForm);
     setLinkedAnnouncementId(null);
     setRetailerSearch('');
+    setPreviewingPopup(false);
   };
 
   const updateForm = <K extends keyof DiscountPayload>(key: K, value: DiscountPayload[K]) => {
@@ -353,7 +353,7 @@ export default function AdminDiscountsPage() {
     });
   };
 
-  const saveDiscount = async () => {
+  const saveDiscount = async (nextStatus: DiscountStatus = form.status) => {
     if (isAutomaticToPromoWithInternalCode) {
       showNotice('error', 'Enter a customer-facing promo code before saving this as Promo Code.');
       return;
@@ -364,6 +364,7 @@ export default function AdminDiscountsPage() {
       const payload = {
         ...form,
         code: normalizeDiscountCode(form.code),
+        status: nextStatus,
         starts_at: form.starts_at || form.redemption_starts_at,
         ends_at: form.ends_at || form.redemption_ends_at,
         manual_retailer_ids: form.eligibility === 'manual' ? form.manual_retailer_ids : [],
@@ -386,7 +387,7 @@ export default function AdminDiscountsPage() {
         const announcementPayload = {
           title: messagingForm.title || data.discount.name,
           bar_message: messagingForm.bar_message || data.discount.description || data.discount.name,
-          is_active: data.discount.status === 'active',
+          is_active: nextStatus === 'active',
           popup_enabled: messagingForm.popup_enabled,
           popup_headline: messagingForm.popup_headline,
           popup_body: messagingForm.popup_body,
@@ -409,8 +410,32 @@ export default function AdminDiscountsPage() {
         const announcementData = await announcementResponse.json();
         if (!announcementResponse.ok) throw new Error(announcementData?.error || 'Discount saved, but messaging could not be saved.');
         setLinkedAnnouncementId(announcementData.announcement?.id || linkedAnnouncementId);
+      } else if (linkedAnnouncementId) {
+        const announcementResponse = await fetch(`/api/admin/announcements?id=${linkedAnnouncementId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: messagingForm.title || data.discount.name,
+            bar_message: messagingForm.bar_message || data.discount.description || data.discount.name,
+            is_active: false,
+            popup_enabled: false,
+            popup_headline: messagingForm.popup_headline,
+            popup_body: messagingForm.popup_body,
+            cta_label: messagingForm.cta_label,
+            cta_url: messagingForm.cta_url,
+            targeting_type: 'linked_discount',
+            linked_discount_code_id: data.discount.id,
+            inherit_discount_eligibility: true,
+            starts_at: data.discount.redemption_starts_at || data.discount.starts_at,
+            ends_at: data.discount.redemption_ends_at || data.discount.ends_at,
+          }),
+        });
+        const announcementData = await announcementResponse.json();
+        if (!announcementResponse.ok) throw new Error(announcementData?.error || 'Discount saved, but linked messaging could not be hidden.');
       }
-      showNotice('success', 'Discount saved.');
+      if (nextStatus === 'active') showNotice('success', 'Offer is live.');
+      else if (form.status === 'active') showNotice('success', 'Offer deactivated.');
+      else showNotice('success', 'Draft saved.');
     } catch (error) {
       showNotice('error', error instanceof Error ? error.message : 'Unable to save discount.');
     } finally {
@@ -451,6 +476,18 @@ export default function AdminDiscountsPage() {
           {notice.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <X className="h-4 w-4" />}
           {notice.message}
         </div>
+      )}
+
+      {previewingPopup && (
+        <DiscountPopupPreviewModal
+          discountLabel={getDiscountLabel(form)}
+          title={messagingForm.title || form.name || 'Promotion'}
+          barMessage={messagingForm.bar_message || form.description || 'Your promotion message will appear here.'}
+          headline={messagingForm.popup_headline || messagingForm.title || form.name || 'Your offer is ready.'}
+          body={messagingForm.popup_body || messagingForm.bar_message || form.description || 'Promotion details will appear here.'}
+          ctaLabel={messagingForm.cta_label || 'Build My First Order'}
+          onClose={() => setPreviewingPopup(false)}
+        />
       )}
 
       <div className="rounded-xl border border-cream-200 bg-white p-5">
@@ -595,7 +632,7 @@ export default function AdminDiscountsPage() {
                   {getDiscountLabel(form)} off · {form.eligibility.replace('_', ' ')} · {(form.application_method || 'promo_code') === 'automatic' ? 'automatic' : 'promo code'}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {selectedDiscount && (
                   <button
                     type="button"
@@ -607,14 +644,36 @@ export default function AdminDiscountsPage() {
                     Delete
                   </button>
                 )}
+                {selectedDiscount && isLive && (
+                  <button
+                    type="button"
+                    onClick={() => saveDiscount('inactive')}
+                    disabled={saving || deleting}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-200 bg-white px-4 py-2 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                    Deactivate
+                  </button>
+                )}
+                {!isLive && (
+                  <button
+                    type="button"
+                    onClick={() => saveDiscount('active')}
+                    disabled={saving || deleting}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                    Activate Offer
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={saveDiscount}
+                  onClick={() => saveDiscount(isLive ? 'active' : 'inactive')}
                   disabled={saving || deleting}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-bark-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-bark-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-bark-500/20 bg-white px-4 py-2 text-sm font-semibold text-bark-500 transition-colors hover:bg-cream-100 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Save
+                  {isLive ? 'Save Live Changes' : 'Save Draft'}
                 </button>
               </div>
             </div>
@@ -725,18 +784,22 @@ export default function AdminDiscountsPage() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-3">
-              <label className="block">
-                <span className="text-xs font-semibold uppercase text-gray-500">Status</span>
-                <select
-                  value={form.status}
-                  onChange={(event) => updateForm('status', event.target.value as DiscountStatus)}
-                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-bark-500 focus:outline-none focus:ring-2 focus:ring-bark-500/20"
-                >
-                  {statusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
+              <div className="rounded-lg border border-gray-200 px-3 py-2">
+                <span className="text-xs font-semibold uppercase text-gray-500">Publishing State</span>
+                <div className="mt-1 flex items-center gap-2">
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-0.5 text-xs font-semibold',
+                      isLive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600',
+                    )}
+                  >
+                    {isLive ? 'Live' : 'Draft'}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {isLive ? 'Eligible retailers can use this offer.' : 'Saved, but not visible or usable by retailers.'}
+                  </span>
+                </div>
+              </div>
               <label className="block">
                 <span className="text-xs font-semibold uppercase text-gray-500">Eligibility</span>
                 <select
@@ -1020,15 +1083,27 @@ export default function AdminDiscountsPage() {
                     />
                   </label>
                   <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-                    <label className="inline-flex items-center gap-2 text-sm font-semibold text-bark-500">
-                      <input
-                        type="checkbox"
-                        checked={messagingForm.popup_enabled}
-                        onChange={(event) => updateMessagingForm('popup_enabled', event.target.checked)}
-                        className="rounded border-cream-300 text-bark-500 focus:ring-bark-500"
-                      />
-                      Show popup once per version
-                    </label>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="inline-flex items-center gap-2 text-sm font-semibold text-bark-500">
+                        <input
+                          type="checkbox"
+                          checked={messagingForm.popup_enabled}
+                          onChange={(event) => updateMessagingForm('popup_enabled', event.target.checked)}
+                          className="rounded border-cream-300 text-bark-500 focus:ring-bark-500"
+                        />
+                        Show popup once per version
+                      </label>
+                      {messagingForm.popup_enabled && (
+                        <button
+                          type="button"
+                          onClick={() => setPreviewingPopup(true)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-bark-500/20 px-3 py-2 text-sm font-semibold text-bark-500 hover:bg-cream-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-bark-500 focus-visible:ring-offset-2"
+                        >
+                          <Eye className="h-4 w-4" aria-hidden="true" />
+                          Preview Popup
+                        </button>
+                      )}
+                    </div>
                     <label className="block">
                       <span className="text-xs font-semibold uppercase text-gray-500">CTA Label</span>
                       <input
@@ -1075,6 +1150,98 @@ export default function AdminDiscountsPage() {
             )}
           </div>
         </section>
+      </div>
+    </div>
+  );
+}
+
+function DiscountPopupPreviewModal({
+  discountLabel,
+  title,
+  barMessage,
+  headline,
+  body,
+  ctaLabel,
+  onClose,
+}: {
+  discountLabel: string;
+  title: string;
+  barMessage: string;
+  headline: string;
+  body: string;
+  ctaLabel: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-bark-500/45 p-3 py-4 backdrop-blur-sm sm:items-center sm:p-4">
+      <div className="relative my-auto w-full max-w-3xl overflow-hidden rounded-2xl border border-cream-300 bg-white shadow-2xl">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 z-10 rounded-lg p-2 text-bark-500/60 hover:bg-cream-100 hover:text-bark-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-bark-500 focus-visible:ring-offset-2"
+          aria-label="Close promotion popup preview"
+        >
+          <X className="h-5 w-5" aria-hidden="true" />
+        </button>
+
+        <div className="border-b border-cream-200 bg-cream-100 px-5 py-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-bark-500/55">Admin preview</p>
+          <h2 className="mt-1 pr-10 text-xl font-bold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
+            {title}
+          </h2>
+          <p className="mt-1 text-sm text-bark-500/65">Previewing does not save changes or mark this popup as seen.</p>
+        </div>
+
+        <div className="max-h-[calc(100vh-9rem)] overflow-y-auto p-5 sm:p-6">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+            {barMessage}
+          </div>
+
+          <div className="mx-auto mt-5 max-w-2xl overflow-hidden rounded-2xl border border-cream-300 bg-cream-100 shadow-lg">
+            <div className="grid gap-0 md:grid-cols-[0.9fr_1.1fr]">
+              <div className="flex min-h-[220px] flex-col justify-between bg-bark-500 p-6 text-white">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-cream-200/80">Limited offer</p>
+                  <div className="mt-4 flex items-end gap-2">
+                    <span className="text-5xl font-bold leading-none" style={{ fontFamily: 'var(--font-poppins)' }}>
+                      {discountLabel}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm font-semibold text-cream-100">Applied when eligible at checkout</p>
+                </div>
+                <div className="mt-6 rounded-xl bg-white/10 p-4">
+                  <p className="text-xs uppercase tracking-wide text-cream-200/80">No code needed</p>
+                  <p className="mt-1 text-sm font-semibold">The checkout summary will show the savings before order submission.</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col justify-center p-6">
+                <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-800">
+                  <BadgePercent className="h-4 w-4" aria-hidden="true" />
+                  Promotion
+                </div>
+                <h3 className="pr-8 text-2xl font-bold leading-tight text-bark-500 md:pr-0" style={{ fontFamily: 'var(--font-poppins)' }}>
+                  {headline}
+                </h3>
+                <p className="mt-3 text-sm leading-6 text-bark-500/75">{body}</p>
+
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <span className="btn-primary w-full justify-center sm:w-auto">
+                    {ctaLabel}
+                    <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="w-full rounded-xl border border-bark-500/20 px-5 py-3 font-semibold text-bark-500 hover:bg-cream-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-bark-500 focus-visible:ring-offset-2 sm:w-auto"
+                  >
+                    Got It
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
