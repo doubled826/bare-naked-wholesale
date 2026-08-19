@@ -53,6 +53,22 @@ const isCanadaEarlyAccessLead = (body: LeadBody) => {
   return source.includes('canada') || campaign.includes('canada') || country === 'canada' || Boolean(province);
 };
 
+const isPodcastLead = (body: LeadBody) => {
+  const source = getString(body, ['source']).toLowerCase();
+  const campaign = getString(body, ['utmCampaign', 'utm_campaign']).toLowerCase();
+  const medium = getString(body, ['utmMedium', 'utm_medium']).toLowerCase();
+  const podcastName = getString(body, ['podcastName', 'podcast_name', 'podcast', 'showName', 'show_name']).toLowerCase();
+  const partner = getString(body, ['podcastPartner', 'podcast_partner', 'partner', 'partnerName', 'partner_name']).toLowerCase();
+
+  return (
+    source.includes('podcast') ||
+    campaign.includes('podcast') ||
+    medium.includes('podcast') ||
+    Boolean(podcastName) ||
+    partner.includes('podcast')
+  );
+};
+
 const getLocationCount = (body: LeadBody) => {
   const rawValue = getString(body, ['locationCount', 'location_count', 'numberOfLocations', 'number_of_locations']);
   if (!rawValue) return null;
@@ -61,6 +77,9 @@ const getLocationCount = (body: LeadBody) => {
   if (!Number.isFinite(count) || count < 1) return null;
   return Math.min(count, 9999);
 };
+
+const getLeadMessage = (body: LeadBody) =>
+  getOptionalString(body, ['message', 'notes', 'note', 'additionalNotes', 'additional_notes', 'anythingElse', 'anything_else']);
 
 const getClientIp = (request: Request) => {
   const forwardedFor = request.headers.get('x-forwarded-for');
@@ -117,6 +136,8 @@ const sendInboundLeadNotification = async (lead: {
   phone?: string | null;
   store_url?: string | null;
   store_type?: string | null;
+  location_count?: number | null;
+  message?: string | null;
   shipping_address_1: string;
   shipping_address_2?: string | null;
   shipping_city: string;
@@ -128,7 +149,8 @@ const sendInboundLeadNotification = async (lead: {
   const portalUrl = getPortalUrl();
   const address = formatAddress(lead);
   const isCanadaLead = (lead.source || '').toLowerCase().includes('canada') || (lead.utm_campaign || '').toLowerCase().includes('canada');
-  const leadLabel = isCanadaLead ? 'Canadian early-access lead' : 'sample request';
+  const isPodcastSource = (lead.source || '').toLowerCase().includes('podcast') || (lead.utm_campaign || '').toLowerCase().includes('podcast');
+  const leadLabel = isCanadaLead ? 'Canadian early-access lead' : isPodcastSource ? 'podcast partner lead' : 'sample request';
   const notifyTo = process.env.WHOLESALE_LEAD_NOTIFY_TO || 'info@barenakedpet.com';
   const from = process.env.PORTAL_EMAIL_FROM || process.env.ORDER_EMAIL_FROM || process.env.SMTP_USER || 'info@barenakedpet.com';
 
@@ -141,6 +163,8 @@ Email: ${lead.email}
 Phone: ${lead.phone || 'Not provided'}
 Store Type: ${lead.store_type || 'Not provided'}
 Website/Instagram: ${lead.store_url || 'Not provided'}
+Locations: ${lead.location_count || 'Not provided'}
+Message: ${lead.message || 'Not provided'}
 
 Shipping address:
 ${address}
@@ -183,7 +207,9 @@ ${portalUrl}
                   Source: ${escapeHtml(lead.source || 'landing_page')}<br />
                   Campaign: ${escapeHtml(lead.utm_campaign || 'Not captured')}<br />
                   Store type: ${escapeHtml(lead.store_type || 'Not provided')}<br />
-                  Website/Instagram: ${escapeHtml(lead.store_url || 'Not provided')}
+                  Website/Instagram: ${escapeHtml(lead.store_url || 'Not provided')}<br />
+                  Locations: ${escapeHtml(lead.location_count ? String(lead.location_count) : 'Not provided')}<br />
+                  Message: ${escapeHtml(lead.message || 'Not provided')}
                 </p>
                 <p style="margin:24px 0 0;">
                   <a href="${escapeHtml(portalUrl)}" style="display:inline-block;background:#3b2a1e;color:#ffffff;text-decoration:none;font-weight:700;border-radius:8px;padding:12px 16px;">Review in portal</a>
@@ -235,6 +261,8 @@ export async function POST(request: Request) {
     const email = normalizeEmail(getString(body, ['email']));
     const storeName = getString(body, ['storeName', 'store_name', 'businessName', 'business_name']);
     const isCanadaLead = isCanadaEarlyAccessLead(body);
+    const isPodcastSource = isPodcastLead(body);
+    const isFlexibleLead = isCanadaLead || isPodcastSource;
     const shippingAddress1 = getString(body, ['shippingAddress1', 'shipping_address_1', 'address1', 'address']);
     const shippingCity = getString(body, ['shippingCity', 'shipping_city', 'city']);
     const shippingState = getString(body, ['shippingState', 'shipping_state', 'state', 'province', 'provinceTerritory', 'province_territory']);
@@ -243,11 +271,11 @@ export async function POST(request: Request) {
     const hasRequiredContactFields = contactName && email && storeName && shippingCity && shippingState;
     const hasSampleShippingFields = shippingAddress1 && shippingPostalCode;
 
-    if (!hasRequiredContactFields || (!isCanadaLead && !hasSampleShippingFields)) {
+    if (!hasRequiredContactFields || (!isFlexibleLead && !hasSampleShippingFields)) {
       return NextResponse.json(
         {
-          error: isCanadaLead
-            ? 'Missing required fields. Include contactName, email, storeName, city, and province.'
+          error: isFlexibleLead
+            ? 'Missing required fields. Include contactName, email, storeName, city, and state or province.'
             : 'Missing required fields. Include contactName, email, storeName, shippingAddress1, shippingCity, shippingState, and shippingPostalCode.',
         },
         { status: 400 },
@@ -259,23 +287,30 @@ export async function POST(request: Request) {
     }
 
     const now = new Date().toISOString();
+    const locationCount = getLocationCount(body);
+    const message = getLeadMessage(body);
+    const clientIp = getClientIp(request);
+    const userAgent = request.headers.get('user-agent');
     const row = {
       contact_name: contactName,
       email,
       store_name: storeName,
       phone: getOptionalString(body, ['phone']),
-      store_url: getOptionalString(body, ['storeUrl', 'store_url', 'website', 'instagram']),
+      store_url: getOptionalString(body, ['storeUrl', 'store_url', 'website', 'instagram', 'googleBusinessProfile', 'google_business_profile']),
       store_type: getOptionalString(body, ['storeType', 'store_type']),
-      location_count: getLocationCount(body),
+      location_count: locationCount,
       currently_buying_wholesale: normalizeBuyingWholesale(
         getString(body, ['currentlyBuyingWholesale', 'currently_buying_wholesale', 'buysWholesale', 'buys_wholesale']),
       ),
+      lead_status: 'new',
+      sample_status: 'not_sent',
+      message,
       shipping_address_1: shippingAddress1 || 'Not collected',
       shipping_address_2: getOptionalString(body, ['shippingAddress2', 'shipping_address_2', 'address2']),
       shipping_city: shippingCity,
       shipping_state: shippingState,
       shipping_postal_code: shippingPostalCode || 'Not collected',
-      source: getString(body, ['source']) || (isCanadaLead ? 'canada_retailer_early_access' : 'landing_page'),
+      source: getString(body, ['source']) || (isCanadaLead ? 'canada_retailer_early_access' : isPodcastSource ? 'podcast_partner_landing_page' : 'landing_page'),
       utm_source: getOptionalString(body, ['utmSource', 'utm_source']),
       utm_medium: getOptionalString(body, ['utmMedium', 'utm_medium']),
       utm_campaign: getOptionalString(body, ['utmCampaign', 'utm_campaign']),
@@ -283,23 +318,47 @@ export async function POST(request: Request) {
       utm_term: getOptionalString(body, ['utmTerm', 'utm_term']),
       gclid: getOptionalString(body, ['gclid']),
       fbclid: getOptionalString(body, ['fbclid']),
+      fbp: getOptionalString(body, ['fbp', '_fbp']),
+      fbc: getOptionalString(body, ['fbc', '_fbc']),
       landing_page_url: getOptionalString(body, ['landingPageUrl', 'landing_page_url']),
       referrer: getOptionalString(body, ['referrer']),
-      user_agent: request.headers.get('user-agent'),
-      ip_address: getClientIp(request),
+      user_agent: userAgent,
+      ip_address: clientIp,
       raw_payload: body,
       last_submitted_at: now,
       updated_at: now,
     };
 
     const adminClient = createSupabaseAdminClient();
-    const { data, error } = await adminClient
+    const { data: existingLead, error: existingError } = await adminClient
       .from('wholesale_leads')
-      .upsert(row, {
-        onConflict: 'email',
-      })
-      .select('id, email, store_name, status, created_at')
-      .single();
+      .select('id, submission_count, ip_address, user_agent, created_at')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (existingError) {
+      console.error('Wholesale lead lookup error:', existingError);
+      return NextResponse.json({ error: 'Unable to save sample request.' }, { status: 500 });
+    }
+
+    const { lead_status: _leadStatus, sample_status: _sampleStatus, ip_address: _ipAddress, user_agent: _userAgent, ...mutableRow } = row;
+    const { data, error } = existingLead?.id
+      ? await adminClient
+          .from('wholesale_leads')
+          .update({
+            ...mutableRow,
+            ip_address: existingLead.ip_address,
+            user_agent: existingLead.user_agent,
+            submission_count: (existingLead.submission_count || 1) + 1,
+          })
+          .eq('id', existingLead.id)
+          .select('id, email, store_name, status, lead_status, sample_status, created_at')
+          .single()
+      : await adminClient
+          .from('wholesale_leads')
+          .insert(row)
+          .select('id, email, store_name, status, lead_status, sample_status, created_at')
+          .single();
 
     if (error) {
       console.error('Wholesale lead insert error:', error);
@@ -313,7 +372,11 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       lead: data,
-      message: isCanadaLead ? 'Canadian retailer early-access request received.' : 'Sample request received.',
+      message: isCanadaLead
+        ? 'Canadian retailer early-access request received.'
+        : isPodcastSource
+          ? 'Podcast partner lead received.'
+          : 'Sample request received.',
     });
   } catch (error) {
     console.error('Wholesale lead intake error:', error);

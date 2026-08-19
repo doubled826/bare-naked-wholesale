@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { AdminAuthorizationError, requireAdminAccess } from '@/lib/admin';
 import { sendEmail } from '@/lib/email';
+import { sendWholesaleLeadQualifiedEvent } from '@/lib/metaConversions';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,7 +52,8 @@ export async function POST(_request: Request, context: RouteContext) {
       return NextResponse.json({ error: 'Wholesale lead not found.' }, { status: 404 });
     }
 
-    if (lead.status === 'closed' || lead.status === 'converted') {
+    const currentLeadStatus = lead.lead_status || (lead.status === 'converted' ? 'wholesale_customer' : lead.status === 'closed' ? 'disqualified' : 'new');
+    if (currentLeadStatus === 'disqualified' || currentLeadStatus === 'wholesale_customer') {
       return NextResponse.json({ error: 'Closed or converted leads cannot be approved.' }, { status: 400 });
     }
 
@@ -59,9 +61,15 @@ export async function POST(_request: Request, context: RouteContext) {
     const { data: updatedLead, error: updateError } = await adminClient
       .from('wholesale_leads')
       .update({
+        lead_status: 'qualified',
+        sample_status: 'not_sent',
         status: 'sample_pack_pending',
         approved_at: approvedAt,
         approved_by: user.id,
+        qualified_at: lead.qualified_at || approvedAt,
+        disqualified_reason: null,
+        disqualified_notes: null,
+        meta_qualified_event_id: lead.meta_qualified_event_id || `WholesaleLeadQualified:${leadId}`,
         updated_at: approvedAt,
       })
       .eq('id', leadId)
@@ -71,6 +79,8 @@ export async function POST(_request: Request, context: RouteContext) {
     if (updateError || !updatedLead) {
       return NextResponse.json({ error: updateError?.message || 'Unable to approve sample request.' }, { status: 400 });
     }
+
+    await sendWholesaleLeadQualifiedEvent(adminClient, updatedLead);
 
     const address = formatAddress(updatedLead);
     const portalUrl = getPortalUrl(leadId);
@@ -149,7 +159,13 @@ ${portalUrl}
       tags: [{ name: 'feature', value: 'wholesale-leads' }],
     });
 
-    return NextResponse.json({ success: true, lead: updatedLead });
+    const { data: refreshedLead } = await adminClient
+      .from('wholesale_leads')
+      .select('*')
+      .eq('id', leadId)
+      .single();
+
+    return NextResponse.json({ success: true, lead: refreshedLead || updatedLead });
   } catch (error) {
     if (error instanceof AdminAuthorizationError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
