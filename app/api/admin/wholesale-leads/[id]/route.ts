@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { AdminAuthorizationError, requireAdminAccess } from '@/lib/admin';
-import { sendWholesaleLeadQualifiedEvent } from '@/lib/metaConversions';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,17 +128,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json({ error: error?.message || 'Unable to update wholesale lead.' }, { status: 400 });
     }
 
-    if (nextLeadStatus === 'qualified' && !data.meta_qualified_event_sent_at) {
-      await sendWholesaleLeadQualifiedEvent(adminClient, data);
-    }
-
-    const { data: refreshedLead } = await adminClient
-      .from('wholesale_leads')
-      .select('*')
-      .eq('id', leadId)
-      .single();
-
-    return NextResponse.json({ success: true, lead: refreshedLead || data });
+    return NextResponse.json({ success: true, lead: data });
   } catch (error) {
     if (error instanceof AdminAuthorizationError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

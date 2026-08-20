@@ -3,6 +3,8 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { sendTeamEmail } from '@/lib/email';
 import { formatBusinessAddress } from '@/lib/address';
+import { sendWholesaleLeadQualifiedEvent } from '@/lib/metaConversions';
+import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
 type TurnstileVerificationResult = {
   success: boolean;
@@ -134,6 +136,52 @@ export async function POST(request: Request) {
 
     // The database trigger will create the retailer record automatically
     // using the metadata we just set (company_name, business_address, phone)
+    try {
+      const adminClient = createSupabaseAdminClient();
+      const qualifiedAt = new Date().toISOString();
+      const normalizedSignupEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+      const { data: matchingLead, error: matchingLeadError } = await adminClient
+        .from('wholesale_leads')
+        .select('*')
+        .eq('email', normalizedSignupEmail)
+        .maybeSingle();
+
+      if (matchingLeadError) {
+        console.error('Wholesale lead signup match error:', matchingLeadError);
+      }
+
+      if (matchingLead) {
+        const sampleStatus = matchingLead.sample_status || 'not_sent';
+        const { data: updatedLead, error: leadUpdateError } = await adminClient
+          .from('wholesale_leads')
+          .update({
+            lead_status: matchingLead.lead_status === 'wholesale_customer' ? 'wholesale_customer' : 'qualified',
+            sample_status: sampleStatus,
+            status: matchingLead.lead_status === 'wholesale_customer'
+              ? 'converted'
+              : sampleStatus === 'sent'
+                ? 'tracking_added'
+                : 'sample_pack_pending',
+            qualified_at: matchingLead.qualified_at || qualifiedAt,
+            converted_retailer_id: authData.user.id,
+            disqualified_reason: null,
+            disqualified_notes: null,
+            meta_qualified_event_id: matchingLead.meta_qualified_event_id || `WholesaleLeadQualified:${matchingLead.id}`,
+            updated_at: qualifiedAt,
+          })
+          .eq('id', matchingLead.id)
+          .select('*')
+          .single();
+
+        if (leadUpdateError || !updatedLead) {
+          console.error('Wholesale lead signup qualification error:', leadUpdateError);
+        } else {
+          await sendWholesaleLeadQualifiedEvent(adminClient, updatedLead);
+        }
+      }
+    } catch (leadMatchError) {
+      console.error('Wholesale lead signup qualification error:', leadMatchError);
+    }
 
     try {
       await sendTeamEmail({

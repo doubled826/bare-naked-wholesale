@@ -8,6 +8,7 @@ import { formatShelfTalkerList, queueShelfTalkersForOrder } from '@/lib/shelfTal
 import { BARE_LAUNCH_OFFER_CODE, BARE_LAUNCH_OFFER_NAME } from '@/lib/bareLaunchOffer';
 import { getOfferResolution, toPublicOfferBenefit } from '@/lib/offerResolver';
 import { createOrderWithPromotions } from '@/lib/orderTransactions';
+import { sendWholesalePurchaseEventForRetailer } from '@/lib/metaConversions';
 
 export async function POST(request: Request) {
   try {
@@ -163,6 +164,14 @@ export async function POST(request: Request) {
     };
     const creditApplied = Number(transactionResult.credit_applied || 0);
     const finalTotal = Number(transactionResult.total || 0);
+
+    await sendWholesalePurchaseEventForRetailer(adminClient, {
+      retailerId: user.id,
+      retailerEmail: user.email,
+      orderId: order.id,
+    }).catch((metaError) => {
+      console.error('Meta purchase event send error:', metaError);
+    });
 
     if (transactionResult.duplicate) {
       return NextResponse.json({

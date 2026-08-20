@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { AdminAuthorizationError, requireAdminAccess } from '@/lib/admin';
 import { sendEmail } from '@/lib/email';
-import { sendWholesaleLeadQualifiedEvent } from '@/lib/metaConversions';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,8 +79,6 @@ export async function POST(_request: Request, context: RouteContext) {
       return NextResponse.json({ error: updateError?.message || 'Unable to approve sample request.' }, { status: 400 });
     }
 
-    await sendWholesaleLeadQualifiedEvent(adminClient, updatedLead);
-
     const address = formatAddress(updatedLead);
     const portalUrl = getPortalUrl(leadId);
     const text = `
@@ -159,13 +156,7 @@ ${portalUrl}
       tags: [{ name: 'feature', value: 'wholesale-leads' }],
     });
 
-    const { data: refreshedLead } = await adminClient
-      .from('wholesale_leads')
-      .select('*')
-      .eq('id', leadId)
-      .single();
-
-    return NextResponse.json({ success: true, lead: refreshedLead || updatedLead });
+    return NextResponse.json({ success: true, lead: updatedLead });
   } catch (error) {
     if (error instanceof AdminAuthorizationError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

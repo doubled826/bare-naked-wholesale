@@ -95,3 +95,14 @@ CREATE INDEX IF NOT EXISTS idx_wholesale_leads_sample_status_created
 CREATE UNIQUE INDEX IF NOT EXISTS idx_wholesale_leads_meta_qualified_event_id
   ON wholesale_leads (meta_qualified_event_id)
   WHERE meta_qualified_event_id IS NOT NULL;
+
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS meta_purchase_event_id TEXT,
+  ADD COLUMN IF NOT EXISTS meta_purchase_event_sent_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS meta_purchase_event_processing_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS meta_purchase_event_attempts INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS meta_purchase_event_last_error TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_meta_purchase_event_id
+  ON orders (meta_purchase_event_id)
+  WHERE meta_purchase_event_id IS NOT NULL;
