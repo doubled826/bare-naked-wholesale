@@ -40,6 +40,16 @@ const MESSAGE_KEYS = [
   'anythingElse',
   'anything_else',
 ];
+const LOCATION_COUNT_LABELS: Record<string, string> = {
+  '1': '1',
+  '2': '2',
+  '3': '3',
+  '4': '4',
+  '5': '5+',
+  '5+': '5+',
+  '5_plus': '5+',
+  '5 or more': '5+',
+};
 
 const getString = (body: LeadBody, keys: string[]) => {
   for (const key of keys) {
@@ -74,6 +84,22 @@ const normalizeBuyingWholesale = (value: string) => {
   if (normalized === 'true') return 'yes';
   if (normalized === 'false') return 'no';
   return BUYING_WHOLESALE_VALUES.has(normalized) ? normalized : null;
+};
+
+const normalizeOptionKey = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[–—]/g, '-')
+    .replace(/\+/g, '_plus')
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+const getLocationCountLabel = (body: LeadBody) => {
+  const rawValue = getString(body, LOCATION_COUNT_KEYS);
+  if (!rawValue) return null;
+  return LOCATION_COUNT_LABELS[normalizeOptionKey(rawValue)] || LOCATION_COUNT_LABELS[rawValue.trim().toLowerCase()] || rawValue;
 };
 
 const isCanadaEarlyAccessLead = (body: LeadBody) => {
@@ -112,6 +138,13 @@ const getLocationCount = (body: LeadBody) => {
 
 const getLeadMessage = (body: LeadBody) =>
   getOptionalString(body, MESSAGE_KEYS);
+
+const formatLocationCount = (lead: { location_count?: number | null; location_count_label?: string | null; raw_payload?: Record<string, unknown> | null }) => {
+  if (lead.location_count_label) return lead.location_count_label;
+  const rawLabel = lead.raw_payload?.locationCountLabel;
+  if (typeof rawLabel === 'string' && rawLabel.trim()) return rawLabel.trim();
+  return lead.location_count ? String(lead.location_count) : 'Not provided';
+};
 
 const getClientIp = (request: Request) => {
   const forwardedFor = request.headers.get('x-forwarded-for');
@@ -168,6 +201,7 @@ const sendInboundLeadNotification = async (lead: {
   store_url?: string | null;
   store_type?: string | null;
   location_count?: number | null;
+  location_count_label?: string | null;
   message?: string | null;
   shipping_address_1: string;
   shipping_address_2?: string | null;
@@ -194,7 +228,7 @@ Email: ${lead.email}
 Phone: ${lead.phone || 'Not provided'}
 Store Type: ${lead.store_type || 'Not provided'}
 Website/Instagram: ${lead.store_url || 'Not provided'}
-Locations: ${lead.location_count || 'Not provided'}
+Locations: ${formatLocationCount(lead)}
 Message: ${lead.message || 'Not provided'}
 
 Shipping address:
@@ -239,7 +273,7 @@ ${portalUrl}
                   Campaign: ${escapeHtml(lead.utm_campaign || 'Not captured')}<br />
                   Store type: ${escapeHtml(lead.store_type || 'Not provided')}<br />
                   Website/Instagram: ${escapeHtml(lead.store_url || 'Not provided')}<br />
-                  Locations: ${escapeHtml(lead.location_count ? String(lead.location_count) : 'Not provided')}<br />
+                  Locations: ${escapeHtml(formatLocationCount(lead))}<br />
                   Message: ${escapeHtml(lead.message || 'Not provided')}
                 </p>
                 <p style="margin:24px 0 0;">
@@ -319,6 +353,7 @@ export async function POST(request: Request) {
 
     const now = new Date().toISOString();
     const locationCount = getLocationCount(body);
+    const locationCountLabel = getLocationCountLabel(body);
     const message = getLeadMessage(body);
     const clientIp = getClientIp(request);
     const userAgent = request.headers.get('user-agent');
@@ -355,7 +390,10 @@ export async function POST(request: Request) {
       referrer: getOptionalString(body, ['referrer']),
       user_agent: userAgent,
       ip_address: clientIp,
-      raw_payload: body,
+      raw_payload: {
+        ...body,
+        locationCountLabel,
+      },
       last_submitted_at: now,
       updated_at: now,
     };

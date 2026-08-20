@@ -154,6 +154,66 @@ ${portalUrl}
       tags: [{ name: 'feature', value: 'wholesale-leads' }],
     });
 
+    const retailerText = `
+Hi ${updatedLead.contact_name},
+
+Good news - your Bare Naked Pet Co. sample pack has been approved and is being sent to your store.
+
+It should arrive within about a week.
+
+Shipping to:
+${address}
+
+Once you have a chance to try the samples, our team will follow up with wholesale next steps and your first-order offer.
+
+In the meantime, you can review wholesale pricing, minimums, shipping, sourcing, retailer perks, and account setup here:
+https://retail.barenakedpet.com
+
+Thanks,
+Bare Naked Pet Co.
+    `.trim();
+
+    const retailerHtml = `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f8f4ec;font-family:Arial,Helvetica,sans-serif;color:#3b2a1e;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8f4ec;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfce;border-radius:14px;overflow:hidden;">
+            <tr>
+              <td style="padding:28px;">
+                <p style="margin:0;color:#7a4f2a;font-weight:700;font-size:13px;letter-spacing:.04em;text-transform:uppercase;">Bare Naked Pet Co.</p>
+                <h1 style="margin:12px 0 10px;font-size:25px;line-height:1.25;color:#3b2a1e;">Your samples are on the way</h1>
+                <p style="margin:0 0 18px;color:#6b5f55;font-size:15px;line-height:1.6;">Hi ${escapeHtml(updatedLead.contact_name)}, your wholesale sample pack has been approved and is being sent to your store. It should arrive within about a week.</p>
+                <div style="border:1px solid #eadfce;border-radius:12px;padding:18px;background:#fbf7ed;">
+                  <p style="margin:0 0 8px;font-size:16px;font-weight:700;color:#3b2a1e;">Shipping to</p>
+                  <p style="margin:0;color:#6b5f55;font-size:15px;line-height:1.6;white-space:pre-line;">${escapeHtml(address)}</p>
+                </div>
+                <p style="margin:20px 0 0;color:#6b5f55;font-size:15px;line-height:1.6;">Once you have a chance to try the samples, our team will follow up with wholesale next steps and your first-order offer.</p>
+                <p style="margin:22px 0 0;">
+                  <a href="https://retail.barenakedpet.com" style="display:inline-block;background:#3b2a1e;color:#ffffff;text-decoration:none;font-weight:700;border-radius:8px;padding:12px 16px;">Review wholesale details</a>
+                </p>
+                <p style="margin:14px 0 0;color:#6b5f55;font-size:13px;line-height:1.6;">Pricing, minimums, shipping, sourcing, retailer perks, and account setup are all covered there.</p>
+                <p style="margin:22px 0 0;color:#3b2a1e;font-size:15px;line-height:1.6;">Thanks,<br />Bare Naked Pet Co.</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+    await sendEmail({
+      from: process.env.PORTAL_EMAIL_FROM || process.env.ORDER_EMAIL_FROM || process.env.SMTP_USER || 'info@barenakedpet.com',
+      to: updatedLead.email,
+      replyTo: 'info@barenakedpet.com',
+      subject: 'Your Bare Naked Pet Co. samples are on the way',
+      text: retailerText,
+      html: retailerHtml,
+      tags: [{ name: 'feature', value: 'wholesale-leads' }],
+    });
+
     return NextResponse.json({ success: true, lead: updatedLead });
   } catch (error) {
     if (error instanceof AdminAuthorizationError) {

@@ -206,6 +206,16 @@ const messageKeys = [
   'anythingElse',
   'anything_else',
 ];
+const locationCountLabels: Record<string, string> = {
+  '1': '1',
+  '2': '2',
+  '3': '3',
+  '4': '4',
+  '5': '5+',
+  '5+': '5+',
+  '5_plus': '5+',
+  '5 or more': '5+',
+};
 
 type StatCard = {
   label: string;
@@ -223,6 +233,16 @@ const formatDate = (value?: string | null) => {
     minute: '2-digit',
   }).format(new Date(value));
 };
+
+const normalizeOptionKey = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[–—]/g, '-')
+    .replace(/\+/g, '_plus')
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 
 const getLeadStatus = (lead: WholesaleLead): LeadStatus => {
   if (lead.lead_status) return lead.lead_status;
@@ -266,7 +286,13 @@ const getPublicMessage = (lead: WholesaleLead) =>
   lead.message || rawString(lead, messageKeys);
 
 const getLocationCount = (lead: WholesaleLead) =>
-  lead.location_count || rawNumber(lead, locationCountKeys);
+  rawString(lead, ['locationCountLabel', 'location_count_label']) ||
+  locationCountLabels[normalizeOptionKey(rawString(lead, locationCountKeys))] ||
+  locationCountLabels[rawString(lead, locationCountKeys).toLowerCase()] ||
+  (lead.location_count ? String(lead.location_count) : '');
+
+const getStoreType = (lead: WholesaleLead) =>
+  lead.store_type || rawString(lead, ['storeType', 'store_type']);
 
 const rawList = (lead: WholesaleLead, keys: string[]) => {
   const payload = lead.raw_payload || {};
@@ -947,7 +973,7 @@ export default function WholesalePipelinePage() {
                   <tr key={lead.id} className="hover:bg-gray-50">
                     <td className="px-5 py-4">
                       <p className="font-semibold text-gray-900">{lead.store_name}</p>
-                      <p className="mt-1 text-xs text-gray-500">{lead.store_type || 'Store type not provided'}</p>
+                      <p className="mt-1 text-xs text-gray-500">{getStoreType(lead) || 'Store type not provided'}</p>
                       <p className="mt-1 text-xs font-semibold text-bark-500/70">{getLeadTypeLabel(lead)}</p>
                     </td>
                     <td className="px-5 py-4 text-sm text-gray-700">
@@ -1160,10 +1186,10 @@ export default function WholesalePipelinePage() {
                     <Store className="mt-0.5 h-4 w-4 text-gray-400" />
                     <div>
                       <p className="font-medium text-gray-900">{selectedLead.store_name}</p>
-                      <p>{selectedLead.store_type || 'Store type not provided'}</p>
+                      <p>{getStoreType(selectedLead) || 'Store type not provided'}</p>
                       <p>
                         {getLocationCount(selectedLead)
-                          ? `${getLocationCount(selectedLead)} location${getLocationCount(selectedLead) === 1 ? '' : 's'}`
+                          ? `${getLocationCount(selectedLead)} ${getLocationCount(selectedLead) === '1' ? 'location' : 'locations'}`
                           : 'Location count not provided'}
                       </p>
                     </div>
