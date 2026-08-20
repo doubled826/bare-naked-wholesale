@@ -27,6 +27,11 @@ type DealSearchResult = {
   title: string;
 };
 
+type Notice = {
+  type: 'success' | 'error';
+  message: string;
+};
+
 type ChecklistItem = {
   id: string;
   label: string;
@@ -128,7 +133,7 @@ export default function OnboardingHealthPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   const [stageFilter, setStageFilter] = useState<(typeof STAGE_FILTERS)[number]>('all');
   const [followUpFilter, setFollowUpFilter] = useState<(typeof FOLLOW_UP_FILTERS)[number]>('all');
@@ -169,7 +174,7 @@ export default function OnboardingHealthPage() {
         return nextRecords[0]?.id || null;
       });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to load onboarding health.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to load onboarding health.' });
     } finally {
       setIsLoading(false);
       setRefreshing(false);
@@ -182,7 +187,7 @@ export default function OnboardingHealthPage() {
 
   useEffect(() => {
     if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(''), 3500);
+    const timer = window.setTimeout(() => setNotice(null), 3500);
     return () => window.clearTimeout(timer);
   }, [notice]);
 
@@ -230,7 +235,7 @@ export default function OnboardingHealthPage() {
       if (!response.ok) throw new Error(payload?.error || 'Unable to search deals.');
       setDealResults(payload.deals || []);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to search deals.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to search deals.' });
       setDealResults([]);
     } finally {
       setSearchingDeals(false);
@@ -239,7 +244,7 @@ export default function OnboardingHealthPage() {
 
   async function linkRetailer(dealId: number) {
     if (!selectedRetailerId) {
-      setNotice('Choose a retailer from the portal first.');
+      setNotice({ type: 'error', message: 'Choose a retailer from the portal first.' });
       return;
     }
 
@@ -256,10 +261,10 @@ export default function OnboardingHealthPage() {
       setDealQuery('');
       setDealResults([]);
       setSelectedRetailerId('');
-      setNotice('Retailer linked to Pipedrive and added to onboarding.');
+      setNotice({ type: 'success', message: 'Retailer linked to Pipedrive and added to onboarding.' });
       await fetchData();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to link retailer.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to link retailer.' });
     } finally {
       setLinking(false);
     }
@@ -284,10 +289,10 @@ export default function OnboardingHealthPage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Unable to save onboarding details.');
-      setNotice('Onboarding dates saved.');
+      setNotice({ type: 'success', message: 'Onboarding dates saved.' });
       await fetchData();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to save onboarding details.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to save onboarding details.' });
     } finally {
       setSavingMeta(false);
     }
@@ -306,7 +311,7 @@ export default function OnboardingHealthPage() {
       if (!response.ok) throw new Error(payload?.error || 'Unable to update checklist item.');
       await fetchData();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to update checklist item.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to update checklist item.' });
     } finally {
       setSavingChecklistId(null);
     }
@@ -324,10 +329,10 @@ export default function OnboardingHealthPage() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Unable to save note.');
       setNewNote('');
-      setNotice('Note saved and synced to Pipedrive.');
+      setNotice({ type: 'success', message: 'Note saved and synced to Pipedrive.' });
       await fetchData();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to save note.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to save note.' });
     } finally {
       setSavingNote(false);
     }
@@ -344,9 +349,22 @@ export default function OnboardingHealthPage() {
   return (
     <div className="space-y-6">
       {notice && (
-        <div className="fixed top-20 right-6 z-50 bg-white border border-gray-200 rounded-xl p-4 shadow-lg flex items-center gap-3">
-          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-          <span className="text-gray-900 font-medium">{notice}</span>
+        <div
+          className={cn(
+            'fixed top-20 right-6 z-50 rounded-xl border p-4 shadow-lg flex items-center gap-3',
+            notice.type === 'success'
+              ? 'bg-green-50 border-green-200'
+              : 'bg-red-50 border-red-200',
+          )}
+        >
+          {notice.type === 'success' ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+          ) : (
+            <AlertCircle className="w-5 h-5 text-red-600" />
+          )}
+          <span className={cn('font-medium', notice.type === 'success' ? 'text-green-900' : 'text-red-900')}>
+            {notice.message}
+          </span>
         </div>
       )}
 

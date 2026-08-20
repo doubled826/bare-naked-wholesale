@@ -140,7 +140,7 @@ export default function AdminLibraryImagesPage() {
         <div
           className={cn(
             'fixed right-6 top-20 z-50 flex items-center gap-3 rounded-xl border p-4 shadow-lg',
-            notice.type === 'success' ? 'border-gray-200 bg-white text-gray-900' : 'border-red-200 bg-red-50 text-red-900',
+            notice.type === 'success' ? 'border-green-200 bg-green-50 text-green-900' : 'border-red-200 bg-red-50 text-red-900',
           )}
         >
           {notice.type === 'success' ? <CheckCircle className="h-5 w-5 text-emerald-600" /> : <AlertCircle className="h-5 w-5 text-red-600" />}

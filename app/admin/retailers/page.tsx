@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Search, Users, Edit2, Eye, X, CheckCircle, ShoppingCart, DollarSign, Plus, Mail, Download, SlidersHorizontal } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { AlertCircle, Search, Users, Edit2, Eye, X, CheckCircle, ShoppingCart, DollarSign, Plus, Mail, Download, SlidersHorizontal } from 'lucide-react';
+import { cn, formatCurrency } from '@/lib/utils';
 
 interface Retailer { id: string; company_name: string; business_address: string; phone: string; account_number: string; created_at: string; status?: string; email?: string; how_heard_about_us?: string | null; how_heard_about_us_other?: string | null }
 interface RetailerWithStats extends Retailer { total_orders: number; total_spent: number; last_order_date: string | null }
@@ -14,6 +14,10 @@ type LastOrderFilter = 'any' | 'last_30' | 'days_31_90' | 'days_90_plus' | 'neve
 type RevenueFilter = 'any' | 'zero' | 'under_250' | 'between_250_1000' | 'over_1000';
 type AccountAgeFilter = 'any' | 'last_30' | 'days_31_90' | 'days_90_plus' | 'days_30_plus_never_ordered';
 type SortOption = 'created_desc' | 'name_asc' | 'revenue_desc' | 'revenue_asc' | 'orders_desc' | 'orders_asc' | 'last_order_desc' | 'last_order_asc';
+type Notification = {
+  type: 'success' | 'error';
+  message: string;
+};
 
 const buyingStatusOptions: Array<{ value: BuyingStatusFilter; label: string }> = [
   { value: 'all', label: 'All retailers' },
@@ -162,7 +166,7 @@ export default function AdminRetailersPage() {
   const [editForm, setEditForm] = useState({ company_name: '', business_address: '', phone: '', email: '' });
   const [isUpdating, setIsUpdating] = useState(false);
   const [isLoadingEditRetailer, setIsLoadingEditRetailer] = useState(false);
-  const [notification, setNotification] = useState('');
+  const [notification, setNotification] = useState<Notification | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [resendInviteId, setResendInviteId] = useState<string | null>(null);
@@ -399,7 +403,10 @@ export default function AdminRetailersPage() {
     sortOption !== 'created_desc' ? { label: `Sort: ${sortOptions.find((option) => option.value === sortOption)?.label}`, onRemove: () => setSortOption('created_desc') } : null,
   ].filter((chip): chip is { label: string; onRemove: () => void } => Boolean(chip));
 
-  const showNotification = (msg: string) => { setNotification(msg); setTimeout(() => setNotification(''), 3000); };
+  const showNotification = (type: Notification['type'], message: string) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 3000);
+  };
 
   const escapeCsvValue = (value: string | number | null | undefined) => {
     const stringValue = value == null ? '' : String(value);
@@ -408,7 +415,7 @@ export default function AdminRetailersPage() {
 
   const handleExportRetailers = () => {
     if (filteredRetailers.length === 0) {
-      showNotification('No retailers to export');
+      showNotification('error', 'No retailers to export');
       return;
     }
 
@@ -468,7 +475,7 @@ export default function AdminRetailersPage() {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 
-    showNotification(`Exported ${filteredRetailers.length} retailer${filteredRetailers.length === 1 ? '' : 's'}`);
+    showNotification('success', `Exported ${filteredRetailers.length} retailer${filteredRetailers.length === 1 ? '' : 's'}`);
   };
 
   const handleEditRetailer = async (retailer: RetailerWithStats) => {
@@ -498,7 +505,7 @@ export default function AdminRetailersPage() {
       });
     } catch (error) {
       console.error('Error:', error);
-      showNotification(error instanceof Error ? error.message : 'Failed to load retailer details');
+      showNotification('error', error instanceof Error ? error.message : 'Failed to load retailer details');
     } finally {
       setIsLoadingEditRetailer(false);
     }
@@ -521,13 +528,13 @@ export default function AdminRetailersPage() {
         throw new Error(result?.error || 'Failed to update retailer');
       }
 
-      showNotification('Retailer updated!');
+      showNotification('success', 'Retailer updated!');
       setShowEditModal(false);
       setPendingEditRetailer(null);
       fetchRetailers();
     } catch (error) {
       console.error('Error:', error);
-      showNotification(error instanceof Error ? error.message : 'Failed to update');
+      showNotification('error', error instanceof Error ? error.message : 'Failed to update');
     }
     finally { setIsUpdating(false); }
   };
@@ -542,10 +549,10 @@ export default function AdminRetailersPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result?.error || 'Failed to send setup email');
-      showNotification('Setup email sent!');
+      showNotification('success', 'Setup email sent!');
     } catch (error) {
       console.error('Error:', error);
-      showNotification('Failed to send setup email');
+      showNotification('error', 'Failed to send setup email');
     } finally {
       setResendInviteId(null);
     }
@@ -553,7 +560,7 @@ export default function AdminRetailersPage() {
 
   const handleCreateRetailer = async () => {
     if (!createForm.company_name || !createForm.email) {
-      showNotification('Company name and email are required');
+      showNotification('error', 'Company name and email are required');
       return;
     }
     setIsCreating(true);
@@ -572,13 +579,13 @@ export default function AdminRetailersPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result?.error || 'Failed to create retailer');
-      showNotification('Invite sent! Retailer can set a password from the email.');
+      showNotification('success', 'Invite sent! Retailer can set a password from the email.');
       setShowCreateModal(false);
       setCreateForm({ company_name: '', business_address: '', phone: '', contact_name: '', email: '', tax_id: '' });
       fetchRetailers();
     } catch (error) {
       console.error('Error:', error);
-      showNotification('Failed to create retailer');
+      showNotification('error', 'Failed to create retailer');
     } finally {
       setIsCreating(false);
     }
@@ -588,7 +595,7 @@ export default function AdminRetailersPage() {
 
   return (
     <div className="space-y-6">
-      {notification && <div className="fixed top-20 right-6 z-50 bg-white border border-gray-200 rounded-xl p-4 shadow-lg flex items-center gap-3"><CheckCircle className="w-5 h-5 text-emerald-600" /><span className="text-gray-900 font-medium">{notification}</span></div>}
+      {notification && <div className={cn("fixed top-20 right-6 z-50 border rounded-xl p-4 shadow-lg flex items-center gap-3", notification.type === 'success' ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200")}>{notification.type === 'success' ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <AlertCircle className="w-5 h-5 text-red-600" />}<span className={notification.type === 'success' ? 'text-green-900' : 'text-red-900'}>{notification.message}</span></div>}
 
       <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
         <div className="flex flex-col gap-4">

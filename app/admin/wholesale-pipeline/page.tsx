@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
+  AlertCircle,
   BarChart3,
+  CheckCircle,
   Clock,
   ExternalLink,
   Globe2,
@@ -223,6 +225,11 @@ type StatCard = {
   icon: LucideIcon;
 };
 
+type Notice = {
+  type: 'success' | 'error';
+  message: string;
+};
+
 const formatDate = (value?: string | null) => {
   if (!value) return 'Not set';
   return new Intl.DateTimeFormat('en-US', {
@@ -407,7 +414,7 @@ export default function WholesalePipelinePage() {
   const supabase = createClientComponentClient();
   const [leads, setLeads] = useState<WholesaleLead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('all');
   const [activeTab, setActiveTab] = useState<LeadTab>('all');
@@ -437,7 +444,7 @@ export default function WholesalePipelinePage() {
 
   const fetchLeads = async () => {
     setIsLoading(true);
-    setNotice('');
+    setNotice(null);
 
     const { data, error } = await supabase
       .from('wholesale_leads')
@@ -446,7 +453,7 @@ export default function WholesalePipelinePage() {
 
     if (error) {
       console.error('Wholesale lead load error:', error);
-      setNotice(error.message || 'Unable to load wholesale leads.');
+      setNotice({ type: 'error', message: error.message || 'Unable to load wholesale leads.' });
       setLeads([]);
       setIsLoading(false);
       return;
@@ -458,7 +465,7 @@ export default function WholesalePipelinePage() {
 
   const approveLead = async (lead: WholesaleLead) => {
     setApprovingLeadId(lead.id);
-    setNotice('');
+    setNotice(null);
 
     try {
       const response = await fetch(`/api/admin/wholesale-leads/${lead.id}/approve`, {
@@ -473,9 +480,9 @@ export default function WholesalePipelinePage() {
       const updatedLead = payload.lead as WholesaleLead;
       setLeads((current) => current.map((item) => (item.id === updatedLead.id ? updatedLead : item)));
       setSelectedLead(updatedLead);
-      setNotice(`Approved ${updatedLead.store_name}. Fulfillment email sent to info@barenakedpet.com.`);
+      setNotice({ type: 'success', message: `Approved ${updatedLead.store_name}. Fulfillment email sent to info@barenakedpet.com.` });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to approve sample request.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to approve sample request.' });
     } finally {
       setApprovingLeadId(null);
     }
@@ -483,7 +490,7 @@ export default function WholesalePipelinePage() {
 
   const updateLead = async (lead: WholesaleLead) => {
     setUpdatingLeadId(lead.id);
-    setNotice('');
+    setNotice(null);
 
     try {
       const response = await fetch(`/api/admin/wholesale-leads/${lead.id}`, {
@@ -508,9 +515,9 @@ export default function WholesalePipelinePage() {
       const updatedLead = payload.lead as WholesaleLead;
       setLeads((current) => current.map((item) => (item.id === updatedLead.id ? updatedLead : item)));
       setSelectedLead(updatedLead);
-      setNotice(`Updated ${updatedLead.store_name}.`);
+      setNotice({ type: 'success', message: `Updated ${updatedLead.store_name}.` });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to update wholesale lead.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to update wholesale lead.' });
     } finally {
       setUpdatingLeadId(null);
     }
@@ -521,7 +528,7 @@ export default function WholesalePipelinePage() {
     if (!confirmed) return;
 
     setDeletingLeadId(lead.id);
-    setNotice('');
+    setNotice(null);
 
     try {
       const response = await fetch(`/api/admin/wholesale-leads/${lead.id}`, {
@@ -535,9 +542,9 @@ export default function WholesalePipelinePage() {
 
       setLeads((current) => current.filter((item) => item.id !== lead.id));
       setSelectedLead(null);
-      setNotice(`Deleted ${lead.store_name} from the Wholesale Pipeline.`);
+      setNotice({ type: 'success', message: `Deleted ${lead.store_name} from the Wholesale Pipeline.` });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to delete wholesale lead.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to delete wholesale lead.' });
     } finally {
       setDeletingLeadId(null);
     }
@@ -696,8 +703,16 @@ export default function WholesalePipelinePage() {
       </div>
 
       {notice && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {notice}
+        <div
+          className={cn(
+            'flex items-center gap-2 rounded-lg border px-4 py-3 text-sm',
+            notice.type === 'success'
+              ? 'border-green-200 bg-green-50 text-green-800'
+              : 'border-red-200 bg-red-50 text-red-700',
+          )}
+        >
+          {notice.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+          {notice.message}
         </div>
       )}
 

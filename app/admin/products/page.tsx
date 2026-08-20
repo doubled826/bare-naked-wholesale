@@ -59,7 +59,7 @@ export default function AdminProductsPage() {
 
   return (
     <div className="space-y-6">
-      {notification.message && <div className={cn("fixed top-20 right-6 z-50 border rounded-xl p-4 shadow-lg flex items-center gap-3", notification.type === 'success' ? "bg-white border-gray-200" : "bg-red-50 border-red-200")}>{notification.type === 'success' ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <AlertCircle className="w-5 h-5 text-red-600" />}<span className={notification.type === 'success' ? 'text-gray-900' : 'text-red-900'}>{notification.message}</span></div>}
+      {notification.message && <div className={cn("fixed top-20 right-6 z-50 border rounded-xl p-4 shadow-lg flex items-center gap-3", notification.type === 'success' ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200")}>{notification.type === 'success' ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <AlertCircle className="w-5 h-5 text-red-600" />}<span className={notification.type === 'success' ? 'text-green-900' : 'text-red-900'}>{notification.message}</span></div>}
 
       <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
         <div className="flex flex-col lg:flex-row gap-4">

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target, Search, X, Unlink } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target, Search, X, Unlink } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
@@ -43,6 +43,11 @@ interface Retailer {
   how_heard_about_us_other?: string | null;
   created_at: string;
 }
+
+type Notice = {
+  type: 'success' | 'error';
+  message: string;
+};
 
 interface OrderItem {
   id: string;
@@ -307,18 +312,18 @@ export default function AdminRetailerDetailPage() {
   const [isSavingLocation, setIsSavingLocation] = useState(false);
   const [isDeletingLocationId, setIsDeletingLocationId] = useState<string | null>(null);
   const [isSettingDefaultId, setIsSettingDefaultId] = useState<string | null>(null);
-  const [locationNotice, setLocationNotice] = useState('');
+  const [locationNotice, setLocationNotice] = useState<Notice | null>(null);
   const [credits, setCredits] = useState<RetailerCredit[]>([]);
   const [availableCreditBalance, setAvailableCreditBalance] = useState(0);
   const [creditsLoading, setCreditsLoading] = useState(false);
   const [showAddCredit, setShowAddCredit] = useState(false);
-  const [creditNotice, setCreditNotice] = useState('');
+  const [creditNotice, setCreditNotice] = useState<Notice | null>(null);
   const [isSavingCredit, setIsSavingCredit] = useState(false);
   const [isRemovingCreditId, setIsRemovingCreditId] = useState<string | null>(null);
   const [creditProducts, setCreditProducts] = useState<ProductOption[]>([]);
   const [successProfileRow, setSuccessProfileRow] = useState<RetailerSuccessProfileInput | null>(null);
   const [currentPromo, setCurrentPromo] = useState<CurrentAstroPromo>(defaultCurrentAstroPromo);
-  const [successNotice, setSuccessNotice] = useState('');
+  const [successNotice, setSuccessNotice] = useState<Notice | null>(null);
   const [isSavingSuccess, setIsSavingSuccess] = useState(false);
   const [shelfTalkerFulfillments, setShelfTalkerFulfillments] = useState<ShelfTalkerFulfillment[]>([]);
   const [isDeletingRetailer, setIsDeletingRetailer] = useState(false);
@@ -339,19 +344,19 @@ export default function AdminRetailerDetailPage() {
   const [hasSyncedProfileLocation, setHasSyncedProfileLocation] = useState(false);
   const hasSyncedProfileLocationRef = useRef(false);
 
-  const showLocationNotice = (message: string) => {
-    setLocationNotice(message);
-    setTimeout(() => setLocationNotice(''), 3000);
+  const showLocationNotice = (message: string, type: Notice['type'] = 'success') => {
+    setLocationNotice({ type, message });
+    setTimeout(() => setLocationNotice(null), 3000);
   };
 
-  const showCreditNotice = (message: string) => {
-    setCreditNotice(message);
-    setTimeout(() => setCreditNotice(''), 3000);
+  const showCreditNotice = (message: string, type: Notice['type'] = 'success') => {
+    setCreditNotice({ type, message });
+    setTimeout(() => setCreditNotice(null), 3000);
   };
 
-  const showSuccessNotice = (message: string) => {
-    setSuccessNotice(message);
-    setTimeout(() => setSuccessNotice(''), 3000);
+  const showSuccessNotice = (message: string, type: Notice['type'] = 'success') => {
+    setSuccessNotice({ type, message });
+    setTimeout(() => setSuccessNotice(null), 3000);
   };
 
   const openPipedriveLinkModal = () => {
@@ -643,7 +648,7 @@ export default function AdminRetailerDetailPage() {
       !newLocation.businessState.trim() ||
       !newLocation.businessZip.trim()
     ) {
-      showLocationNotice('Location name and full address are required.');
+      showLocationNotice('Location name and full address are required.', 'error');
       return;
     }
 
@@ -692,7 +697,7 @@ export default function AdminRetailerDetailPage() {
       fetchData();
     } catch (addError) {
       console.error('Error adding location:', addError);
-      showLocationNotice('Failed to add location.');
+      showLocationNotice('Failed to add location.', 'error');
     } finally {
       setIsSavingLocation(false);
     }
@@ -721,7 +726,7 @@ export default function AdminRetailerDetailPage() {
       !editLocation.businessState.trim() ||
       !editLocation.businessZip.trim()
     ) {
-      showLocationNotice('Location name and full address are required.');
+      showLocationNotice('Location name and full address are required.', 'error');
       return;
     }
 
@@ -749,7 +754,7 @@ export default function AdminRetailerDetailPage() {
       fetchData();
     } catch (updateError) {
       console.error('Error updating location:', updateError);
-      showLocationNotice('Failed to update location.');
+      showLocationNotice('Failed to update location.', 'error');
     } finally {
       setIsSavingLocation(false);
     }
@@ -775,7 +780,7 @@ export default function AdminRetailerDetailPage() {
       fetchData();
     } catch (defaultError) {
       console.error('Error setting default location:', defaultError);
-      showLocationNotice('Failed to update default.');
+      showLocationNotice('Failed to update default.', 'error');
     } finally {
       setIsSettingDefaultId(null);
     }
@@ -805,7 +810,7 @@ export default function AdminRetailerDetailPage() {
       fetchData();
     } catch (deleteError) {
       console.error('Error deleting location:', deleteError);
-      showLocationNotice('Failed to delete location.');
+      showLocationNotice('Failed to delete location.', 'error');
     } finally {
       setIsDeletingLocationId(null);
     }
@@ -848,11 +853,11 @@ export default function AdminRetailerDetailPage() {
 
     const validItems = newCredit.items.filter((item) => item.productId && Number(item.quantity) > 0);
     if (newCredit.mode === 'sku' && validItems.length === 0) {
-      showCreditNotice('Select at least one SKU and quantity.');
+      showCreditNotice('Select at least one SKU and quantity.', 'error');
       return;
     }
     if (newCredit.mode === 'custom' && manualCreditTotal <= 0) {
-      showCreditNotice('Enter a custom credit amount greater than zero.');
+      showCreditNotice('Enter a custom credit amount greater than zero.', 'error');
       return;
     }
 
@@ -886,7 +891,7 @@ export default function AdminRetailerDetailPage() {
       await fetchCredits();
     } catch (creditError) {
       console.error('Error creating credit:', creditError);
-      showCreditNotice(creditError instanceof Error ? creditError.message : 'Failed to issue credit.');
+      showCreditNotice(creditError instanceof Error ? creditError.message : 'Failed to issue credit.', 'error');
     } finally {
       setIsSavingCredit(false);
     }
@@ -919,7 +924,7 @@ export default function AdminRetailerDetailPage() {
       await fetchCredits();
     } catch (removeError) {
       console.error('Error removing credit:', removeError);
-      showCreditNotice(removeError instanceof Error ? removeError.message : 'Failed to remove credit.');
+      showCreditNotice(removeError instanceof Error ? removeError.message : 'Failed to remove credit.', 'error');
     } finally {
       setIsRemovingCreditId(null);
     }
@@ -944,7 +949,7 @@ export default function AdminRetailerDetailPage() {
       showSuccessNotice(message);
     } catch (successError) {
       console.error('Error updating retailer success status:', successError);
-      showSuccessNotice(successError instanceof Error ? successError.message : 'Failed to update success status.');
+      showSuccessNotice(successError instanceof Error ? successError.message : 'Failed to update success status.', 'error');
     } finally {
       setIsSavingSuccess(false);
     }
@@ -1170,8 +1175,20 @@ export default function AdminRetailerDetailPage() {
         </div>
 
         {successNotice && (
-          <div className="mt-4 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm px-3 py-2">
-            {successNotice}
+          <div
+            className={cn(
+              'mt-4 flex items-center gap-2 rounded-lg border text-sm px-3 py-2',
+              successNotice.type === 'success'
+                ? 'bg-green-50 border-green-200 text-green-900'
+                : 'bg-red-50 border-red-200 text-red-900',
+            )}
+          >
+            {successNotice.type === 'success' ? (
+              <CheckCircle className="h-4 w-4 text-emerald-600" />
+            ) : (
+              <AlertCircle className="h-4 w-4 text-red-600" />
+            )}
+            {successNotice.message}
           </div>
         )}
 
@@ -1448,8 +1465,20 @@ export default function AdminRetailerDetailPage() {
         </div>
 
         {creditNotice && (
-          <div className="mb-4 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm px-3 py-2">
-            {creditNotice}
+          <div
+            className={cn(
+              'mb-4 flex items-center gap-2 rounded-lg border text-sm px-3 py-2',
+              creditNotice.type === 'success'
+                ? 'bg-green-50 border-green-200 text-green-900'
+                : 'bg-red-50 border-red-200 text-red-900',
+            )}
+          >
+            {creditNotice.type === 'success' ? (
+              <CheckCircle className="h-4 w-4 text-emerald-600" />
+            ) : (
+              <AlertCircle className="h-4 w-4 text-red-600" />
+            )}
+            {creditNotice.message}
           </div>
         )}
 
@@ -1698,8 +1727,20 @@ export default function AdminRetailerDetailPage() {
         </div>
 
         {locationNotice && (
-          <div className="mb-4 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm px-3 py-2">
-            {locationNotice}
+          <div
+            className={cn(
+              'mb-4 flex items-center gap-2 rounded-lg border text-sm px-3 py-2',
+              locationNotice.type === 'success'
+                ? 'bg-green-50 border-green-200 text-green-900'
+                : 'bg-red-50 border-red-200 text-red-900',
+            )}
+          >
+            {locationNotice.type === 'success' ? (
+              <CheckCircle className="h-4 w-4 text-emerald-600" />
+            ) : (
+              <AlertCircle className="h-4 w-4 text-red-600" />
+            )}
+            {locationNotice.message}
           </div>
         )}
 

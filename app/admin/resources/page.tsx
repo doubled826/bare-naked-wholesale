@@ -292,7 +292,7 @@ export default function AdminResourcesPage() {
           className={cn(
             'fixed top-20 right-6 z-50 border rounded-xl p-4 shadow-lg flex items-center gap-3',
             notification.type === 'success'
-              ? 'bg-white border-gray-200'
+              ? 'bg-green-50 border-green-200'
               : 'bg-red-50 border-red-200'
           )}
         >
@@ -302,7 +302,7 @@ export default function AdminResourcesPage() {
             <AlertCircle className="w-5 h-5 text-red-600" />
           )}
           <span
-            className={notification.type === 'success' ? 'text-gray-900' : 'text-red-900'}
+            className={notification.type === 'success' ? 'text-green-900' : 'text-red-900'}
           >
             {notification.message}
           </span>

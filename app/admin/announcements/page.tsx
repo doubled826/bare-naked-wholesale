@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ArrowRight, CheckCircle, Edit2, ExternalLink, Eye, Gift, Loader2, Megaphone, Package, Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle, Edit2, ExternalLink, Eye, Gift, Loader2, Megaphone, Package, Plus, Save, Sparkles, Trash2, X } from 'lucide-react';
 import {
   DEFAULT_ASTRO_URL,
   defaultCurrentAstroPromo,
@@ -20,6 +20,10 @@ type PromoForm = {
 
 type AnnouncementTab = 'dashboard-announcements' | 'dashboard-promos' | 'popup-previews';
 type PreviewPopup = 'shelf-talkers' | 'welcome-offer' | null;
+type Notice = {
+  type: 'success' | 'error';
+  message: string;
+};
 
 type DashboardAnnouncement = {
   id: string;
@@ -69,18 +73,40 @@ const shelfTalkerAnnouncementDraft = {
   targeting_type: 'all_retailers',
 };
 
+function NoticeMessage({ notice }: { notice: Notice | null }) {
+  if (!notice) return null;
+
+  return (
+    <p
+      className={cn(
+        'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium',
+        notice.type === 'success'
+          ? 'border-green-200 bg-green-50 text-green-900'
+          : 'border-red-200 bg-red-50 text-red-900',
+      )}
+    >
+      {notice.type === 'success' ? (
+        <CheckCircle className="h-4 w-4 text-emerald-600" />
+      ) : (
+        <AlertCircle className="h-4 w-4 text-red-600" />
+      )}
+      {notice.message}
+    </p>
+  );
+}
+
 function DashboardAnnouncementsManager() {
   const [announcements, setAnnouncements] = useState<DashboardAnnouncement[]>([]);
   const [form, setForm] = useState(emptyAnnouncementForm);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadAnnouncements = async () => {
     setIsLoading(true);
-    setNotice('');
+    setNotice(null);
     try {
       const response = await fetch('/api/admin/announcements');
       const data = await response.json();
@@ -91,7 +117,7 @@ function DashboardAnnouncementsManager() {
 
       setAnnouncements((data.announcements || []) as DashboardAnnouncement[]);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to load announcements.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to load announcements.' });
     } finally {
       setIsLoading(false);
     }
@@ -111,12 +137,12 @@ function DashboardAnnouncementsManager() {
     const barMessage = form.bar_message.trim();
 
     if (!title || !barMessage) {
-      setNotice('Title and announcement bar message are required.');
+      setNotice({ type: 'error', message: 'Title and announcement bar message are required.' });
       return;
     }
 
     setIsSaving(true);
-    setNotice('');
+    setNotice(null);
     try {
       const payload = {
         title,
@@ -146,11 +172,11 @@ function DashboardAnnouncementsManager() {
         throw new Error(data?.error || 'Unable to save announcement.');
       }
 
-      setNotice(editingId ? 'Announcement updated.' : 'Announcement created.');
+      setNotice({ type: 'success', message: editingId ? 'Announcement updated.' : 'Announcement created.' });
       resetForm();
       await loadAnnouncements();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to save announcement.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to save announcement.' });
     } finally {
       setIsSaving(false);
     }
@@ -171,11 +197,11 @@ function DashboardAnnouncementsManager() {
       ends_at: announcement.ends_at ? announcement.ends_at.slice(0, 16) : '',
       targeting_type: announcement.targeting_type || 'all_retailers',
     });
-    setNotice('');
+    setNotice(null);
   };
 
   const toggleAnnouncement = async (announcement: DashboardAnnouncement) => {
-    setNotice('');
+    setNotice(null);
     try {
       const response = await fetch(`/api/admin/announcements?id=${encodeURIComponent(announcement.id)}`, {
         method: 'PATCH',
@@ -202,9 +228,9 @@ function DashboardAnnouncementsManager() {
       }
 
       await loadAnnouncements();
-      setNotice(!announcement.is_active ? 'Announcement published.' : 'Announcement hidden.');
+      setNotice({ type: 'success', message: !announcement.is_active ? 'Announcement published.' : 'Announcement hidden.' });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to update announcement.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to update announcement.' });
     }
   };
 
@@ -213,7 +239,7 @@ function DashboardAnnouncementsManager() {
     if (!confirmed) return;
 
     setDeletingId(announcement.id);
-    setNotice('');
+    setNotice(null);
     try {
       const response = await fetch(`/api/admin/announcements?id=${encodeURIComponent(announcement.id)}`, {
         method: 'DELETE',
@@ -226,9 +252,9 @@ function DashboardAnnouncementsManager() {
 
       if (editingId === announcement.id) resetForm();
       await loadAnnouncements();
-      setNotice('Announcement deleted.');
+      setNotice({ type: 'success', message: 'Announcement deleted.' });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to delete announcement.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to delete announcement.' });
     } finally {
       setDeletingId(null);
     }
@@ -258,7 +284,7 @@ function DashboardAnnouncementsManager() {
           onClick={() => {
             setForm(shelfTalkerAnnouncementDraft);
             setEditingId(null);
-            setNotice('');
+            setNotice(null);
           }}
           className="inline-flex items-center gap-2 rounded-xl border border-cream-300 bg-white px-3 py-2 text-sm font-semibold text-bark-500 hover:bg-cream-50"
         >
@@ -396,7 +422,7 @@ function DashboardAnnouncementsManager() {
                 {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : editingId ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
                 {isSaving ? 'Saving...' : editingId ? 'Save Changes' : 'Create Announcement'}
               </button>
-              {notice && <p className="text-sm text-bark-500/60">{notice}</p>}
+              <NoticeMessage notice={notice} />
             </div>
           </div>
 
@@ -490,7 +516,7 @@ function AstroPromoManager() {
     promo_end_date: '',
     astro_promo_url: DEFAULT_ASTRO_URL,
   });
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -499,7 +525,7 @@ function AstroPromoManager() {
 
     async function loadPromo() {
       setIsLoading(true);
-      setNotice('');
+      setNotice(null);
       try {
         const response = await fetch('/api/admin/retailer-success/promo');
         const data = await response.json();
@@ -519,7 +545,7 @@ function AstroPromoManager() {
         });
       } catch (error) {
         if (isMounted) {
-          setNotice(error instanceof Error ? error.message : 'Failed to load current promo.');
+          setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Failed to load current promo.' });
         }
       } finally {
         if (isMounted) setIsLoading(false);
@@ -535,7 +561,7 @@ function AstroPromoManager() {
 
   const savePromo = async () => {
     setIsSaving(true);
-    setNotice('');
+    setNotice(null);
     try {
       const response = await fetch('/api/admin/retailer-success/promo', {
         method: 'PATCH',
@@ -559,9 +585,9 @@ function AstroPromoManager() {
         promo_end_date: promo.promoEndDate || '',
         astro_promo_url: promo.astroPromoUrl || DEFAULT_ASTRO_URL,
       });
-      setNotice('Current Astro promo saved.');
+      setNotice({ type: 'success', message: 'Current Astro promo saved.' });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Failed to save current promo.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Failed to save current promo.' });
     } finally {
       setIsSaving(false);
     }
@@ -671,7 +697,7 @@ function AstroPromoManager() {
               <Save className="w-4 h-4" />
               {isSaving ? 'Saving...' : 'Save promo'}
             </button>
-            {notice && <p className="text-sm text-bark-500/60">{notice}</p>}
+            <NoticeMessage notice={notice} />
           </div>
         </div>
 

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Search, Truck, Package, Download, X, CheckCircle, Eye, Plus, Trash2 } from 'lucide-react';
+import { AlertCircle, Search, Truck, Package, Download, X, CheckCircle, Eye, Plus, Trash2 } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 import { formatShelfTalkerList, type ShelfTalkerFulfillment } from '@/lib/shelfTalkers';
@@ -14,6 +14,10 @@ interface Order { id: string; retailer_id: string; order_number: string; status:
 interface RetailerOption { id: string; company_name: string }
 interface ProductOption { id: string; name: string; size: string; price: number }
 interface LocationOption { id: string; location_name: string; business_address: string; phone: string | null; is_default: boolean }
+type Notification = {
+  type: 'success' | 'error';
+  message: string;
+};
 
 const normalizeText = (value?: string) => (value || '').toLowerCase().trim();
 const normalizeSize = (value?: string) => normalizeText(value).replace(/\s+/g, '');
@@ -67,7 +71,7 @@ export default function AdminOrdersPage() {
   const [isSendingInvoice, setIsSendingInvoice] = useState(false);
   const [isApplyingCredit, setIsApplyingCredit] = useState(false);
   const [selectedOrderAvailableCredit, setSelectedOrderAvailableCredit] = useState(0);
-  const [notification, setNotification] = useState('');
+  const [notification, setNotification] = useState<Notification | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [retailers, setRetailers] = useState<RetailerOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
@@ -135,7 +139,7 @@ export default function AdminOrdersPage() {
       return nextOrders;
     } catch (error) {
       console.error('Error:', error);
-      showNotification(error instanceof Error ? error.message : 'Failed to load orders');
+      showNotification('error', error instanceof Error ? error.message : 'Failed to load orders');
       setOrders([]);
     }
     finally { setIsLoading(false); }
@@ -229,7 +233,10 @@ export default function AdminOrdersPage() {
     setEndDate(value);
   };
 
-  const showNotification = (msg: string) => { setNotification(msg); setTimeout(() => setNotification(''), 3000); };
+  const showNotification = (type: Notification['type'], message: string) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 3000);
+  };
 
   const handleShipOrder = (order: Order) => { setSelectedOrder(order); setTrackingNumber(order.tracking_number || ''); setTrackingCarrier(order.tracking_carrier || 'UPS'); setShowTrackingModal(true); };
 
@@ -294,15 +301,15 @@ export default function AdminOrdersPage() {
           trackingCarrier: trackingCarrier || null,
         }),
       });
-      showNotification('Order marked as shipped!');
+      showNotification('success', 'Order marked as shipped!');
       setShowTrackingModal(false); setSelectedOrder(null); fetchOrders();
-    } catch (error) { console.error('Error:', error); showNotification('Failed to update order'); }
+    } catch (error) { console.error('Error:', error); showNotification('error', 'Failed to update order'); }
     finally { setIsUpdating(false); }
   };
 
   const handleSendInvoice = async () => {
     if (!selectedOrder || !invoiceUrl) {
-      showNotification('Add an invoice URL first');
+      showNotification('error', 'Add an invoice URL first');
       return;
     }
     setIsSendingInvoice(true);
@@ -314,7 +321,7 @@ export default function AdminOrdersPage() {
       });
       const data = await response.json();
       if (!data.success) throw new Error(data.error || 'Failed to send invoice');
-      showNotification('Invoice email sent!');
+      showNotification('success', 'Invoice email sent!');
       const refreshedOrders = await fetchOrders();
       const refreshed = refreshedOrders.find((o: Order) => o.id === selectedOrder.id);
       if (refreshed) {
@@ -330,7 +337,7 @@ export default function AdminOrdersPage() {
       }
     } catch (error) {
       console.error('Send invoice error:', error);
-      showNotification('Failed to send invoice');
+      showNotification('error', 'Failed to send invoice');
     } finally {
       setIsSendingInvoice(false);
     }
@@ -350,7 +357,7 @@ export default function AdminOrdersPage() {
         throw new Error(data?.error || 'Failed to apply credit');
       }
 
-      showNotification(`Applied ${formatCurrency(Number(data.creditApplied || 0))} in credit to ${selectedOrder.order_number}`);
+      showNotification('success', `Applied ${formatCurrency(Number(data.creditApplied || 0))} in credit to ${selectedOrder.order_number}`);
       const refreshedOrders = await fetchOrders();
       const refreshed = refreshedOrders.find((order: Order) => order.id === selectedOrder.id);
       if (refreshed) {
@@ -359,7 +366,7 @@ export default function AdminOrdersPage() {
       setSelectedOrderAvailableCredit(Number(data.remainingAvailableCredit || 0));
     } catch (error) {
       console.error('Apply credit error:', error);
-      showNotification(error instanceof Error ? error.message : 'Failed to apply credit');
+      showNotification('error', error instanceof Error ? error.message : 'Failed to apply credit');
     } finally {
       setIsApplyingCredit(false);
     }
@@ -379,8 +386,8 @@ export default function AdminOrdersPage() {
           console.error('Shelf talker status update error:', shelfTalkerError);
         }
       }
-      showNotification(`Status updated to ${newStatus}`); fetchOrders();
-    } catch (error) { console.error('Error:', error); showNotification('Failed to update status'); }
+      showNotification('success', `Status updated to ${newStatus}`); fetchOrders();
+    } catch (error) { console.error('Error:', error); showNotification('error', 'Failed to update status'); }
   };
 
   const exportToCSV = async () => {
@@ -422,7 +429,7 @@ export default function AdminOrdersPage() {
 
   const handleCreateOrder = async () => {
     if (!newOrder.retailerId || newOrder.items.length === 0 || newOrder.items.some(item => !item.productId)) {
-      showNotification('Select a retailer and at least one item');
+      showNotification('error', 'Select a retailer and at least one item');
       return;
     }
     setIsCreating(true);
@@ -447,6 +454,7 @@ export default function AdminOrdersPage() {
       if (!data.success) throw new Error(data.error || 'Failed to create order');
       const shelfTalkerFlavors = Array.isArray(data.shelfTalkersAdded) ? data.shelfTalkersAdded : [];
       showNotification(
+        'success',
         Number(data.creditApplied || 0) > 0
           ? `Order created. ${formatCurrency(Number(data.creditApplied || 0))} credit applied.`
           : shelfTalkerFlavors.length > 0
@@ -460,7 +468,7 @@ export default function AdminOrdersPage() {
       fetchOrders();
     } catch (error) {
       console.error('Create order error:', error);
-      showNotification('Failed to create order');
+      showNotification('error', 'Failed to create order');
     } finally {
       setIsCreating(false);
     }
@@ -472,7 +480,7 @@ export default function AdminOrdersPage() {
 
   return (
     <div className="space-y-6">
-      {notification && <div className="fixed top-20 right-6 z-50 bg-white border border-gray-200 rounded-xl p-4 shadow-lg flex items-center gap-3"><CheckCircle className="w-5 h-5 text-emerald-600" /><span className="text-gray-900 font-medium">{notification}</span></div>}
+      {notification && <div className={cn("fixed top-20 right-6 z-50 border rounded-xl p-4 shadow-lg flex items-center gap-3", notification.type === 'success' ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200")}>{notification.type === 'success' ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <AlertCircle className="w-5 h-5 text-red-600" />}<span className={notification.type === 'success' ? 'text-green-900' : 'text-red-900'}>{notification.message}</span></div>}
 
       <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
         <div className="flex flex-col lg:flex-row gap-4">

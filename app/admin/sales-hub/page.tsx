@@ -32,6 +32,10 @@ type Tab = 'today' | 'firstorder' | 'launch' | 'reorder' | 'atrisk' | 'growth' |
 type ChecklistType = 'onboarding' | 'day30' | 'day60';
 type CheckItemKind = 'checkbox' | 'rating' | 'note' | 'boolean';
 type CustomerReviewCtaMode = 'both' | 'samples' | 'wholesale';
+type AdminNotice = {
+  type: 'success' | 'error';
+  message: string;
+};
 
 interface CheckItem {
   id: string;
@@ -743,11 +747,33 @@ function priorityBadge(priority: FirstOrderPriority, followUpStatus: FirstOrderF
   return { label: 'New signup', tone: 'bg-blue-100 text-blue-700 border-blue-200' };
 }
 
+function AdminNoticeBanner({ notice }: { notice: AdminNotice | null }) {
+  if (!notice) return null;
+
+  return (
+    <div
+      className={cn(
+        'rounded-xl border px-4 py-3 text-sm flex items-center gap-2',
+        notice.type === 'success'
+          ? 'bg-green-50 border-green-200 text-green-900'
+          : 'bg-red-50 border-red-200 text-red-900',
+      )}
+    >
+      {notice.type === 'success' ? (
+        <Check className="w-4 h-4 text-emerald-600" />
+      ) : (
+        <AlertCircle className="w-4 h-4 text-red-600" />
+      )}
+      {notice.message}
+    </div>
+  );
+}
+
 function NeedsFirstOrderTab() {
   const [stores, setStores] = useState<FirstOrderStore[]>([]);
   const [drafts, setDrafts] = useState<Record<string, { ownerName: string; nextFollowUpAt: string; notes: string }>>({});
   const [searchQuery, setSearchQuery] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<AdminNotice | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -756,7 +782,7 @@ function NeedsFirstOrderTab() {
   async function loadQueue(initial = false) {
     if (initial) setLoading(true);
     else setRefreshing(true);
-    setNotice('');
+    setNotice(null);
 
     try {
       const response = await fetch('/api/admin/sales-hub/needs-first-order');
@@ -779,7 +805,7 @@ function NeedsFirstOrderTab() {
         return next;
       });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to load first-order queue.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to load first-order queue.' });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -829,7 +855,7 @@ function NeedsFirstOrderTab() {
   async function saveFollowUp(storeId: string, contactMethod?: string) {
     const draft = drafts[storeId] || { ownerName: '', nextFollowUpAt: '', notes: '' };
     setSavingId(storeId);
-    setNotice('');
+    setNotice(null);
 
     try {
       const response = await fetch('/api/admin/sales-hub/needs-first-order', {
@@ -846,10 +872,10 @@ function NeedsFirstOrderTab() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Unable to save follow-up.');
 
-      setNotice(contactMethod ? 'Contact attempt recorded.' : 'Follow-up saved.');
+      setNotice({ type: 'success', message: contactMethod ? 'Contact attempt recorded.' : 'Follow-up saved.' });
       await loadQueue();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to save follow-up.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to save follow-up.' });
     } finally {
       setSavingId(null);
     }
@@ -857,7 +883,7 @@ function NeedsFirstOrderTab() {
 
   async function resendSetupLink(storeId: string) {
     setResendingId(storeId);
-    setNotice('');
+    setNotice(null);
 
     try {
       const response = await fetch('/api/admin/retailers/resend-invite', {
@@ -868,9 +894,9 @@ function NeedsFirstOrderTab() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Failed to send setup email.');
       await saveFollowUp(storeId, 'setup_link');
-      setNotice('Setup email sent and contact attempt recorded.');
+      setNotice({ type: 'success', message: 'Setup email sent and contact attempt recorded.' });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Failed to send setup email.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Failed to send setup email.' });
     } finally {
       setResendingId(null);
     }
@@ -879,9 +905,9 @@ function NeedsFirstOrderTab() {
   async function copyNudge(store: FirstOrderStore) {
     try {
       await navigator.clipboard.writeText(firstOrderNudge(store));
-      setNotice('First-order nudge copied.');
+      setNotice({ type: 'success', message: 'First-order nudge copied.' });
     } catch {
-      setNotice('Unable to copy nudge text.');
+      setNotice({ type: 'error', message: 'Unable to copy nudge text.' });
     }
   }
 
@@ -936,11 +962,7 @@ function NeedsFirstOrderTab() {
           />
         </div>
 
-        {notice && (
-          <div className="rounded-xl bg-white border border-cream-200 px-4 py-3 text-sm text-bark-500">
-            {notice}
-          </div>
-        )}
+        <AdminNoticeBanner notice={notice} />
       </div>
 
       <div className="space-y-3">
@@ -1086,7 +1108,7 @@ function CustomerReviewOutreachTab() {
   const [subject, setSubject] = useState('New customer review | Bare Naked Pet Co.');
   const [ctaMode, setCtaMode] = useState<CustomerReviewCtaMode>('both');
   const [previewHtml, setPreviewHtml] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<AdminNotice | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [previewing, setPreviewing] = useState(false);
@@ -1108,7 +1130,7 @@ function CustomerReviewOutreachTab() {
   async function loadOutreach(initial = false) {
     if (initial) setLoading(true);
     else setRefreshing(true);
-    setNotice('');
+    setNotice(null);
 
     try {
       const response = await fetch('/api/admin/outreach/customer-review');
@@ -1129,7 +1151,7 @@ function CustomerReviewOutreachTab() {
           .map((prospect) => prospect.id);
       });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to load Outreach.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to load Outreach.' });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -1145,7 +1167,7 @@ function CustomerReviewOutreachTab() {
   }, [selectedReviewId, subject, ctaMode]);
 
   async function saveReview() {
-    setNotice('');
+    setNotice(null);
     try {
       const response = await fetch('/api/admin/outreach/customer-review', {
         method: 'POST',
@@ -1155,17 +1177,17 @@ function CustomerReviewOutreachTab() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Unable to save review.');
       setReviewForm({ title: '', reviewText: '', reviewerName: '', rating: 5, productName: '', imageUrl: '', feraReviewId: '' });
-      setNotice('Review saved.');
+      setNotice({ type: 'success', message: 'Review saved.' });
       await loadOutreach();
       if (payload.review?.id) setSelectedReviewId(payload.review.id);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to save review.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to save review.' });
     }
   }
 
   async function saveProspects() {
     const parsed = parseProspectLines(prospectLines);
-    setNotice('');
+    setNotice(null);
     try {
       const response = await fetch('/api/admin/outreach/customer-review', {
         method: 'POST',
@@ -1175,21 +1197,21 @@ function CustomerReviewOutreachTab() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Unable to save prospects.');
       setProspectLines('');
-      setNotice(`${(payload.prospects || []).length} prospect${(payload.prospects || []).length === 1 ? '' : 's'} saved.`);
+      setNotice({ type: 'success', message: `${(payload.prospects || []).length} prospect${(payload.prospects || []).length === 1 ? '' : 's'} saved.` });
       await loadOutreach();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to save prospects.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to save prospects.' });
     }
   }
 
   async function previewEmail() {
     if (!selectedReview) {
-      setNotice('Choose a review first.');
+      setNotice({ type: 'error', message: 'Choose a review first.' });
       return;
     }
 
     setPreviewing(true);
-    setNotice('');
+    setNotice(null);
 
     try {
       const sampleProspect = selectedProspects[0] || prospects[0];
@@ -1213,7 +1235,7 @@ function CustomerReviewOutreachTab() {
       if (!response.ok) throw new Error(payload?.error || 'Unable to build preview.');
       setPreviewHtml(payload.html || '');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to build preview.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to build preview.' });
     } finally {
       setPreviewing(false);
     }
@@ -1221,16 +1243,16 @@ function CustomerReviewOutreachTab() {
 
   async function sendEmail() {
     if (!selectedReview) {
-      setNotice('Choose a review first.');
+      setNotice({ type: 'error', message: 'Choose a review first.' });
       return;
     }
     if (selectedProspectIds.length === 0) {
-      setNotice('Choose at least one prospect.');
+      setNotice({ type: 'error', message: 'Choose at least one prospect.' });
       return;
     }
 
     setSending(true);
-    setNotice('');
+    setNotice(null);
 
     try {
       const response = await fetch('/api/admin/outreach/customer-review/send', {
@@ -1240,12 +1262,15 @@ function CustomerReviewOutreachTab() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Unable to send Customer Review.');
-      setNotice(`Customer Review sent to ${payload.sent || 0} prospect${payload.sent === 1 ? '' : 's'}${payload.failed ? `; ${payload.failed} failed` : ''}.`);
+      setNotice({
+        type: payload.failed ? 'error' : 'success',
+        message: `Customer Review sent to ${payload.sent || 0} prospect${payload.sent === 1 ? '' : 's'}${payload.failed ? `; ${payload.failed} failed` : ''}.`,
+      });
       setSelectedProspectIds([]);
       setPreviewHtml('');
       await loadOutreach();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to send Customer Review.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to send Customer Review.' });
     } finally {
       setSending(false);
     }
@@ -1298,11 +1323,7 @@ function CustomerReviewOutreachTab() {
           ))}
         </div>
 
-        {notice && (
-          <div className="rounded-xl bg-white border border-cream-200 px-4 py-3 text-sm text-bark-500">
-            {notice}
-          </div>
-        )}
+        <AdminNoticeBanner notice={notice} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-5">
@@ -2637,7 +2658,7 @@ function MomentumQueue({ activeTab }: { activeTab: Tab }) {
   const [retailers, setRetailers] = useState<MomentumRetailer[]>([]);
   const [drafts, setDrafts] = useState<Record<string, { ownerName: string; nextFollowUpAt: string; notes: string }>>({});
   const [searchQuery, setSearchQuery] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<AdminNotice | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -2645,7 +2666,7 @@ function MomentumQueue({ activeTab }: { activeTab: Tab }) {
   async function loadMomentum(initial = false) {
     if (initial) setLoading(true);
     else setRefreshing(true);
-    setNotice('');
+    setNotice(null);
 
     try {
       const response = await fetch('/api/admin/sales-hub/momentum');
@@ -2668,7 +2689,7 @@ function MomentumQueue({ activeTab }: { activeTab: Tab }) {
         return next;
       });
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to load retailer momentum.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to load retailer momentum.' });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -2694,7 +2715,7 @@ function MomentumQueue({ activeTab }: { activeTab: Tab }) {
   async function saveFollowUp(retailerId: string, contactMethod?: string) {
     const draft = drafts[retailerId] || { ownerName: '', nextFollowUpAt: '', notes: '' };
     setSavingId(retailerId);
-    setNotice('');
+    setNotice(null);
 
     try {
       const response = await fetch('/api/admin/sales-hub/momentum', {
@@ -2711,10 +2732,10 @@ function MomentumQueue({ activeTab }: { activeTab: Tab }) {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Unable to save follow-up.');
 
-      setNotice(contactMethod ? 'Contact attempt recorded.' : 'Follow-up saved.');
+      setNotice({ type: 'success', message: contactMethod ? 'Contact attempt recorded.' : 'Follow-up saved.' });
       await loadMomentum();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to save follow-up.');
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to save follow-up.' });
     } finally {
       setSavingId(null);
     }
@@ -2801,11 +2822,7 @@ function MomentumQueue({ activeTab }: { activeTab: Tab }) {
           />
         </div>
 
-        {notice && (
-          <div className="rounded-xl bg-white border border-cream-200 px-4 py-3 text-sm text-bark-500">
-            {notice}
-          </div>
-        )}
+        <AdminNoticeBanner notice={notice} />
       </div>
 
       <div className="space-y-3">
