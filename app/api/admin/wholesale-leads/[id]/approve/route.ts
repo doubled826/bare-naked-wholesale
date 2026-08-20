@@ -60,15 +60,13 @@ export async function POST(_request: Request, context: RouteContext) {
     const { data: updatedLead, error: updateError } = await adminClient
       .from('wholesale_leads')
       .update({
-        lead_status: 'qualified',
+        lead_status: lead.lead_status || 'new',
         sample_status: 'not_sent',
         status: 'sample_pack_pending',
         approved_at: approvedAt,
         approved_by: user.id,
-        qualified_at: lead.qualified_at || approvedAt,
         disqualified_reason: null,
         disqualified_notes: null,
-        meta_qualified_event_id: lead.meta_qualified_event_id || `WholesaleLeadQualified:${leadId}`,
         updated_at: approvedAt,
       })
       .eq('id', leadId)

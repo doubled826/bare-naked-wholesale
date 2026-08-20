@@ -8,6 +8,38 @@ type LeadBody = Record<string, unknown>;
 
 const BUYING_WHOLESALE_VALUES = new Set(['yes', 'no', 'opening_soon']);
 const MAX_TEXT_LENGTH = 500;
+const LOCATION_COUNT_KEYS = [
+  'locationCount',
+  'location_count',
+  'locationsCount',
+  'locations_count',
+  'numberOfLocations',
+  'number_of_locations',
+  'numberOfStoreLocations',
+  'number_of_store_locations',
+  'storeLocationCount',
+  'store_location_count',
+  'storeLocations',
+  'store_locations',
+  'locations',
+  'locationTotal',
+  'location_total',
+  'totalLocations',
+  'total_locations',
+];
+const MESSAGE_KEYS = [
+  'message',
+  'notes',
+  'note',
+  'comments',
+  'comment',
+  'additionalNotes',
+  'additional_notes',
+  'additionalComments',
+  'additional_comments',
+  'anythingElse',
+  'anything_else',
+];
 
 const getString = (body: LeadBody, keys: string[]) => {
   for (const key of keys) {
@@ -70,7 +102,7 @@ const isPodcastLead = (body: LeadBody) => {
 };
 
 const getLocationCount = (body: LeadBody) => {
-  const rawValue = getString(body, ['locationCount', 'location_count', 'numberOfLocations', 'number_of_locations']);
+  const rawValue = getString(body, LOCATION_COUNT_KEYS);
   if (!rawValue) return null;
 
   const count = Number.parseInt(rawValue, 10);
@@ -79,7 +111,7 @@ const getLocationCount = (body: LeadBody) => {
 };
 
 const getLeadMessage = (body: LeadBody) =>
-  getOptionalString(body, ['message', 'notes', 'note', 'additionalNotes', 'additional_notes', 'anythingElse', 'anything_else']);
+  getOptionalString(body, MESSAGE_KEYS);
 
 const getClientIp = (request: Request) => {
   const forwardedFor = request.headers.get('x-forwarded-for');
@@ -110,8 +142,7 @@ const escapeHtml = (value: string) =>
     .replace(/'/g, '&#039;');
 
 const getPortalUrl = () => {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://wholesale.barenakedpet.com';
-  return `${baseUrl.replace(/\/$/, '')}/admin/wholesale-pipeline`;
+  return 'https://wholesale.barenakedpet.com/admin/wholesale-pipeline';
 };
 
 const formatAddress = (lead: {

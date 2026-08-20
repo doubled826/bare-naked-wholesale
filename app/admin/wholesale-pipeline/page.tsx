@@ -173,6 +173,40 @@ const disqualifiedReasonLabels = disqualifiedReasonOptions.reduce<Record<string,
   return labels;
 }, {});
 
+const locationCountKeys = [
+  'locationCount',
+  'location_count',
+  'locationsCount',
+  'locations_count',
+  'numberOfLocations',
+  'number_of_locations',
+  'numberOfStoreLocations',
+  'number_of_store_locations',
+  'storeLocationCount',
+  'store_location_count',
+  'storeLocations',
+  'store_locations',
+  'locations',
+  'locationTotal',
+  'location_total',
+  'totalLocations',
+  'total_locations',
+];
+
+const messageKeys = [
+  'message',
+  'notes',
+  'note',
+  'comments',
+  'comment',
+  'additionalNotes',
+  'additional_notes',
+  'additionalComments',
+  'additional_comments',
+  'anythingElse',
+  'anything_else',
+];
+
 type StatCard = {
   label: string;
   value: number;
@@ -204,8 +238,8 @@ const getSampleStatus = (lead: WholesaleLead): SampleStatus => {
   return 'not_sent';
 };
 
-const getPublicMessage = (lead: WholesaleLead) =>
-  lead.message || rawString(lead, ['message', 'notes', 'note', 'additionalNotes', 'additional_notes', 'anythingElse', 'anything_else']);
+const isSampleApproved = (lead: WholesaleLead) =>
+  Boolean(lead.approved_at) || ['approved', 'sample_pack_pending', 'tracking_added', 'delivered'].includes(lead.status);
 
 const rawString = (lead: WholesaleLead, keys: string[]) => {
   const payload = lead.raw_payload || {};
@@ -227,6 +261,12 @@ const rawNumber = (lead: WholesaleLead, keys: string[]) => {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
+
+const getPublicMessage = (lead: WholesaleLead) =>
+  lead.message || rawString(lead, messageKeys);
+
+const getLocationCount = (lead: WholesaleLead) =>
+  lead.location_count || rawNumber(lead, locationCountKeys);
 
 const rawList = (lead: WholesaleLead, keys: string[]) => {
   const payload = lead.raw_payload || {};
@@ -516,7 +556,7 @@ export default function WholesalePipelinePage() {
     const sampleLeads = leads.filter(isSampleLead);
     const canadaLeads = leads.filter(isCanadaLead);
     const podcastLeads = leads.filter(isPodcastLead);
-    const pendingSamples = sampleLeads.filter((lead) => getLeadStatus(lead) === 'qualified' && getSampleStatus(lead) === 'not_sent').length;
+    const pendingSamples = sampleLeads.filter((lead) => isSampleApproved(lead) && getSampleStatus(lead) === 'not_sent').length;
     return {
       total: leads.length,
       new: leads.filter((lead) => getLeadStatus(lead) === 'new').length,
@@ -981,7 +1021,7 @@ export default function WholesalePipelinePage() {
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row">
-                {getLeadStatus(selectedLead) === 'new' && isSampleLead(selectedLead) && (
+                {getLeadStatus(selectedLead) === 'new' && isSampleLead(selectedLead) && !isSampleApproved(selectedLead) && (
                   <button
                     type="button"
                     onClick={() => approveLead(selectedLead)}
@@ -1121,7 +1161,11 @@ export default function WholesalePipelinePage() {
                     <div>
                       <p className="font-medium text-gray-900">{selectedLead.store_name}</p>
                       <p>{selectedLead.store_type || 'Store type not provided'}</p>
-                      <p>{selectedLead.location_count ? `${selectedLead.location_count} location${selectedLead.location_count === 1 ? '' : 's'}` : 'Location count not provided'}</p>
+                      <p>
+                        {getLocationCount(selectedLead)
+                          ? `${getLocationCount(selectedLead)} location${getLocationCount(selectedLead) === 1 ? '' : 's'}`
+                          : 'Location count not provided'}
+                      </p>
                     </div>
                   </div>
                   <div className="flex gap-3">
