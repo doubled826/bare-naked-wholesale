@@ -615,7 +615,7 @@ export default function FeedPage() {
                         {comment.retailer_id && topRetailerIds.has(comment.retailer_id) && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
                             <Award className="w-3 h-3" />
-                            Top Retailer 🏆
+                            Top Retailer
                           </span>
                         )}
                         {comment.is_admin && (
@@ -694,7 +694,7 @@ export default function FeedPage() {
                     {post.retailer_id && topRetailerIds.has(post.retailer_id) && (
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
                         <Award className="w-3.5 h-3.5" />
-                        Top Retailer 🏆
+                        Top Retailer
                       </span>
                     )}
                     {post.is_admin && (

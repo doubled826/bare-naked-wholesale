@@ -13,6 +13,7 @@ interface AppState {
   // Cart
   cart: CartItem[];
   addToCart: (product: Product) => void;
+  setCart: (items: CartItem[]) => void;
   updateQuantity: (productId: string, quantity: number) => void;
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
@@ -49,6 +50,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Cart
   cart: [],
+  setCart: (items) => set({ cart: items }),
   addToCart: (product) => {
     const cart = get().cart;
     const existingItem = cart.find((item) => item.id === product.id);

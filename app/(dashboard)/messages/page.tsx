@@ -206,7 +206,7 @@ export default function MessagesPage() {
         <div className="absolute inset-0 pattern-dots opacity-40" />
         <div className="absolute -top-16 -right-16 w-40 h-40 rounded-full bg-bark-500/10 blur-3xl" />
         <div className="relative z-10 space-y-3">
-          <p className="text-sm font-semibold text-bark-500/70 tracking-wide uppercase">Retailer Message</p>
+          <p className="text-sm font-semibold text-bark-500/70 tracking-wide uppercase">Retailer Support</p>
           <h1 className="page-title">Message the Bare Naked Team</h1>
           <p className="text-bark-500/70 max-w-2xl">
             A dedicated line for {businessName}. Your messages go straight to our team and we reply in this thread.
