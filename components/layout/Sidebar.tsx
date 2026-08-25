@@ -275,10 +275,10 @@ export function Sidebar() {
                 >
                   <item.icon className="w-5 h-5" />
                   <span className="flex-1">{item.name}</span>
-                  {item.name === 'Message' && unreadCount > 0 && (
+                  {item.name === 'Support' && unreadCount > 0 && (
                     <span className="ml-auto w-2.5 h-2.5 rounded-full bg-red-500" />
                   )}
-                  {item.name === 'Feed' && unreadFeed && (
+                  {item.name === 'Community' && unreadFeed && (
                     <span className="ml-auto w-2.5 h-2.5 rounded-full bg-red-500" />
                   )}
                 </Link>
@@ -344,26 +344,39 @@ export function MobileHeader() {
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <header className="fixed left-0 right-0 top-0 z-30 flex h-16 items-center justify-between border-b border-cream-200 bg-cream-100 px-3 lg:hidden sm:px-4">
-      <button
-        onClick={() => setSidebarOpen(true)}
-        className="rounded-lg p-2 text-bark-500 transition-colors hover:bg-cream-200 hover:text-bark-600"
-        aria-label="Open navigation"
-      >
-        <Menu className="w-6 h-6" />
-      </button>
-      <Link href="/dashboard" className="min-w-0 truncate px-2 text-center text-sm font-bold sm:text-lg" style={{ fontFamily: 'var(--font-poppins)' }}>
-        <span className="text-bark-500">Bare Naked</span>
-        <span className="text-bark-500/60"> Pet Co.</span>
-      </Link>
-      <Link href="/catalog" className="relative rounded-lg p-2" aria-label="Open product catalog">
-        <ShoppingBag className="w-6 h-6 text-bark-500" />
-        {cartCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-bark-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
-            {cartCount}
-          </span>
-        )}
-      </Link>
-    </header>
+    <>
+      <header className="fixed left-0 right-0 top-0 z-30 flex h-16 items-center justify-between border-b border-cream-200 bg-cream-100 px-3 lg:hidden sm:px-4">
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="rounded-lg p-2 text-bark-500 transition-colors hover:bg-cream-200 hover:text-bark-600"
+          aria-label="Open navigation"
+        >
+          <Menu className="w-6 h-6" />
+        </button>
+        <Link href="/dashboard" className="min-w-0 truncate px-2 text-center text-sm font-bold sm:text-lg" style={{ fontFamily: 'var(--font-poppins)' }}>
+          <span className="text-bark-500">Bare Naked</span>
+          <span className="text-bark-500/60"> Pet Co.</span>
+        </Link>
+        <CartLink cartCount={cartCount} className="rounded-lg p-2" />
+      </header>
+
+      <CartLink
+        cartCount={cartCount}
+        className="fixed right-7 top-7 z-30 hidden h-12 w-12 items-center justify-center rounded-2xl border border-bark-500/10 bg-cream-100 text-bark-500 shadow-sm transition-colors hover:bg-white lg:flex"
+      />
+    </>
+  );
+}
+
+function CartLink({ cartCount, className }: { cartCount: number; className: string }) {
+  return (
+    <Link href="/catalog" className={cn('relative', className)} aria-label="Open product catalog">
+      <ShoppingBag className="w-6 h-6 text-bark-500" />
+      {cartCount > 0 && (
+        <span className="absolute -top-1 -right-1 bg-bark-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
+          {cartCount}
+        </span>
+      )}
+    </Link>
   );
 }
