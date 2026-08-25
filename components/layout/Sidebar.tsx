@@ -25,12 +25,12 @@ import { useCallback, useEffect, useState } from 'react';
 const FEED_READ_EVENT = 'bnpc:feed-read';
 
 const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Feed', href: '/feed', icon: MessageSquare },
-  { name: 'Product Catalog', href: '/catalog', icon: ShoppingBag },
+  { name: 'Home', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Order', href: '/catalog', icon: ShoppingBag },
   { name: 'Order History', href: '/orders', icon: Package },
   { name: 'Resources', href: '/resources', icon: FolderOpen },
-  { name: 'Message', href: '/messages', icon: Mail },
+  { name: 'Support', href: '/messages', icon: Mail },
+  { name: 'Community', href: '/feed', icon: MessageSquare },
   { name: 'Account', href: '/account', icon: User },
 ];
 

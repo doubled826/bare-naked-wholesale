@@ -18,6 +18,8 @@ import {
   MessageCircle,
   MapPin,
   ExternalLink,
+  RefreshCw,
+  ShoppingCart,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -47,6 +49,7 @@ type CurrentPromoStatus,
   type MarketingMaterialsStatus,
   type LaunchPromoStatus,
 } from '@/lib/retailerSuccess';
+import type { CartItem, Order, Product } from '@/types';
 
 type WelcomeOfferPopupVariant = 'initial' | 'returning';
 
@@ -67,6 +70,32 @@ type ResolvedOfferBenefit = {
   daysRemaining?: number;
   isFirstOrderBenefit: boolean;
   isWelcomeOffer: boolean;
+};
+
+type ReorderLine = {
+  productId: string;
+  quantity: number;
+};
+
+const getReorderLines = (order?: Order | null): ReorderLine[] => {
+  if (!order?.order_items) return [];
+
+  return order.order_items
+    .map((item) => ({
+      productId: item.product_id,
+      quantity: Number(item.quantity) || 0,
+    }))
+    .filter((item) => item.productId && item.quantity > 0);
+};
+
+const buildCartFromOrder = (order: Order | null | undefined, products: Product[]): CartItem[] => {
+  const lines = getReorderLines(order);
+  return lines
+    .map((line) => {
+      const product = products.find((item) => item.id === line.productId);
+      return product ? { ...product, quantity: line.quantity } : null;
+    })
+    .filter((item): item is CartItem => Boolean(item));
 };
 
 type RetailerAnnouncement = Announcement & {
@@ -112,7 +141,7 @@ const trackWelcomeOfferEvent = (
 };
 
 export default function DashboardPage() {
-  const { retailer, orders, products, addNotification } = useAppStore();
+  const { retailer, orders, products, cart, setCart, addNotification } = useAppStore();
   const supabase = createClientComponentClient();
   const [announcements, setAnnouncements] = useState<RetailerAnnouncement[]>([]);
   const [announcementPopup, setAnnouncementPopup] = useState<RetailerAnnouncement | null>(null);
@@ -167,6 +196,15 @@ export default function DashboardPage() {
   const potentialProfit = totalMSRP - totalWholesale;
 
   const recentOrders = orders.slice(0, 3);
+  const latestOrder = activeOrders[0] || null;
+  const openOrders = activeOrders.filter((order) => ['pending', 'processing', 'shipped'].includes(order.status));
+  const primaryOpenOrder = openOrders[0] || null;
+  const reorderCart = buildCartFromOrder(latestOrder as Order | null, products);
+  const reorderItemCount = reorderCart.reduce((sum, item) => sum + item.quantity, 0);
+  const currentCartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const daysSinceLastOrder = latestOrder?.created_at
+    ? Math.max(0, Math.floor((Date.now() - new Date(latestOrder.created_at).getTime()) / (1000 * 60 * 60 * 24)))
+    : null;
   const enrichedOrders = orders.map((order) => ({
     ...order,
     order_items: (order.order_items || []).map((item) => ({
@@ -186,6 +224,19 @@ export default function DashboardPage() {
   const recommendedNextStep = getRecommendedNextStep(retailer, successProfile, currentPromo);
   const checklistItems = getRetailerSuccessChecklist(retailer, successProfile, currentPromo);
   const progress = calculateSuccessPlanProgress(checklistItems);
+  const handleReorderLatest = () => {
+    if (!latestOrder || reorderCart.length === 0) {
+      window.location.href = '/catalog';
+      return;
+    }
+
+    setCart(reorderCart);
+    addNotification({
+      type: 'success',
+      message: `${reorderItemCount} items from ${latestOrder.order_number} are ready in your cart.`,
+    });
+    window.location.href = '/catalog?reorder=last';
+  };
 
   useEffect(() => {
     const loadAnnouncements = async () => {
@@ -696,7 +747,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="mb-5 sm:mb-8">
         <h1 className="page-title break-words">
-          Welcome back{businessName ? `, ${businessName}` : ''}! 👋
+          Welcome back{businessName ? `, ${businessName}` : ''}
         </h1>
         <p className="mt-1 text-sm text-bark-500/70 sm:text-base">
           Here&apos;s what&apos;s happening with your account
@@ -704,6 +755,17 @@ export default function DashboardPage() {
       </div>
 
       <WholesalePerksBanner />
+
+      <OrderCommandCenter
+        latestOrder={latestOrder as Order | null}
+        primaryOpenOrder={primaryOpenOrder as Order | null}
+        openOrderCount={openOrders.length}
+        reorderItemCount={reorderItemCount}
+        cartItemCount={currentCartItemCount}
+        daysSinceLastOrder={daysSinceLastOrder}
+        offer={primaryFirstOrderOffer}
+        onReorder={handleReorderLatest}
+      />
 
       {bareLaunchOffer.eligible && bareLaunchOfferDismissed && (
         <BareLaunchOfferCard
@@ -955,6 +1017,143 @@ const actionLabels: Partial<Record<RetailerSuccessAction, string>> = {
   promo_opted_in: 'Mark as Opted In',
   promo_not_this_time: 'Not This Time',
 };
+
+function OrderCommandCenter({
+  latestOrder,
+  primaryOpenOrder,
+  openOrderCount,
+  reorderItemCount,
+  cartItemCount,
+  daysSinceLastOrder,
+  offer,
+  onReorder,
+}: {
+  latestOrder: Order | null;
+  primaryOpenOrder: Order | null;
+  openOrderCount: number;
+  reorderItemCount: number;
+  cartItemCount: number;
+  daysSinceLastOrder: number | null;
+  offer: ResolvedOfferBenefit | null;
+  onReorder: () => void;
+}) {
+  const hasReorder = Boolean(latestOrder && reorderItemCount > 0);
+  const openStatus = primaryOpenOrder ? statusConfig[primaryOpenOrder.status] || statusConfig.pending : null;
+  const OpenStatusIcon = openStatus?.icon || Package;
+  const lastOrderLabel = latestOrder
+    ? daysSinceLastOrder === 0
+      ? 'Ordered today'
+      : daysSinceLastOrder === 1
+        ? 'Ordered yesterday'
+        : `Last ordered ${daysSinceLastOrder} days ago`
+    : 'No previous order yet';
+
+  return (
+    <div className="mb-6 overflow-hidden rounded-[1.75rem] border border-bark-500/10 bg-cream-100 shadow-sm sm:mb-8">
+      <div className="grid gap-0 lg:grid-cols-[1.35fr_0.9fr]">
+        <div className="p-5 sm:p-7 lg:p-8">
+          <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50">Fast ordering</p>
+          <div className="mt-3 max-w-2xl">
+            <h2 className="text-3xl font-bold leading-tight text-bark-500 sm:text-4xl" style={{ fontFamily: 'var(--font-poppins)' }}>
+              {hasReorder ? 'Your next order is ready.' : 'Start your wholesale order.'}
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-bark-500/70 sm:text-base">
+              {hasReorder
+                ? `${lastOrderLabel}. Reorder the same products in one click, then adjust quantities before submitting.`
+                : 'Build an order from the catalog, add samples if you need them, and check out with free shipping.'}
+            </p>
+          </div>
+
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <button type="button" onClick={onReorder} className="btn-primary min-h-[52px] px-5">
+              {hasReorder ? (
+                <>
+                  <RefreshCw className="mr-2 h-5 w-5" />
+                  Reorder {reorderItemCount} Items
+                </>
+              ) : (
+                <>
+                  <ShoppingBag className="mr-2 h-5 w-5" />
+                  Shop Catalog
+                </>
+              )}
+            </button>
+            <Link href="/catalog" className="btn-secondary min-h-[52px] border-bark-500/15 px-5">
+              <ShoppingBag className="mr-2 h-5 w-5" />
+              Build New Order
+            </Link>
+            <Link href="/catalog" className="btn-ghost min-h-[52px] px-4">
+              <ShoppingCart className="mr-2 h-5 w-5" />
+              Cart{cartItemCount > 0 ? ` (${cartItemCount})` : ''}
+            </Link>
+          </div>
+
+          <div className="mt-7 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-cream-300/70 bg-white/55 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/45">Last order</p>
+              <p className="mt-2 text-sm font-semibold text-bark-500">{latestOrder?.order_number || 'Not placed yet'}</p>
+              <p className="mt-1 text-xs text-bark-500/60">{latestOrder ? formatDate(latestOrder.created_at) : 'Start from the catalog'}</p>
+            </div>
+            <Link href="/orders" className="rounded-2xl border border-cream-300/70 bg-white/55 p-4 transition-colors hover:bg-white">
+              <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/45">Open orders</p>
+              <p className="mt-2 text-sm font-semibold text-bark-500">{openOrderCount || 'None right now'}</p>
+              <p className="mt-1 text-xs text-bark-500/60">{primaryOpenOrder ? `Latest: ${primaryOpenOrder.order_number}` : 'You are all caught up'}</p>
+            </Link>
+            <div className="rounded-2xl border border-cream-300/70 bg-white/55 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/45">Active savings</p>
+              <p className="mt-2 text-sm font-semibold text-bark-500">{offer ? `${offer.discountValue}% available` : 'Free shipping'}</p>
+              <p className="mt-1 text-xs text-bark-500/60">{offer?.name || 'No minimums, Net-30 terms'}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-cream-300/70 bg-white/45 p-5 sm:p-7 lg:border-l lg:border-t-0 lg:p-8">
+          <div className="flex h-full flex-col justify-between gap-6">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/45">Order status</p>
+              {primaryOpenOrder ? (
+                <div className="mt-4">
+                  <div className="flex items-center gap-3">
+                    <span className={cn('flex h-11 w-11 items-center justify-center rounded-2xl', openStatus?.bg, openStatus?.color)}>
+                      <OpenStatusIcon className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="font-semibold text-bark-500">{primaryOpenOrder.order_number}</p>
+                      <p className="text-sm text-bark-500/60">{openStatus?.label || 'In progress'}</p>
+                    </div>
+                  </div>
+                  <p className="mt-4 text-sm leading-6 text-bark-500/70">
+                    {primaryOpenOrder.tracking_number
+                      ? 'Tracking is available in order details.'
+                      : 'We will add tracking as soon as this order ships.'}
+                  </p>
+                  <Link href="/orders" className="mt-5 inline-flex items-center text-sm font-semibold text-bark-500 hover:text-bark-600">
+                    View order details
+                    <ArrowRight className="ml-1.5 h-4 w-4" />
+                  </Link>
+                </div>
+              ) : (
+                <div className="mt-4">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+                    <CheckCircle className="h-5 w-5" />
+                  </div>
+                  <p className="mt-4 font-semibold text-bark-500">No open orders.</p>
+                  <p className="mt-2 text-sm leading-6 text-bark-500/70">
+                    Place a reorder whenever you are ready. Shipping stays free.
+                  </p>
+                </div>
+              )}
+            </div>
+            <Link href="/messages" className="inline-flex items-center justify-between rounded-2xl border border-cream-300/80 bg-cream-100 px-4 py-3 text-sm font-semibold text-bark-500 transition-colors hover:bg-cream-200">
+              Need help choosing quantities?
+              <MessageCircle className="h-4 w-4" />
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type MarketingMaterialsSelection = 'shelf_talker' | 'table_tent' | 'both';
 type LaunchPromoRequestInput = {

@@ -12,6 +12,8 @@ import {
   CheckCircle,
   Loader2,
   Sparkles,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
@@ -42,10 +44,58 @@ type LaunchPromoRequestInput = {
   notes?: string;
 };
 
+const quickOrderSortOrder = [
+  { name: 'chicken', size: '6' },
+  { name: 'chicken', size: '12' },
+  { name: 'salmon', size: '6' },
+  { name: 'salmon', size: '12' },
+  { name: 'beef', size: '6' },
+  { name: 'beef', size: '12' },
+  { name: 'lamb', size: '' },
+  { name: 'minnow', size: '' },
+  { name: 'bison', size: '' },
+];
+
+const getQuickOrderRank = (product: Product) => {
+  const name = product.name.toLowerCase();
+  const size = product.size.toLowerCase();
+  const rank = quickOrderSortOrder.findIndex((item) =>
+    name.includes(item.name) && (!item.size || size.includes(item.size))
+  );
+  return rank === -1 ? quickOrderSortOrder.length : rank;
+};
+
+const sortProductsForOrdering = (products: Product[]) => {
+  return [...products].sort((a, b) => {
+    const rankDifference = getQuickOrderRank(a) - getQuickOrderRank(b);
+    if (rankDifference !== 0) return rankDifference;
+    return a.name.localeCompare(b.name) || a.size.localeCompare(b.size);
+  });
+};
+
+const getGridDescriptionLines = (product: Product) => {
+  const name = product.name.toLowerCase();
+
+  if (name.includes('chicken')) {
+    return ['Cage-Free Chicken', 'Freeze-dried raw'];
+  }
+
+  if (name.includes('salmon')) {
+    return ['Pacific Wild-Caught Sockeye Salmon', 'Freeze-dried raw'];
+  }
+
+  if (name.includes('beef')) {
+    return ['USDA Beef Liver', 'Freeze-dried raw'];
+  }
+
+  return [product.description];
+};
+
 export default function CatalogPage() {
   const supabase = createClientComponentClient();
   const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart, orders, setOrders, retailer } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
   const [includeSamples, setIncludeSamples] = useState(false);
@@ -162,6 +212,7 @@ export default function CatalogPage() {
       product.category.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesSearch;
   });
+  const orderedProducts = sortProductsForOrdering(filteredProducts);
 
   const activeOrderCount = orders.filter((order) => order.status !== 'canceled').length;
   const bareLaunchOffer = getBareLaunchOfferStatus({
@@ -169,14 +220,15 @@ export default function CatalogPage() {
     activeOrderCount,
   });
 
-  const toppers = filteredProducts.filter((product) => product.category === 'Toppers');
-  const treats = filteredProducts.filter((product) => product.category === 'Treats');
-  const otherProducts = filteredProducts.filter(
+  const toppers = orderedProducts.filter((product) => product.category === 'Toppers');
+  const treats = orderedProducts.filter((product) => product.category === 'Treats');
+  const otherProducts = orderedProducts.filter(
     (product) => product.category !== 'Toppers' && product.category !== 'Treats'
   );
 
   const renderProductCard = (product: Product) => {
     const cartItem = cart.find(item => item.id === product.id);
+    const descriptionLines = getGridDescriptionLines(product);
     return (
       <div key={product.id} className="card overflow-hidden">
         <div className="aspect-square bg-cream-200 p-4 flex items-center justify-center">
@@ -200,13 +252,22 @@ export default function CatalogPage() {
             </div>
             <span className="bg-cream-200 text-bark-500 text-xs px-2 py-1 rounded-lg">{product.category}</span>
           </div>
-          <p className="text-sm text-bark-500/70 mb-4 line-clamp-2">{product.description}</p>
+          <div className="mb-4 min-h-[2.5rem] text-sm leading-5 text-bark-500/70">
+            {descriptionLines.map((line) => (
+              <p key={line} className="line-clamp-1">{line}</p>
+            ))}
+          </div>
           <div className="flex items-center justify-between">
             <div>
               <span className="text-xl font-bold text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
                 {formatCurrency(product.price)}
               </span>
               <span className="text-xs text-bark-500/60 ml-1">/unit</span>
+              {product.msrp && (
+                <p className="mt-0.5 text-xs font-medium text-bark-500/55">
+                  MSRP {formatCurrency(product.msrp)}
+                </p>
+              )}
             </div>
             {cartItem ? (
               <div className="flex items-center gap-2">
@@ -234,6 +295,60 @@ export default function CatalogPage() {
               </button>
             )}
           </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderProductRow = (product: Product) => {
+    const cartItem = cart.find(item => item.id === product.id);
+    return (
+      <div key={product.id} className="flex flex-col gap-4 border-b border-cream-200 px-4 py-4 last:border-b-0 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-cream-200 p-2">
+            {product.image_url ? (
+              <img src={product.image_url} alt={product.name} className="h-full w-full object-contain" />
+            ) : (
+              <ShoppingCart className="h-6 w-6 text-bark-500/30" />
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-semibold text-bark-500">{product.name}</h3>
+              <span className="rounded-full bg-cream-200 px-2 py-0.5 text-xs font-semibold text-bark-500/70">{product.size}</span>
+            </div>
+            <p className="mt-1 line-clamp-1 text-sm text-bark-500/60">{product.description}</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-4 sm:justify-end">
+          <div className="text-left sm:text-right">
+            <p className="font-bold text-bark-500">{formatCurrency(product.price)}</p>
+            {product.msrp && <p className="text-xs text-bark-500/55">MSRP {formatCurrency(product.msrp)}</p>}
+          </div>
+          {cartItem ? (
+            <div className="flex h-10 items-center rounded-xl border border-cream-300 bg-white">
+              <button
+                onClick={() => updateQuantity(product.id, cartItem.quantity - 1)}
+                className="flex h-10 w-10 items-center justify-center rounded-l-xl hover:bg-cream-200"
+                aria-label={`Decrease ${product.name}`}
+              >
+                <Minus className="h-4 w-4 text-bark-500" />
+              </button>
+              <span className="w-10 text-center text-sm font-semibold text-bark-500">{cartItem.quantity}</span>
+              <button
+                onClick={() => updateQuantity(product.id, cartItem.quantity + 1)}
+                className="flex h-10 w-10 items-center justify-center rounded-r-xl hover:bg-cream-200"
+                aria-label={`Increase ${product.name}`}
+              >
+                <Plus className="h-4 w-4 text-bark-500" />
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => handleAddToCart(product)} className="btn-primary min-w-[112px] px-4 py-2.5 text-sm">
+              <Plus className="mr-1 h-4 w-4" />
+              Add
+            </button>
+          )}
         </div>
       </div>
     );
@@ -447,8 +562,8 @@ export default function CatalogPage() {
 
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="page-title">Product Catalog</h1>
-          <p className="text-bark-500/70 mt-1">Browse and order our premium products</p>
+          <h1 className="page-title">Order Products</h1>
+          <p className="text-bark-500/70 mt-1">Add products fast, review your cart, and submit when ready</p>
         </div>
         
         <button
@@ -491,7 +606,7 @@ export default function CatalogPage() {
       )}
 
       <div className="card p-4 mb-6">
-        <div className="flex flex-col lg:flex-row gap-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bark-500/40" />
             <input
@@ -502,10 +617,43 @@ export default function CatalogPage() {
               className="input pl-10"
             />
           </div>
+          <div className="grid grid-cols-2 rounded-xl bg-cream-200 p-1 lg:w-[210px]">
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className={cn(
+                'inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors',
+                viewMode === 'grid' ? 'bg-white text-bark-500 shadow-sm' : 'text-bark-500/65 hover:text-bark-500',
+              )}
+            >
+              <LayoutGrid className="h-4 w-4" />
+              Grid
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={cn(
+                'inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors',
+                viewMode === 'list' ? 'bg-white text-bark-500 shadow-sm' : 'text-bark-500/65 hover:text-bark-500',
+              )}
+            >
+              <List className="h-4 w-4" />
+              Quick
+            </button>
+          </div>
         </div>
       </div>
 
-      {toppers.length > 0 && (
+      {viewMode === 'list' && filteredProducts.length > 0 && (
+        <div className="card mb-10 overflow-hidden">
+          <div className="border-b border-cream-200 px-4 py-3">
+            <p className="text-sm font-semibold text-bark-500">Quick order</p>
+          </div>
+          {orderedProducts.map(renderProductRow)}
+        </div>
+      )}
+
+      {viewMode === 'grid' && toppers.length > 0 && (
         <section className="mb-10">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-bark-500">Toppers</h2>
@@ -517,7 +665,7 @@ export default function CatalogPage() {
         </section>
       )}
 
-      {treats.length > 0 && (
+      {viewMode === 'grid' && treats.length > 0 && (
         <section className="mb-10">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-bark-500">Treats</h2>
@@ -529,7 +677,7 @@ export default function CatalogPage() {
         </section>
       )}
 
-      {otherProducts.length > 0 && (
+      {viewMode === 'grid' && otherProducts.length > 0 && (
         <section className="mb-10">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-bark-500">Other</h2>

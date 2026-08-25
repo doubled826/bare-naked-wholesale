@@ -11,11 +11,13 @@ import {
   ChevronDown,
   ChevronUp,
   DollarSign,
+  RefreshCw,
   TrendingUp
 } from 'lucide-react';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
+import type { CartItem, Order, Product } from '@/types';
 
 const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   pending: { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', label: 'Pending' },
@@ -25,8 +27,17 @@ const statusConfig: Record<string, { icon: React.ElementType; color: string; bg:
   canceled: { icon: Clock, color: 'text-bone-500', bg: 'bg-bone-100', label: 'Canceled' },
 };
 
+const buildCartFromOrder = (order: Order, products: Product[]): CartItem[] => {
+  return (order.order_items || [])
+    .map((item) => {
+      const product = products.find((candidate) => candidate.id === item.product_id);
+      return product ? { ...product, quantity: Number(item.quantity) || 0 } : null;
+    })
+    .filter((item): item is CartItem => Boolean(item && item.quantity > 0));
+};
+
 export default function OrdersPage() {
-  const { orders, products, retailer } = useAppStore();
+  const { orders, products, retailer, setCart } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
@@ -77,6 +88,13 @@ export default function OrdersPage() {
       default:
         return null;
     }
+  };
+
+  const handleReorder = (order: Order) => {
+    const nextCart = buildCartFromOrder(order, products);
+    if (nextCart.length === 0) return;
+    setCart(nextCart);
+    window.location.href = '/catalog?reorder=order';
   };
 
   const handleExport = async () => {
@@ -215,6 +233,7 @@ export default function OrdersPage() {
             const shipToName = shipTo?.location_name || retailer?.company_name;
             const shipToAddress = shipTo?.business_address || retailer?.business_address;
             const shipToPhone = shipTo?.phone || retailer?.phone;
+            const canReorder = buildCartFromOrder(order as Order, products).length > 0;
 
             return (
               <div key={order.id} className="card overflow-hidden">
@@ -262,6 +281,21 @@ export default function OrdersPage() {
                 {isExpanded && (
                   <div className="border-t border-cream-200">
                     <div className="p-4 lg:p-6">
+                      <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-bark-500/10 bg-cream-200/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="font-semibold text-bark-500">Order these products again</p>
+                          <p className="mt-1 text-sm text-bark-500/70">We will load the same items into your cart so you can adjust quantities before submitting.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleReorder(order as Order)}
+                          disabled={!canReorder}
+                          className="btn-primary shrink-0 px-4 py-2.5 text-sm disabled:opacity-50"
+                        >
+                          <RefreshCw className="mr-2 h-4 w-4" />
+                          Reorder
+                        </button>
+                      </div>
                       {(order.tracking_number || order.tracking_carrier) && (
                         <div className="mb-6 rounded-xl bg-cream-200/70 border border-cream-200 p-4">
                           <h4 className="text-sm font-semibold text-bark-500/70 mb-2">Tracking</h4>
