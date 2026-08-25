@@ -14,9 +14,8 @@ import {
   Line,
   BarChart,
   Bar,
-  Legend,
 } from 'recharts';
-import { AlertTriangle, ArrowUpRight, Calendar, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Info, Package, ShoppingCart, Store, Target, TrendingUp, Users } from 'lucide-react';
+import { ArrowUpRight, Calendar, ChevronDown, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   defaultCurrentAstroPromo,
@@ -98,14 +97,6 @@ type ProductRecord = {
 
 type UnitsPerStoreMetrics = {
   overall: number;
-  topDecile: number;
-  topStores: number;
-};
-
-type UnitsPerStorePerSkuMetrics = {
-  overall: number;
-  topDecile: number;
-  topStores: number;
 };
 
 type SkuOption = {
@@ -229,10 +220,10 @@ const SUPABASE_PAGE_SIZE = 1000;
 const MIN_RUNNING_WEEKS = 1;
 
 const insightsViews: Array<{ id: InsightsView; label: string; description: string }> = [
-  { id: 'overview', label: 'Overview', description: 'Revenue, velocity, and priority follow-ups' },
-  { id: 'health', label: 'Retailer Health', description: 'Adoption, risk, and top accounts' },
-  { id: 'skus', label: 'SKU Performance', description: 'Same-store SKU matchups' },
-  { id: 'markets', label: 'Markets', description: 'Geography and state revenue' },
+  { id: 'overview', label: 'Owner Brief', description: 'What changed and what to do' },
+  { id: 'health', label: 'Retailers', description: 'Account health and follow-up' },
+  { id: 'skus', label: 'Products', description: 'SKU velocity and assortment' },
+  { id: 'markets', label: 'Markets', description: 'State growth and expansion' },
 ];
 
 const retailerHealthPanels: Array<{ id: RetailerHealthPanel; label: string; description: string }> = [
@@ -319,16 +310,6 @@ const formatSignedPercent = (value: number | null) => {
   if (value === null || Number.isNaN(value)) return 'No comp';
   const sign = value > 0 ? '+' : '';
   return `${sign}${value.toFixed(1)}%`;
-};
-
-const getSparklineValues = (points: PerformanceTrendPoint[], metric: PerformanceMetric) => {
-  const rawValues = points.map((point) => {
-    if (metric === 'revenue') return point.revenue;
-    if (metric === 'orders') return point.orders;
-    if (metric === 'units') return point.units;
-    return point.velocity;
-  });
-  return rawValues.filter((value) => Number.isFinite(value));
 };
 
 const formatSkuLabel = (product: ProductRecord | undefined, fallbackId?: string | null) => {
@@ -672,8 +653,7 @@ export default function AdminInsightsPage() {
   const [activeStates, setActiveStates] = useState(0);
   const [topRetailersByRevenue, setTopRetailersByRevenue] = useState<RetailerStats[]>([]);
   const [topRetailersByOrders, setTopRetailersByOrders] = useState<RetailerStats[]>([]);
-  const [unitsPerStoreMetrics, setUnitsPerStoreMetrics] = useState<UnitsPerStoreMetrics>({ overall: 0, topDecile: 0, topStores: 0 });
-  const [unitsPerStorePerSkuMetrics, setUnitsPerStorePerSkuMetrics] = useState<UnitsPerStorePerSkuMetrics>({ overall: 0, topDecile: 0, topStores: 0 });
+  const [unitsPerStoreMetrics, setUnitsPerStoreMetrics] = useState<UnitsPerStoreMetrics>({ overall: 0 });
   const [skuOptions, setSkuOptions] = useState<SkuOption[]>([]);
   const [skuComparisons, setSkuComparisons] = useState<SkuComparison[]>([]);
   const [topSkuMetrics, setTopSkuMetrics] = useState<RankedSkuMetric[]>([]);
@@ -961,9 +941,6 @@ export default function AdminInsightsPage() {
         : null;
 
       const unitsByRetailerInWindow = new Map<string, number>();
-      const skuSetsByRetailer = new Map<string, Set<string>>();
-      const unitsByStoreInWindow = new Map<string, number>();
-      const skuSetsByStore = new Map<string, Set<string>>();
       const skuUnitsByStore = new Map<string, Map<string, number>>();
       const skuLabels = new Map<string, string>();
       const orderedStoreKeysByRetailer = new Map<string, Set<string>>();
@@ -979,14 +956,6 @@ export default function AdminInsightsPage() {
         const storeKey = item.order.location_id || `retailer:${item.order.retailer_id}`;
         if (item.product_id) {
           skuLabels.set(item.product_id, formatSkuLabel(item.product, item.product_id));
-          const retailerSkuSet = skuSetsByRetailer.get(item.order.retailer_id) || new Set<string>();
-          retailerSkuSet.add(item.product_id);
-          skuSetsByRetailer.set(item.order.retailer_id, retailerSkuSet);
-
-          const storeSkuSet = skuSetsByStore.get(storeKey) || new Set<string>();
-          storeSkuSet.add(item.product_id);
-          skuSetsByStore.set(storeKey, storeSkuSet);
-
           const skuTotalsForStore = skuUnitsByStore.get(storeKey) || new Map<string, number>();
           skuTotalsForStore.set(item.product_id, (skuTotalsForStore.get(item.product_id) || 0) + (item.quantity || 0));
           skuUnitsByStore.set(storeKey, skuTotalsForStore);
@@ -994,10 +963,6 @@ export default function AdminInsightsPage() {
         unitsByRetailerInWindow.set(
           item.order.retailer_id,
           (unitsByRetailerInWindow.get(item.order.retailer_id) || 0) + (item.quantity || 0),
-        );
-        unitsByStoreInWindow.set(
-          storeKey,
-          (unitsByStoreInWindow.get(storeKey) || 0) + (item.quantity || 0),
         );
         const orderedStoreKeys = orderedStoreKeysByRetailer.get(item.order.retailer_id) || new Set<string>();
         orderedStoreKeys.add(storeKey);
@@ -1011,12 +976,7 @@ export default function AdminInsightsPage() {
             retailerId,
             totalUnits,
             storeCount,
-            skuCount: skuSetsByRetailer.get(retailerId)?.size || 0,
             unitsPerStorePerWeek: totalUnits / storeCount / divisorWeeks,
-            unitsPerStorePerWeekPerSku:
-              (skuSetsByRetailer.get(retailerId)?.size || 0) > 0
-                ? totalUnits / storeCount / divisorWeeks / (skuSetsByRetailer.get(retailerId)?.size || 1)
-                : 0,
           };
         })
         .filter((retailer) => retailer.totalUnits > 0);
@@ -1025,29 +985,6 @@ export default function AdminInsightsPage() {
       const totalUnitsInWindow = retailerUnitsPerStore.reduce((sum, retailer) => sum + retailer.totalUnits, 0);
       const overallUnitsPerStorePerWeek =
         totalStoresInWindow > 0 ? totalUnitsInWindow / totalStoresInWindow / divisorWeeks : 0;
-
-      const topDecileCount = retailerUnitsPerStore.length > 0
-        ? Math.max(1, Math.ceil(retailerUnitsPerStore.length * 0.1))
-        : 0;
-      const topDecileRetailers = [...retailerUnitsPerStore]
-        .sort((a, b) => b.unitsPerStorePerWeek - a.unitsPerStorePerWeek)
-        .slice(0, topDecileCount);
-      const topDecileUnitsPerStorePerWeek = topDecileRetailers.length > 0
-        ? topDecileRetailers.reduce((sum, retailer) => sum + retailer.unitsPerStorePerWeek, 0) / topDecileRetailers.length
-        : 0;
-
-      const storeUnitsPerWeek = Array.from(unitsByStoreInWindow.entries())
-        .map(([storeKey, totalUnits]) => ({
-          storeKey,
-          totalUnits,
-          skuCount: skuSetsByStore.get(storeKey)?.size || 0,
-          unitsPerStorePerWeek: totalUnits / divisorWeeks,
-          unitsPerStorePerWeekPerSku:
-            (skuSetsByStore.get(storeKey)?.size || 0) > 0
-              ? totalUnits / divisorWeeks / (skuSetsByStore.get(storeKey)?.size || 1)
-              : 0,
-        }))
-        .filter((store) => store.totalUnits > 0);
 
       const nextSkuOptions = Array.from(skuLabels.entries())
         .map(([id, label]) => ({ id, label }))
@@ -1088,47 +1025,8 @@ export default function AdminInsightsPage() {
           .slice(0, 5),
       );
 
-      const topStoreCount = Math.min(10, storeUnitsPerWeek.length);
-      const topStoresByUnitsPerWeek = [...storeUnitsPerWeek]
-        .sort((a, b) => b.unitsPerStorePerWeek - a.unitsPerStorePerWeek)
-        .slice(0, topStoreCount);
-      const topTenStoresUnitsPerStorePerWeek = topStoresByUnitsPerWeek.length > 0
-        ? topStoresByUnitsPerWeek.reduce((sum, store) => sum + store.unitsPerStorePerWeek, 0) / topStoresByUnitsPerWeek.length
-        : 0;
-
       setUnitsPerStoreMetrics({
         overall: overallUnitsPerStorePerWeek,
-        topDecile: topDecileUnitsPerStorePerWeek,
-        topStores: topTenStoresUnitsPerStorePerWeek,
-      });
-
-      const totalStoreSkuSlotsInWindow = retailerUnitsPerStore.reduce(
-        (sum, retailer) => sum + retailer.storeCount * retailer.skuCount,
-        0,
-      );
-      const overallUnitsPerStorePerWeekPerSku =
-        totalStoreSkuSlotsInWindow > 0 ? totalUnitsInWindow / totalStoreSkuSlotsInWindow / divisorWeeks : 0;
-
-      const topDecileBySkuRetailers = [...retailerUnitsPerStore]
-        .filter((retailer) => retailer.skuCount > 0)
-        .sort((a, b) => b.unitsPerStorePerWeekPerSku - a.unitsPerStorePerWeekPerSku)
-        .slice(0, topDecileCount);
-      const topDecileUnitsPerStorePerWeekPerSku = topDecileBySkuRetailers.length > 0
-        ? topDecileBySkuRetailers.reduce((sum, retailer) => sum + retailer.unitsPerStorePerWeekPerSku, 0) / topDecileBySkuRetailers.length
-        : 0;
-
-      const topStoresByUnitsPerWeekPerSku = [...storeUnitsPerWeek]
-        .filter((store) => store.skuCount > 0)
-        .sort((a, b) => b.unitsPerStorePerWeekPerSku - a.unitsPerStorePerWeekPerSku)
-        .slice(0, topStoreCount);
-      const topTenStoresUnitsPerStorePerWeekPerSku = topStoresByUnitsPerWeekPerSku.length > 0
-        ? topStoresByUnitsPerWeekPerSku.reduce((sum, store) => sum + store.unitsPerStorePerWeekPerSku, 0) / topStoresByUnitsPerWeekPerSku.length
-        : 0;
-
-      setUnitsPerStorePerSkuMetrics({
-        overall: overallUnitsPerStorePerWeekPerSku,
-        topDecile: topDecileUnitsPerStorePerWeekPerSku,
-        topStores: topTenStoresUnitsPerStorePerWeekPerSku,
       });
 
       const skuPairComparisons = new Map<
@@ -1562,11 +1460,7 @@ export default function AdminInsightsPage() {
   const oldestAccountAwaitingFirstOrder = retailersWithoutOrders
     .filter((retailer) => retailer.created_at)
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
-  const averageDaysSinceAtRiskOrder = atRiskRetailers.length > 0
-    ? Math.round(atRiskRetailers.reduce((sum, retailer) => sum + retailer.days_since, 0) / atRiskRetailers.length)
-    : 0;
   const highPerformerCount = successInsights?.byLifecycle.high_performer || 0;
-  const sampleFollowUpCount = successInsights?.missingSamples.length || 0;
   const activeDateLabel = getPresetLabel(dateSelection.preset);
   const activeRangeLabel = formatRangeLabel(dateSelection.startDate, dateSelection.endDate);
   const activeComparisonLabel = getComparisonLabel(dateSelection);
@@ -1600,64 +1494,6 @@ export default function AdminInsightsPage() {
     comparisonMetrics.totalRevenue,
     reorderRate,
     retailersWithoutOrders.length,
-    totalRevenue,
-  ]);
-
-  const businessHighlights = useMemo(() => {
-    const highlights: Array<{ text: string; view: InsightsView; panel?: RetailerHealthPanel }> = [];
-    const pushUnique = (text: string, view: InsightsView, panel?: RetailerHealthPanel) => {
-      if (!highlights.some((item) => item.text === text) && highlights.length < 6) {
-        highlights.push({ text, view, panel });
-      }
-    };
-
-    if (comparisonMetrics.totalRevenue !== null) {
-      const delta = totalRevenue - comparisonMetrics.totalRevenue;
-      const percent = comparisonMetrics.totalRevenue === 0
-        ? totalRevenue > 0 ? 100 : 0
-        : (delta / comparisonMetrics.totalRevenue) * 100;
-      if (Math.abs(percent) >= 1 || Math.abs(delta) > 0) {
-        pushUnique(`Revenue ${delta >= 0 ? 'increased' : 'decreased'} ${Math.abs(percent).toFixed(1)}% versus the ${comparisonMetrics.label}.`, 'overview');
-      }
-    }
-
-    if (comparisonMetrics.reorderRate !== null) {
-      const delta = reorderRate - comparisonMetrics.reorderRate;
-      if (Math.abs(delta) >= 0.1) {
-        pushUnique(`Reorder rate ${delta >= 0 ? 'improved' : 'declined'} by ${Math.abs(delta).toFixed(1)} percentage points.`, 'health', 'summary');
-      }
-    }
-
-    if (retailersWithoutOrders.length > 0) {
-      pushUnique(`${retailersWithoutOrders.length} accounts have not placed a first order.`, 'health', 'needs_first_order');
-    }
-
-    if (atRiskRetailers.length > 0) {
-      pushUnique(`${atRiskRetailers.length} retailers currently need a health review.`, 'health', 'at_risk');
-    }
-
-    if (topSkuMetrics[0]) {
-      pushUnique(`${topSkuMetrics[0].label} is leading SKU velocity at ${topSkuMetrics[0].unitsPerStorePerWeek.toFixed(2)} units per store per week.`, 'skus');
-    }
-
-    if (stateRevenue[0]) {
-      pushUnique(`${stateRevenue[0].state} generated the most revenue in the selected period.`, 'markets');
-    }
-
-    if (highlights.length === 0) {
-      pushUnique('No meaningful movement is available for the selected range yet.', 'overview');
-    }
-
-    return highlights;
-  }, [
-    atRiskRetailers.length,
-    comparisonMetrics.label,
-    comparisonMetrics.reorderRate,
-    comparisonMetrics.totalRevenue,
-    reorderRate,
-    retailersWithoutOrders.length,
-    stateRevenue,
-    topSkuMetrics,
     totalRevenue,
   ]);
 
@@ -1732,6 +1568,226 @@ export default function AdminInsightsPage() {
         a.retailerName.localeCompare(b.retailerName)
       ));
   }, [currentPromo.promoVisible, pipedriveDealByRetailer, successInsights]);
+
+  const revenueAtRisk = useMemo(() => {
+    if (!successInsights) return 0;
+    return successInsights.retailerRows
+      .filter((row) => row.lifecycleStatus === 'at_risk' || row.lifecycleStatus === 'inactive')
+      .reduce((sum, row) => sum + row.profile.totalSpend, 0);
+  }, [successInsights]);
+
+  const overdueHighValueAccounts = useMemo(() => {
+    if (!successInsights) return [];
+    return successInsights.retailerRows
+      .filter((row) => (
+        (row.lifecycleStatus === 'at_risk' || row.lifecycleStatus === 'inactive') &&
+        row.profile.totalSpend > 0
+      ))
+      .sort((a, b) => b.profile.totalSpend - a.profile.totalSpend)
+      .slice(0, 5);
+  }, [successInsights]);
+
+  const ownerPriorities = useMemo(() => {
+    const priorities: Array<{
+      title: string;
+      count: number;
+      detail: string;
+      action: string;
+      view: InsightsView;
+      panel?: RetailerHealthPanel;
+      tone: 'amber' | 'red' | 'bark' | 'green';
+    }> = [];
+
+    if (overdueHighValueAccounts.length > 0) {
+      priorities.push({
+        title: 'Protect reorder revenue',
+        count: overdueHighValueAccounts.length,
+        detail: `${formatCurrency(revenueAtRisk)} in historical account value is tied to lapsed or at-risk retailers.`,
+        action: 'Review overdue accounts',
+        view: 'health',
+        panel: 'at_risk',
+        tone: 'red',
+      });
+    }
+
+    if (retailersWithoutOrders.length > 0) {
+      priorities.push({
+        title: 'Convert first orders',
+        count: retailersWithoutOrders.length,
+        detail: oldestAccountAwaitingFirstOrder
+          ? `${oldestAccountAwaitingFirstOrder.company_name} has waited the longest.`
+          : 'New accounts are waiting for a first wholesale order.',
+        action: 'Open first-order queue',
+        view: 'health',
+        panel: 'needs_first_order',
+        tone: 'amber',
+      });
+    }
+
+    if (currentPromo.promoVisible && successInsights?.currentPromoNotRespondedCount) {
+      priorities.push({
+        title: 'Close promo responses',
+        count: successInsights.currentPromoNotRespondedCount,
+        detail: `${currentPromo.promoName || 'The current promo'} still needs retailer decisions.`,
+        action: 'Start promo outreach',
+        view: 'health',
+        panel: 'outreach',
+        tone: 'bark',
+      });
+    }
+
+    if (topSkuMetrics[0]) {
+      priorities.push({
+        title: 'Expand the winning SKU',
+        count: 1,
+        detail: `${topSkuMetrics[0].label} leads velocity at ${topSkuMetrics[0].unitsPerStorePerWeek.toFixed(2)} units/store/week.`,
+        action: 'View product story',
+        view: 'skus',
+        tone: 'green',
+      });
+    }
+
+    if (topMarketMetrics[0]) {
+      priorities.push({
+        title: 'Lean into the strongest market',
+        count: topMarketMetrics[0].activeRetailers,
+        detail: `${topMarketMetrics[0].state} produced ${formatCurrency(topMarketMetrics[0].revenue)} from active retailers.`,
+        action: 'View market story',
+        view: 'markets',
+        tone: 'green',
+      });
+    }
+
+    if (priorities.length === 0) {
+      priorities.push({
+        title: 'Keep the rhythm',
+        count: 0,
+        detail: 'No urgent wholesale follow-ups stand out for this range.',
+        action: 'Review retailers',
+        view: 'health',
+        panel: 'summary',
+        tone: 'green',
+      });
+    }
+
+    return priorities.slice(0, 5);
+  }, [
+    currentPromo.promoName,
+    currentPromo.promoVisible,
+    oldestAccountAwaitingFirstOrder,
+    overdueHighValueAccounts,
+    retailersWithoutOrders.length,
+    revenueAtRisk,
+    successInsights,
+    topMarketMetrics,
+    topSkuMetrics,
+  ]);
+
+  const retailerHealthFunnel = useMemo(() => {
+    if (!successInsights) return [];
+    const rows = successInsights.retailerRows;
+    return [
+      {
+        label: 'Accounts',
+        value: successInsights.totalRetailers,
+        helper: 'Wholesale relationships created',
+      },
+      {
+        label: 'First order',
+        value: rows.filter((row) => row.profile.totalOrders > 0).length,
+        helper: 'Accounts that started buying',
+      },
+      {
+        label: 'Reordered',
+        value: rows.filter((row) => row.profile.totalOrders >= 2).length,
+        helper: 'Accounts with repeat behavior',
+      },
+      {
+        label: 'Healthy',
+        value: rows.filter((row) => row.lifecycleStatus === 'active' || row.lifecycleStatus === 'high_performer').length,
+        helper: 'Active or high-performing',
+      },
+      {
+        label: 'Needs care',
+        value: rows.filter((row) => row.lifecycleStatus === 'at_risk' || row.lifecycleStatus === 'inactive').length,
+        helper: 'At risk or inactive',
+      },
+    ];
+  }, [successInsights]);
+
+  const growthDrivers = useMemo(() => {
+    const rows: Array<{
+      label: string;
+      value: string;
+      helper: string;
+      trend?: number | null;
+      view: InsightsView;
+      panel?: RetailerHealthPanel;
+    }> = [];
+
+    if (topRetailersByRevenue[0]) {
+      rows.push({
+        label: topRetailersByRevenue[0].company_name,
+        value: formatCurrency(topRetailersByRevenue[0].total_spent),
+        helper: 'Top retailer by revenue',
+        view: 'health',
+        panel: 'leaderboards',
+      });
+    }
+
+    if (topSkuMetrics[0]) {
+      rows.push({
+        label: topSkuMetrics[0].label,
+        value: `${topSkuMetrics[0].unitsPerStorePerWeek.toFixed(2)} UPW`,
+        helper: 'Best SKU velocity',
+        trend: topSkuMetrics[0].percentChange,
+        view: 'skus',
+      });
+    }
+
+    if (topMarketMetrics[0]) {
+      rows.push({
+        label: topMarketMetrics[0].state,
+        value: formatCurrency(topMarketMetrics[0].revenue),
+        helper: `${topMarketMetrics[0].activeRetailers} active retailers`,
+        trend: topMarketMetrics[0].percentChange,
+        view: 'markets',
+      });
+    }
+
+    if (highPerformerCount > 0) {
+      rows.push({
+        label: 'Expansion candidates',
+        value: highPerformerCount.toLocaleString(),
+        helper: 'High-performing stores to grow',
+        view: 'health',
+        panel: 'leaderboards',
+      });
+    }
+
+    return rows;
+  }, [highPerformerCount, topMarketMetrics, topRetailersByRevenue, topSkuMetrics]);
+
+  const fastestGrowingSku = useMemo(() => (
+    topSkuMetrics
+      .filter((sku) => typeof sku.percentChange === 'number')
+      .sort((a, b) => (b.percentChange || 0) - (a.percentChange || 0))[0] || null
+  ), [topSkuMetrics]);
+
+  const softestSku = useMemo(() => (
+    topSkuMetrics
+      .filter((sku) => typeof sku.percentChange === 'number')
+      .sort((a, b) => (a.percentChange || 0) - (b.percentChange || 0))[0] || null
+  ), [topSkuMetrics]);
+
+  const strongestVelocityMarket = useMemo(() => (
+    [...topMarketMetrics]
+      .sort((a, b) => {
+        const bVelocity = b.activeRetailers > 0 ? b.revenue / b.activeRetailers : 0;
+        const aVelocity = a.activeRetailers > 0 ? a.revenue / a.activeRetailers : 0;
+        return bVelocity - aVelocity;
+      })[0] || null
+  ), [topMarketMetrics]);
 
   const toggleSkuSelection = (skuId: string) => {
     setSelectedSkuIds((current) => (
@@ -1842,52 +1898,140 @@ export default function AdminInsightsPage() {
 
       {activeView === 'overview' && (
         <>
-      <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
-        <KpiCard label="Revenue" value={formatCurrency(totalRevenue)} current={totalRevenue} previous={comparisonMetrics.totalRevenue} comparisonLabel={comparisonMetrics.label} sparkline={getSparklineValues(performanceTrend, 'revenue')} icon={<TrendingUp className="h-4 w-4" />} onClick={() => setActivePerformanceMetric('revenue')} />
-        <KpiCard label="Orders" value={totalOrdersInRange.toLocaleString()} current={totalOrdersInRange} previous={comparisonMetrics.totalOrders} comparisonLabel={comparisonMetrics.label} sparkline={getSparklineValues(performanceTrend, 'orders')} icon={<ShoppingCart className="h-4 w-4" />} onClick={() => setActivePerformanceMetric('orders')} />
-        <KpiCard label="Units Sold" value={unitsSold.toLocaleString()} current={unitsSold} previous={comparisonMetrics.unitsSold} comparisonLabel={comparisonMetrics.label} sparkline={getSparklineValues(performanceTrend, 'units')} icon={<Package className="h-4 w-4" />} onClick={() => setActivePerformanceMetric('units')} />
-        <KpiCard label="Average Order Value" value={formatCurrency(avgOrderValue)} current={avgOrderValue} previous={comparisonMetrics.avgOrderValue} comparisonLabel={comparisonMetrics.label} sparkline={performanceTrend.map((point) => point.orders > 0 ? point.revenue / point.orders : 0)} icon={<Target className="h-4 w-4" />} onClick={() => setActivePerformanceMetric('revenue')} />
-        <KpiCard label="Units / Store / Week" value={unitsPerStoreMetrics.overall.toFixed(2)} current={unitsPerStoreMetrics.overall} previous={comparisonMetrics.unitsPerStorePerWeek} comparisonLabel={comparisonMetrics.label} sparkline={getSparklineValues(performanceTrend, 'velocity')} icon={<Store className="h-4 w-4" />} tooltip="Total units sold divided by active stores and weeks in the averaging window." benchmark="Goal 2.0" onClick={() => setActivePerformanceMetric('velocity')} />
-        <KpiCard label="Reorder Rate" value={`${reorderRate.toFixed(1)}%`} current={reorderRate} previous={comparisonMetrics.reorderRate} comparisonLabel={comparisonMetrics.label} mode="points" icon={<Users className="h-4 w-4" />} tooltip="Percentage of retailers with two or more non-canceled orders inside the selected range." benchmark="Target 45%" onClick={() => { setActiveView('health'); setActiveHealthPanel('summary'); }} />
+      <section className="overflow-hidden rounded-xl border border-bark-100 bg-white shadow-sm">
+        <div className="grid gap-0 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="bg-cream-50 px-6 py-6 lg:px-8">
+            <p className="text-xs font-semibold uppercase text-bark-500/60">Owner Brief</p>
+            <h3 className="mt-2 max-w-3xl text-2xl font-bold leading-tight text-gray-950">
+              {executiveSummary}
+            </h3>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-600">
+              {activeRangeLabel}{activeComparisonLabel ? ` compared with ${activeComparisonLabel}` : ''}. Focus on the accounts, products, and markets most likely to move wholesale momentum.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 border-t border-bark-100 bg-white lg:border-l lg:border-t-0">
+            <OwnerMetric label="Revenue" value={formatCurrency(totalRevenue)} current={totalRevenue} previous={comparisonMetrics.totalRevenue} comparisonLabel={comparisonMetrics.label} />
+            <OwnerMetric label="Reorder health" value={`${reorderRate.toFixed(1)}%`} current={reorderRate} previous={comparisonMetrics.reorderRate} comparisonLabel={comparisonMetrics.label} mode="points" />
+            <OwnerMetric label="Active locations" value={activeRetailers.toLocaleString()} current={activeRetailers} previous={comparisonMetrics.activeRetailers} comparisonLabel={comparisonMetrics.label} />
+            <OwnerMetric label="Units / store / week" value={unitsPerStoreMetrics.overall.toFixed(2)} current={unitsPerStoreMetrics.overall} previous={comparisonMetrics.unitsPerStorePerWeek} comparisonLabel={comparisonMetrics.label} />
+          </div>
+        </div>
       </section>
 
-      <section className="rounded-xl border border-bark-100 bg-cream-100 px-5 py-4 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase text-bark-500/60">Business Highlights</p>
-            <h3 className="mt-1 text-base font-semibold text-bark-500">Here is what changed and where to focus.</h3>
-          </div>
-          <button
-            type="button"
-            onClick={() => setActiveView('health')}
-            className="inline-flex items-center gap-1 self-start rounded-lg border border-bark-200 bg-white px-3 py-2 text-sm font-semibold text-bark-700 hover:bg-bark-50 lg:self-center"
-          >
-            View All Insights <ArrowUpRight className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-x-5 gap-y-1.5 md:grid-cols-2 xl:grid-cols-3">
-          {businessHighlights.map((highlight) => (
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_380px]">
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase text-gray-400">Today&apos;s Priorities</p>
+              <h3 className="mt-1 text-lg font-semibold text-gray-900">The next best wholesale moves</h3>
+            </div>
             <button
-              key={highlight.text}
               type="button"
               onClick={() => {
-                setActiveView(highlight.view);
-                if (highlight.panel) setActiveHealthPanel(highlight.panel);
+                setActiveView('health');
+                setActiveHealthPanel('outreach');
               }}
-              className="group flex items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm text-bark-600 transition-colors hover:bg-white/70"
+              className="inline-flex items-center gap-1 self-start rounded-lg border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-600 hover:border-bark-200 hover:text-bark-700 sm:self-auto"
             >
-              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-bark-400" />
-              <span className="leading-5 group-hover:text-bark-800">{highlight.text}</span>
+              Open outreach <ArrowUpRight className="h-4 w-4" />
             </button>
-          ))}
+          </div>
+          <div className="mt-5 divide-y divide-gray-100">
+            {ownerPriorities.map((priority, index) => (
+              <PriorityRow
+                key={priority.title}
+                index={index + 1}
+                title={priority.title}
+                count={priority.count}
+                detail={priority.detail}
+                action={priority.action}
+                tone={priority.tone}
+                onClick={() => {
+                  setActiveView(priority.view);
+                  if (priority.panel) setActiveHealthPanel(priority.panel);
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase text-gray-400">Business Pulse</p>
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <PulseMetric label="Orders" value={totalOrdersInRange.toLocaleString()} helper="Selected range" />
+            <PulseMetric label="Units sold" value={unitsSold.toLocaleString()} helper="Selected range" />
+            <PulseMetric label="AOV" value={formatCurrency(avgOrderValue)} helper="Per order" />
+            <PulseMetric label="New locations" value={newLocationsThisMonth.toLocaleString()} helper="Selected range" />
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase text-gray-400">Retailer Health</p>
+              <h3 className="mt-1 text-lg font-semibold text-gray-900">Account progression</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveView('health');
+                setActiveHealthPanel('summary');
+              }}
+              className="text-sm font-semibold text-bark-600 hover:text-bark-700"
+            >
+              Details
+            </button>
+          </div>
+          <div className="mt-5 space-y-4">
+            {retailerHealthFunnel.map((stage) => (
+              <HealthFunnelRow
+                key={stage.label}
+                label={stage.label}
+                value={stage.value}
+                helper={stage.helper}
+                maxValue={successInsights?.totalRetailers || 0}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase text-gray-400">Growth Drivers</p>
+              <h3 className="mt-1 text-lg font-semibold text-gray-900">What is working right now</h3>
+            </div>
+          </div>
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+            {growthDrivers.length === 0 ? (
+              <EmptyPanel message="No growth drivers are available for this range yet." />
+            ) : (
+              growthDrivers.map((driver) => (
+                <GrowthDriverCard
+                  key={`${driver.helper}-${driver.label}`}
+                  label={driver.label}
+                  value={driver.value}
+                  helper={driver.helper}
+                  trend={driver.trend}
+                  onClick={() => {
+                    setActiveView(driver.view);
+                    if (driver.panel) setActiveHealthPanel(driver.panel);
+                  }}
+                />
+              ))
+            )}
+          </div>
         </div>
       </section>
 
       <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Performance Trend</h3>
-            <p className="mt-1 text-sm text-gray-500">{activeRangeLabel} trend with comparable-period context when available.</p>
+            <p className="text-xs font-semibold uppercase text-gray-400">Trend</p>
+            <h3 className="mt-1 text-lg font-semibold text-gray-900">Wholesale momentum</h3>
+            <p className="mt-1 text-sm text-gray-500">Switch the signal when you want to inspect the movement behind the brief.</p>
           </div>
           <div className="flex flex-col gap-2 sm:items-end">
             <div className="flex flex-wrap gap-2">
@@ -1923,7 +2067,7 @@ export default function AdminInsightsPage() {
             )}
           </div>
         </div>
-        <div className="mt-5 h-80">
+        <div className="mt-5 h-72">
           {performanceTrend.length === 0 ? (
             <EmptyPanel message="No performance data is available for this range yet." />
           ) : (
@@ -1939,7 +2083,6 @@ export default function AdminInsightsPage() {
                 <Tooltip
                   content={<PerformanceTooltip metric={activePerformanceMetric} metricLabel={selectedPerformanceMetric.label} comparisonLabel={comparisonMetrics.label} previousKey={previousPerformanceDataKey} />}
                 />
-                <Legend />
                 <Line
                   type="monotone"
                   dataKey={performanceDataKey}
@@ -1964,64 +2107,6 @@ export default function AdminInsightsPage() {
               </RechartsLineChart>
             </ResponsiveContainer>
           )}
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900">Attention Center</h3>
-          <p className="mt-1 text-sm text-gray-500">The shortest path from insight to follow-up.</p>
-        </div>
-        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <ActionCard icon={<AlertTriangle className="h-5 w-5" />} title="Needs First Order" count={retailersWithoutOrders.length} detail={oldestAccountAwaitingFirstOrder ? `Oldest: ${oldestAccountAwaitingFirstOrder.company_name}` : 'Every account has ordered'} action="Review accounts" tone="amber" onClick={() => { setActiveView('health'); setActiveHealthPanel('needs_first_order'); }} />
-          <ActionCard icon={<AlertTriangle className="h-5 w-5" />} title="At-Risk Retailers" count={atRiskRetailers.length} detail={averageDaysSinceAtRiskOrder > 0 ? `${averageDaysSinceAtRiskOrder} average days since last order` : 'No retailers beyond the risk threshold'} action="Review retailer health" tone="red" onClick={() => { setActiveView('health'); setActiveHealthPanel('at_risk'); }} />
-          <ActionCard icon={<Users className="h-5 w-5" />} title="Open Outreach Opportunities" count={outreachRows.length} detail={`${sampleFollowUpCount} sample follow-ups plus lifecycle tasks`} action="Start outreach" tone="bark" onClick={() => { setActiveView('health'); setActiveHealthPanel('outreach'); }} />
-          <ActionCard icon={<CheckCircle2 className="h-5 w-5" />} title="High-Performing Stores" count={highPerformerCount} detail="Expansion ask candidates" action="View growth opportunities" tone="green" onClick={() => { setActiveView('health'); setActiveHealthPanel('leaderboards'); }} />
-        </div>
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <RankedBarCard
-          title="Top Products"
-          subtitle={`Top SKUs by velocity, ${velocityWindowLabel.toLowerCase()}`}
-          emptyMessage="No SKU velocity data is available for this range yet."
-          rows={topSkuMetrics.map((sku) => ({
-            id: sku.skuId,
-            label: sku.label,
-            value: sku.unitsPerStorePerWeek,
-            displayValue: `${sku.unitsPerStorePerWeek.toFixed(2)} Units / Store / Week`,
-            hrefView: 'skus' as InsightsView,
-            trend: sku.percentChange,
-          }))}
-          onNavigate={(view) => setActiveView(view)}
-        />
-        <RankedBarCard
-          title="Top Markets"
-          subtitle="States ranked by revenue in the selected period"
-          emptyMessage="No state revenue data is available for this range yet."
-          rows={topMarketMetrics.map((state) => ({
-            id: state.state,
-            label: state.state,
-            value: state.revenue,
-            displayValue: formatCurrency(state.revenue),
-            hrefView: 'markets' as InsightsView,
-            trend: state.percentChange,
-            metadata: `${state.activeRetailers} active retailer${state.activeRetailers === 1 ? '' : 's'}`,
-            sparkline: state.sparkline,
-          }))}
-          onNavigate={(view) => setActiveView(view)}
-        />
-      </section>
-
-      <section className="rounded-xl border border-gray-100 bg-white/80 p-4 shadow-sm">
-        <h3 className="text-sm font-semibold uppercase text-gray-400">Additional Metrics</h3>
-        <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3 xl:grid-cols-6">
-          <SupportingMetric label="Active retailers" value={activeRetailers} delta={<TrendDelta current={activeRetailers} previous={comparisonMetrics.activeRetailers} label={comparisonMetrics.label} />} />
-          <SupportingMetric label="Active states" value={activeStates} delta={<TrendDelta current={activeStates} previous={comparisonMetrics.activeStates} label={comparisonMetrics.label} />} />
-          <SupportingMetric label="New retail locations" value={newLocationsThisMonth} helper="Selected range" />
-          <SupportingMetric label="Suggested SKU pairs" value={skuComparisons.length} />
-          <SupportingMetric label="Top 10% retailer velocity" value={unitsPerStoreMetrics.topDecile.toFixed(2)} helper="Units/store/week" />
-          <SupportingMetric label="Per-SKU velocity" value={unitsPerStorePerSkuMetrics.overall.toFixed(2)} helper="All active stores" />
         </div>
       </section>
         </>
@@ -2148,12 +2233,38 @@ export default function AdminInsightsPage() {
       <section className="space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">SKU Performance Matchups</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Product Story</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Select any mix of SKUs and compare them only within stores that ordered every selected SKU during the active velocity window.
+              Start with the simple product signals, then use same-store comparisons when you want to dig deeper.
             </p>
           </div>
           <p className="text-xs text-gray-400">{velocityWindowLabel}</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <InsightStoryCard
+            label="Best velocity"
+            value={topSkuMetrics[0]?.label || 'No SKU yet'}
+            helper={topSkuMetrics[0] ? `${topSkuMetrics[0].unitsPerStorePerWeek.toFixed(2)} units/store/week` : 'No product velocity in this range'}
+            trend={topSkuMetrics[0]?.percentChange}
+          />
+          <InsightStoryCard
+            label="Fastest growing"
+            value={fastestGrowingSku?.label || 'No comparison yet'}
+            helper={fastestGrowingSku ? 'Biggest velocity gain vs comparison period' : 'Choose a comparison range to see movement'}
+            trend={fastestGrowingSku?.percentChange}
+          />
+          <InsightStoryCard
+            label="Needs attention"
+            value={softestSku?.label || 'No softening SKU'}
+            helper={softestSku ? 'Largest velocity decline among top SKUs' : 'No declining SKU stands out'}
+            trend={softestSku?.percentChange}
+          />
+          <InsightStoryCard
+            label="Assortment signal"
+            value={`${skuComparisons.length} pairs`}
+            helper="Suggested same-store matchups with overlapping retailer demand"
+          />
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-5">
@@ -2484,7 +2595,34 @@ export default function AdminInsightsPage() {
 
       {activeView === 'markets' && (
       <section className="space-y-4">
-        <h3 className="text-lg font-semibold text-gray-900">Geographic Spread</h3>
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">Market Story</h3>
+          <p className="mt-1 text-sm text-gray-500">Use geography to decide where to protect momentum and where to expand next.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <InsightStoryCard
+            label="Top revenue market"
+            value={topMarketMetrics[0]?.state || 'No market yet'}
+            helper={topMarketMetrics[0] ? `${formatCurrency(topMarketMetrics[0].revenue)} in selected revenue` : 'No state revenue in this range'}
+            trend={topMarketMetrics[0]?.percentChange}
+          />
+          <InsightStoryCard
+            label="Active states"
+            value={activeStates.toLocaleString()}
+            helper="States with ordering retailers"
+          />
+          <InsightStoryCard
+            label="Best revenue / retailer"
+            value={strongestVelocityMarket?.state || 'No market yet'}
+            helper={strongestVelocityMarket ? `${formatCurrency(strongestVelocityMarket.activeRetailers > 0 ? strongestVelocityMarket.revenue / strongestVelocityMarket.activeRetailers : 0)} per active retailer` : 'No market density signal yet'}
+            trend={strongestVelocityMarket?.percentChange}
+          />
+          <InsightStoryCard
+            label="Expansion hint"
+            value={topMarketMetrics.find((market) => market.activeRetailers <= 5)?.state || topMarketMetrics[0]?.state || 'No market yet'}
+            helper="Strong markets with lighter account count deserve prospecting attention"
+          />
+        </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
@@ -2591,6 +2729,181 @@ export default function AdminInsightsPage() {
         </div>
       </section>
       )}
+    </div>
+  );
+}
+
+function OwnerMetric({
+  label,
+  value,
+  current,
+  previous,
+  comparisonLabel,
+  mode = 'percent',
+}: {
+  label: string;
+  value: string;
+  current: number;
+  previous: number | null;
+  comparisonLabel: string;
+  mode?: 'percent' | 'points';
+}) {
+  return (
+    <div className="min-h-[124px] border-b border-r border-gray-100 p-4 last:border-r-0 even:border-r-0">
+      <p className="text-xs font-semibold uppercase text-gray-400">{label}</p>
+      <p className="mt-2 text-2xl font-bold text-gray-950">{value}</p>
+      <TrendDelta current={current} previous={previous} label={comparisonLabel} mode={mode} />
+    </div>
+  );
+}
+
+function PriorityRow({
+  index,
+  title,
+  count,
+  detail,
+  action,
+  tone,
+  onClick,
+}: {
+  index: number;
+  title: string;
+  count: number;
+  detail: string;
+  action: string;
+  tone: 'amber' | 'red' | 'bark' | 'green';
+  onClick: () => void;
+}) {
+  const toneClass = {
+    amber: 'bg-amber-50 text-amber-700',
+    red: 'bg-red-50 text-red-700',
+    bark: 'bg-bark-50 text-bark-700',
+    green: 'bg-emerald-50 text-emerald-700',
+  }[tone];
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex w-full items-start gap-4 py-4 text-left first:pt-0 last:pb-0"
+    >
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-500">
+        {index}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-gray-950 group-hover:text-bark-700">{title}</span>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${toneClass}`}>
+            {count}
+          </span>
+        </span>
+        <span className="mt-1 block text-sm leading-5 text-gray-500">{detail}</span>
+      </span>
+      <span className="hidden shrink-0 items-center gap-1 text-sm font-semibold text-bark-600 group-hover:text-bark-700 sm:inline-flex">
+        {action} <ArrowUpRight className="h-4 w-4" />
+      </span>
+    </button>
+  );
+}
+
+function PulseMetric({ label, value, helper }: { label: string; value: string; helper: string }) {
+  return (
+    <div className="rounded-lg bg-gray-50 p-4">
+      <p className="text-xs font-semibold uppercase text-gray-400">{label}</p>
+      <p className="mt-2 text-xl font-bold text-gray-950">{value}</p>
+      <p className="mt-1 text-xs text-gray-400">{helper}</p>
+    </div>
+  );
+}
+
+function HealthFunnelRow({
+  label,
+  value,
+  helper,
+  maxValue,
+}: {
+  label: string;
+  value: number;
+  helper: string;
+  maxValue: number;
+}) {
+  const width = maxValue > 0 ? Math.max(5, (value / maxValue) * 100) : 0;
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-gray-900">{label}</p>
+          <p className="text-xs text-gray-400">{helper}</p>
+        </div>
+        <p className="text-lg font-bold text-gray-950">{value.toLocaleString()}</p>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+        <div className="h-full rounded-full bg-bark-500" style={{ width: `${width}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function GrowthDriverCard({
+  label,
+  value,
+  helper,
+  trend,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+  trend?: number | null;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-lg border border-gray-100 bg-gray-50 p-4 text-left transition-colors hover:border-bark-200 hover:bg-white"
+    >
+      <p className="truncate text-sm font-semibold text-gray-950">{label}</p>
+      <div className="mt-3 flex items-end justify-between gap-3">
+        <div>
+          <p className="text-xl font-bold text-bark-700">{value}</p>
+          <p className="mt-1 text-xs text-gray-400">{helper}</p>
+        </div>
+        {typeof trend === 'number' && (
+          <span className={`shrink-0 text-xs font-semibold ${trend >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+            {trend >= 0 ? '▲' : '▼'} {formatSignedPercent(Math.abs(trend)).replace('+', '')}
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function InsightStoryCard({
+  label,
+  value,
+  helper,
+  trend,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+  trend?: number | null;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+      <p className="text-xs font-semibold uppercase text-gray-400">{label}</p>
+      <div className="mt-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-xl font-bold text-gray-950">{value}</p>
+          <p className="mt-2 text-sm leading-5 text-gray-500">{helper}</p>
+        </div>
+        {typeof trend === 'number' && (
+          <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-semibold ${trend >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+            {trend >= 0 ? '▲' : '▼'} {formatSignedPercent(Math.abs(trend)).replace('+', '')}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -3014,230 +3327,10 @@ function PerformanceTooltip({
   );
 }
 
-function KpiCard({
-  label,
-  value,
-  current,
-  previous,
-  comparisonLabel,
-  sparkline,
-  icon,
-  tooltip,
-  benchmark,
-  onClick,
-  mode = 'percent',
-}: {
-  label: string;
-  value: string;
-  current: number;
-  previous: number | null;
-  comparisonLabel: string;
-  sparkline?: number[];
-  icon: ReactNode;
-  tooltip?: string;
-  benchmark?: string;
-  onClick: () => void;
-  mode?: 'percent' | 'points';
-}) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onClick();
-        }
-      }}
-      className="group flex min-h-[178px] flex-col rounded-xl border border-gray-100 bg-white p-4 text-left shadow-sm transition-all hover:border-bark-200 hover:shadow-md"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          {tooltip ? (
-            <MetricLabel className="text-xs font-semibold uppercase text-gray-500" tooltip={tooltip}>
-              {label}
-            </MetricLabel>
-          ) : (
-            <p className="text-xs font-semibold uppercase text-gray-500">{label}</p>
-          )}
-          <p className="mt-2 text-2xl font-bold text-gray-900">{value}</p>
-        </div>
-        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-bark-50 text-bark-600 transition-colors group-hover:bg-bark-100">
-          {icon}
-        </span>
-      </div>
-      <div className="mt-3 h-9">
-        {sparkline && sparkline.length > 1 && <Sparkline values={sparkline} />}
-      </div>
-      <TrendDelta current={current} previous={previous} label={comparisonLabel} mode={mode} />
-      {benchmark && <p className="mt-auto pt-2 text-xs text-gray-400">{benchmark}</p>}
-    </div>
-  );
-}
-
-function Sparkline({ values }: { values: number[] }) {
-  const width = 128;
-  const height = 36;
-  const max = Math.max(...values);
-  const min = Math.min(...values);
-  const range = max - min || 1;
-  const baselineY = height - 5;
-  const points = values.map((value, index) => {
-    const x = values.length === 1 ? 0 : (index / (values.length - 1)) * width;
-    const y = height - ((value - min) / range) * (height - 10) - 5;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-9 w-full overflow-visible" aria-hidden="true">
-      <line x1="0" x2={width} y1={baselineY} y2={baselineY} stroke="#F1E7DC" strokeWidth="1" />
-      <polyline points={points} fill="none" stroke="#3F1D0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
-    </svg>
-  );
-}
-
 function EmptyPanel({ message }: { message: string }) {
   return (
     <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-500">
       {message}
-    </div>
-  );
-}
-
-function ActionCard({
-  icon,
-  title,
-  count,
-  detail,
-  action,
-  tone,
-  onClick,
-}: {
-  icon: ReactNode;
-  title: string;
-  count: number;
-  detail: string;
-  action: string;
-  tone: 'amber' | 'red' | 'bark' | 'green';
-  onClick: () => void;
-}) {
-  const toneClass = {
-    amber: 'border-amber-100 bg-amber-50 text-amber-800',
-    red: 'border-red-100 bg-red-50 text-red-800',
-    bark: 'border-bark-100 bg-bark-50 text-bark-800',
-    green: 'border-emerald-100 bg-emerald-50 text-emerald-800',
-  }[tone];
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`group flex min-h-[172px] w-full flex-col rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-white/75 transition-colors group-hover:bg-white">
-          {icon}
-        </span>
-        <p className="text-3xl font-bold leading-none">{count}</p>
-      </div>
-      <p className="mt-4 text-sm font-semibold">{title}</p>
-      <p className="mt-1 min-h-10 text-sm opacity-80">{detail}</p>
-      <span className="mt-auto inline-flex w-full items-center justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold shadow-sm transition-colors group-hover:bg-white/80">
-        {action}
-      </span>
-    </button>
-  );
-}
-
-function RankedBarCard({
-  title,
-  subtitle,
-  emptyMessage,
-  rows,
-  onNavigate,
-}: {
-  title: string;
-  subtitle: string;
-  emptyMessage: string;
-  rows: Array<{
-    id: string;
-    label: string;
-    value: number;
-    displayValue: string;
-    hrefView: InsightsView;
-    trend?: number | null;
-    metadata?: string;
-    sparkline?: number[];
-  }>;
-  onNavigate: (view: InsightsView) => void;
-}) {
-  const maxValue = Math.max(...rows.map((row) => row.value), 0);
-
-  return (
-    <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-      <div>
-        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-        <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
-      </div>
-      <div className="mt-5 space-y-4">
-        {rows.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
-            {emptyMessage}
-          </div>
-        ) : (
-          rows.map((row, index) => (
-            <button
-              key={row.id}
-              type="button"
-              onClick={() => onNavigate(row.hrefView)}
-              className="block w-full rounded-lg p-1 text-left transition-colors hover:bg-gray-50"
-            >
-              <div className="mb-2 flex items-center justify-between gap-4 text-sm">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cream-100 text-xs font-semibold text-bark-600">
-                    {index + 1}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate font-semibold text-gray-900">{row.label}</span>
-                    {row.metadata && <span className="block truncate text-xs text-gray-400">{row.metadata}</span>}
-                  </span>
-                </div>
-                <span className="flex shrink-0 items-center gap-3">
-                  {row.sparkline && row.sparkline.length > 1 && (
-                    <span className="hidden w-16 sm:block">
-                      <Sparkline values={row.sparkline} />
-                    </span>
-                  )}
-                  {typeof row.trend === 'number' && (
-                    <span className={`text-xs font-semibold ${row.trend >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                      {row.trend >= 0 ? '▲' : '▼'} {formatSignedPercent(Math.abs(row.trend)).replace('+', '')}
-                    </span>
-                  )}
-                  <span className="font-semibold text-bark-600">{row.displayValue}</span>
-                </span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                <div
-                  className="h-full rounded-full bg-bark-500"
-                  style={{ width: `${maxValue > 0 ? Math.max(4, (row.value / maxValue) * 100) : 0}%` }}
-                />
-              </div>
-            </button>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SupportingMetric({ label, value, helper, delta }: { label: string; value: string | number; helper?: string; delta?: ReactNode }) {
-  return (
-    <div>
-      <p className="text-xs font-semibold uppercase text-gray-400">{label}</p>
-      <p className="mt-1 text-xl font-bold text-gray-900">{value}</p>
-      {helper && <p className="mt-1 text-xs text-gray-400">{helper}</p>}
-      {delta}
     </div>
   );
 }
