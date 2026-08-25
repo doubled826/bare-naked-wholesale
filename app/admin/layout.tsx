@@ -26,7 +26,8 @@ import {
   Workflow,
   Send,
   Zap,
-  ClipboardList
+  ClipboardList,
+  Target
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -61,6 +62,7 @@ const navigation: NavigationItem[] = [
     icon: Megaphone,
     children: [
       { name: 'Campaigns', href: '/admin/email-campaigns', icon: Send },
+      { name: 'Audiences', href: '/admin/audiences', icon: Target },
       { name: 'Discounts', href: '/admin/discounts', icon: BadgePercent },
       { name: 'Automations', href: '/admin/automations', icon: Workflow },
       { name: 'Announcements', href: '/admin/announcements', icon: Megaphone },
