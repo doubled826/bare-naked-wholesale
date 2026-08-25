@@ -62,6 +62,19 @@ const normalizePhone = (value?: string | null) => {
   return digits;
 };
 
+const isMissingColumnError = (error: unknown) => {
+  const maybeError = error as { code?: string; message?: string };
+  return (
+    maybeError?.code === '42703' ||
+    maybeError?.code === 'PGRST204' ||
+    (typeof maybeError?.message === 'string' && (
+      maybeError.message.includes('contact_name') ||
+      maybeError.message.includes('account_number') ||
+      maybeError.message.includes('email')
+    ))
+  );
+};
+
 const splitName = (value?: string | null) => {
   const fallback = '';
   const parts = (value || fallback).trim().split(/\s+/).filter(Boolean);
@@ -88,13 +101,25 @@ async function listAllAuthUsers(adminClient: any): Promise<AuthUser[]> {
 }
 
 async function loadRetailers(adminClient: any) {
-  const { data, error } = await adminClient
-    .from('retailers')
-    .select('id, company_name, contact_name, business_address, phone, account_number, email')
-    .order('company_name');
+  const columnAttempts = [
+    'id, company_name, contact_name, business_address, phone, account_number, email',
+    'id, company_name, contact_name, business_address, phone, account_number',
+    'id, company_name, business_address, phone, account_number',
+    'id, company_name, contact_name, business_address, phone',
+    'id, company_name, business_address, phone',
+  ];
 
-  if (error) throw error;
-  return (data || []) as RetailerRow[];
+  for (const columns of columnAttempts) {
+    const { data, error } = await adminClient
+      .from('retailers')
+      .select(columns)
+      .order('company_name');
+
+    if (!error) return (data || []) as RetailerRow[];
+    if (!isMissingColumnError(error)) throw error;
+  }
+
+  return [];
 }
 
 async function loadOrders(adminClient: any) {
