@@ -63,6 +63,7 @@ const navigation: NavigationItem[] = [
     children: [
       { name: 'Campaigns', href: '/admin/email-campaigns', icon: Send },
       { name: 'Audiences', href: '/admin/audiences', icon: Target },
+      { name: 'Private Promos', href: '/admin/private-launch-promos', icon: BadgePercent },
       { name: 'Discounts', href: '/admin/discounts', icon: BadgePercent },
       { name: 'Automations', href: '/admin/automations', icon: Workflow },
       { name: 'Announcements', href: '/admin/announcements', icon: Megaphone },

@@ -9,6 +9,7 @@ import { BARE_LAUNCH_OFFER_CODE, BARE_LAUNCH_OFFER_NAME } from '@/lib/bareLaunch
 import { getOfferResolution, toPublicOfferBenefit } from '@/lib/offerResolver';
 import { createOrderWithPromotions } from '@/lib/orderTransactions';
 import { sendWholesalePurchaseEventForRetailer } from '@/lib/metaConversions';
+import { setPrivatePromoDatesNeeded } from '@/lib/privateLaunchPromo';
 
 export async function POST(request: Request) {
   try {
@@ -183,6 +184,7 @@ export async function POST(request: Request) {
         includeMarketingMaterials: shouldIncludeMarketingMaterials,
         creditApplied,
         launchOfferDiscountApplied: launchOfferDiscount,
+        needsPrivatePromoScheduling: false,
         promotionDiscountApplied: promotionDiscount,
         appliedBenefits: offerResolution.appliedBenefits.map(toPublicOfferBenefit),
         enteredCodeStatus: offerResolution.enteredCodeStatus,
@@ -229,6 +231,20 @@ export async function POST(request: Request) {
         .eq('id', marketingMaterialsRequest.id);
       if (materialsUpdateError) {
         console.error('Marketing materials request update error:', materialsUpdateError);
+      }
+    }
+
+    let needsPrivatePromoScheduling = false;
+    if (launchOfferDiscount > 0) {
+      try {
+        await setPrivatePromoDatesNeeded({
+          adminClient,
+          retailerId: user.id,
+          source: 'welcome_offer',
+        });
+        needsPrivatePromoScheduling = true;
+      } catch (promoError) {
+        console.error('Private launch promo setup error:', promoError);
       }
     }
 
@@ -302,7 +318,7 @@ export async function POST(request: Request) {
         : '';
       const launchOfferRetailerNote = launchOfferDiscount > 0
         ? `Samples Added: Yes
-Private Promo Support: Our team will follow up with next steps.
+Private Promo Support: Choose your dates in the portal. During the promo, mark Bare down 10%; after it ends, email us a POS sales screenshot or summary.
 `
         : '';
 
@@ -404,6 +420,7 @@ Thank you for choosing Bare Naked Pet Co.!
       shelfTalkersAdded: queuedShelfTalkers.map((talker) => talker.flavor),
       creditApplied,
       launchOfferDiscountApplied: launchOfferDiscount,
+      needsPrivatePromoScheduling,
       promotionDiscountApplied: promotionDiscount,
       appliedBenefits: offerResolution.appliedBenefits.map(toPublicOfferBenefit),
       enteredCodeStatus: offerResolution.enteredCodeStatus,

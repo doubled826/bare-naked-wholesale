@@ -21,6 +21,15 @@ const automationGroups = [
     destination: 'Retailer email',
   },
   {
+    id: 'private-launch-promo',
+    title: 'Private Launch Promo',
+    description: 'Automated date capture, schedule confirmation, launch reminders, and POS summary follow-up.',
+    icon: Gift,
+    cadence: 'Daily status check; dates-needed, pre-launch, launch-day, post-promo, and POS-summary reminders.',
+    trigger: 'Retailer claims the Welcome Offer or schedules a promo from the dashboard.',
+    destination: 'Retailer email and Private Promos admin overview',
+  },
+  {
     id: 'order-updates',
     title: 'Order Updates',
     description: 'Transactional emails for confirmations, invoices, and shipping notifications.',

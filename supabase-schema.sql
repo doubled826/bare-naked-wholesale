@@ -100,7 +100,24 @@ CREATE TABLE IF NOT EXISTS retailer_success_profiles (
   marketing_materials_status TEXT NOT NULL DEFAULT 'not_requested'
     CHECK (marketing_materials_status IN ('not_requested', 'have_materials', 'requested', 'sent')),
   launch_promo_status TEXT NOT NULL DEFAULT 'not_requested'
-    CHECK (launch_promo_status IN ('not_requested', 'requested')),
+    CHECK (launch_promo_status IN ('not_requested', 'requested', 'dates_needed', 'scheduled', 'active', 'awaiting_sales_summary', 'completed', 'canceled')),
+  private_promo_status TEXT NOT NULL DEFAULT 'not_started'
+    CHECK (private_promo_status IN ('not_started', 'dates_needed', 'scheduled', 'active', 'awaiting_sales_summary', 'completed', 'canceled')),
+  private_promo_source TEXT
+    CHECK (private_promo_source IS NULL OR private_promo_source IN ('welcome_offer', 'dashboard_request', 'admin_created')),
+  private_promo_start_date DATE,
+  private_promo_end_date DATE,
+  private_promo_duration_weeks INTEGER
+    CHECK (private_promo_duration_weeks IS NULL OR private_promo_duration_weeks IN (2, 3, 4)),
+  private_promo_discount_percent INTEGER NOT NULL DEFAULT 10,
+  private_promo_sales_summary_requested_at TIMESTAMPTZ,
+  private_promo_sales_summary_received_at TIMESTAMPTZ,
+  private_promo_last_reminder_sent_at TIMESTAMPTZ,
+  private_promo_last_email_stage TEXT,
+  private_promo_pos_sales_amount DECIMAL(10,2),
+  private_promo_credit_amount DECIMAL(10,2),
+  private_promo_credit_id UUID,
+  private_promo_credit_issued_at TIMESTAMPTZ,
   shelf_placement_status TEXT NOT NULL DEFAULT 'not_set'
     CHECK (shelf_placement_status IN ('not_set', 'front_counter', 'end_cap', 'kibble_aisle', 'raw_freeze_dried_section', 'other')),
   shelf_placement_note TEXT NOT NULL DEFAULT '',
@@ -207,9 +224,21 @@ CREATE TABLE IF NOT EXISTS launch_promo_requests (
   retailer_id UUID REFERENCES retailers(id) ON DELETE CASCADE,
   promo_discount_percent INTEGER NOT NULL DEFAULT 10,
   duration_weeks INTEGER NOT NULL CHECK (duration_weeks IN (2, 3, 4)),
-  start_date DATE NOT NULL,
+  start_date DATE,
+  end_date DATE,
+  source TEXT NOT NULL DEFAULT 'dashboard_request'
+    CHECK (source IN ('welcome_offer', 'dashboard_request', 'admin_created')),
+  retailer_notes TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'approved', 'completed', 'canceled')),
+    CHECK (status IN ('pending', 'approved', 'dates_needed', 'scheduled', 'active', 'awaiting_sales_summary', 'completed', 'canceled')),
+  sales_summary_requested_at TIMESTAMPTZ,
+  sales_summary_received_at TIMESTAMPTZ,
+  last_reminder_sent_at TIMESTAMPTZ,
+  last_email_stage TEXT,
+  pos_sales_amount DECIMAL(10,2),
+  credit_amount DECIMAL(10,2),
+  credit_id UUID,
+  credit_issued_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

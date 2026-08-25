@@ -36,6 +36,12 @@ type ResolvedOfferBenefit = {
   isWelcomeOffer: boolean;
 };
 
+type LaunchPromoRequestInput = {
+  start_date: string;
+  duration_weeks: number;
+  notes?: string;
+};
+
 export default function CatalogPage() {
   const supabase = createClientComponentClient();
   const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart, orders, setOrders, retailer } = useAppStore();
@@ -52,6 +58,9 @@ export default function CatalogPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [orderSuccessMessage, setOrderSuccessMessage] = useState('Check your email for confirmation.');
+  const [showPrivatePromoScheduler, setShowPrivatePromoScheduler] = useState(false);
+  const [isSchedulingPrivatePromo, setIsSchedulingPrivatePromo] = useState(false);
+  const [privatePromoNotice, setPrivatePromoNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [notification, setNotification] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [appliedBenefits, setAppliedBenefits] = useState<ResolvedOfferBenefit[]>([]);
@@ -342,9 +351,12 @@ export default function CatalogPage() {
           console.error('Failed to refresh orders:', fetchError);
         }
         setOrderSuccess(true);
+        if (data.needsPrivatePromoScheduling) {
+          setShowPrivatePromoScheduler(true);
+        }
         setOrderSuccessMessage(
           Number(data.launchOfferDiscountApplied || 0) > 0
-            ? `Check your email for confirmation. ${BARE_LAUNCH_OFFER_NAME} saved you ${formatCurrency(Number(data.launchOfferDiscountApplied || 0))}.`
+            ? `Check your email for confirmation. ${BARE_LAUNCH_OFFER_NAME} saved you ${formatCurrency(Number(data.launchOfferDiscountApplied || 0))}. Choose your private promo dates next.`
             : Number(data.creditApplied || 0) > 0
             ? `Check your email for confirmation. ${formatCurrency(Number(data.creditApplied || 0))} in credit was applied to this order.`
             : 'Check your email for confirmation.'
@@ -368,8 +380,48 @@ export default function CatalogPage() {
     }
   };
 
+  const handlePrivatePromoSchedule = async (request: LaunchPromoRequestInput) => {
+    setIsSchedulingPrivatePromo(true);
+    setPrivatePromoNotice(null);
+
+    try {
+      const response = await fetch('/api/retailer-success', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          launch_promo_status: 'scheduled',
+          private_promo_source: 'welcome_offer',
+          launch_promo_request: request,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'Unable to schedule your private promo.');
+      setPrivatePromoNotice({
+        type: 'success',
+        message: 'Private promo scheduled. We sent the instructions to your email.',
+      });
+      setTimeout(() => setShowPrivatePromoScheduler(false), 1600);
+    } catch (error) {
+      setPrivatePromoNotice({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Unable to schedule your private promo.',
+      });
+    } finally {
+      setIsSchedulingPrivatePromo(false);
+    }
+  };
+
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+      {showPrivatePromoScheduler && (
+        <PrivatePromoSchedulerModal
+          onClose={() => setShowPrivatePromoScheduler(false)}
+          onSubmit={handlePrivatePromoSchedule}
+          isSaving={isSchedulingPrivatePromo}
+          notice={privatePromoNotice}
+        />
+      )}
+
       {notification && (
         <div className="fixed top-20 lg:top-6 right-6 z-[60] bg-cream-100 border border-cream-200 rounded-xl p-4 shadow-lg animate-slide-up flex items-center gap-3">
           <CheckCircle className="w-5 h-5 text-emerald-600" />
@@ -730,6 +782,123 @@ export default function CatalogPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function PrivatePromoSchedulerModal({
+  onClose,
+  onSubmit,
+  isSaving,
+  notice,
+}: {
+  onClose: () => void;
+  onSubmit: (request: LaunchPromoRequestInput) => void;
+  isSaving: boolean;
+  notice: { type: 'success' | 'error'; message: string } | null;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState(today);
+  const [durationWeeks, setDurationWeeks] = useState(2);
+  const durationOptions = [2, 3, 4];
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-bark-500/45 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl border border-amber-200 bg-cream-100 p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-800">
+              <Sparkles className="h-4 w-4" />
+              Welcome Offer
+            </div>
+            <h2 className="section-title">Schedule your private promo</h2>
+            <p className="mt-2 text-sm leading-6 text-bark-500/70">
+              Choose when you want to run your private 10% Bare promo. During that window, mark Bare down 10% in your POS. After it ends, email us a screenshot or short POS sales summary from that date range.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-2 text-bark-500/60 hover:bg-cream-200 hover:text-bark-500"
+            aria-label="Close private promo scheduler"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-5">
+          <div>
+            <label className="label" htmlFor="private-promo-start">Promo start date</label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-bark-500/40" />
+              <input
+                id="private-promo-start"
+                type="date"
+                min={today}
+                value={startDate}
+                onChange={(event) => setStartDate(event.target.value)}
+                className="input pl-10"
+              />
+            </div>
+          </div>
+
+          <div>
+            <p className="label">Promo length</p>
+            <div className="grid grid-cols-3 gap-3">
+              {durationOptions.map((weeks) => (
+                <button
+                  key={weeks}
+                  type="button"
+                  onClick={() => setDurationWeeks(weeks)}
+                  className={cn(
+                    'rounded-xl px-4 py-3 text-sm font-semibold transition-colors',
+                    durationWeeks === weeks
+                      ? 'bg-bark-500 text-white'
+                      : 'bg-cream-200 text-bark-500 hover:bg-bark-500 hover:text-white',
+                  )}
+                >
+                  {weeks} weeks
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="flex items-start gap-3 rounded-xl border border-cream-300 bg-white/70 p-4 text-sm text-bark-500/80">
+            <input type="checkbox" checked readOnly className="mt-1 h-4 w-4 rounded border-bark-500/30 text-bark-500" />
+            <span>I will mark Bare down 10% during the selected dates and email Bare a POS screenshot or sales summary after the promo ends.</span>
+          </label>
+
+          {notice && (
+            <div className={cn(
+              'rounded-xl border px-4 py-3 text-sm font-semibold',
+              notice.type === 'success'
+                ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                : 'border-red-100 bg-red-50 text-red-700',
+            )}>
+              {notice.message}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={isSaving || !startDate}
+            onClick={() => onSubmit({ start_date: startDate, duration_weeks: durationWeeks })}
+            className="rounded-xl bg-bark-500 px-4 py-2 font-semibold text-white hover:bg-bark-600 disabled:opacity-50"
+          >
+            {isSaving ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Schedule Promo'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSaving}
+            className="rounded-xl border border-bark-500/20 px-4 py-2 font-semibold text-bark-500 hover:bg-cream-200 disabled:opacity-50"
+          >
+            Later
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

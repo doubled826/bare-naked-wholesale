@@ -4,12 +4,27 @@ import { NextResponse } from 'next/server';
 import { DEFAULT_ASTRO_URL, normalizeCurrentAstroPromo } from '@/lib/retailerSuccess';
 import { sendTeamEmail } from '@/lib/email';
 import { formatMarketingMaterialsLabel, isMarketingMaterialsType } from '@/lib/marketingMaterials';
+import {
+  schedulePrivateLaunchPromo,
+  sendPrivateLaunchPromoEmail,
+  type PrivateLaunchPromoSource,
+} from '@/lib/privateLaunchPromo';
 
 const allowedProfileFields = [
   'samples_acknowledged',
   'astro_enrolled',
   'marketing_materials_status',
   'launch_promo_status',
+  'private_promo_status',
+  'private_promo_source',
+  'private_promo_start_date',
+  'private_promo_end_date',
+  'private_promo_duration_weeks',
+  'private_promo_discount_percent',
+  'private_promo_sales_summary_requested_at',
+  'private_promo_sales_summary_received_at',
+  'private_promo_last_reminder_sent_at',
+  'private_promo_last_email_stage',
   'shelf_placement_status',
   'shelf_placement_note',
   'current_promo_status',
@@ -65,7 +80,7 @@ export async function PATCH(request: Request) {
       ? body.marketing_materials_request
       : null;
     const launchPromoRequest = typeof body.launch_promo_request === 'object' && body.launch_promo_request
-      ? body.launch_promo_request as { start_date?: unknown; duration_weeks?: unknown }
+      ? body.launch_promo_request as { start_date?: unknown; duration_weeks?: unknown; notes?: unknown }
       : null;
     let notificationWarning: string | null = null;
 
@@ -149,7 +164,7 @@ Requested Materials: ${materialsLabel}
       }
     }
 
-    if (updates.launch_promo_status === 'requested' && launchPromoRequest) {
+    if (['requested', 'dates_needed', 'scheduled'].includes(String(updates.launch_promo_status)) && launchPromoRequest) {
       const startDate = typeof launchPromoRequest.start_date === 'string' ? launchPromoRequest.start_date : '';
       const durationWeeks = Number(launchPromoRequest.duration_weeks);
 
@@ -167,66 +182,52 @@ Requested Materials: ${materialsLabel}
         .maybeSingle();
 
       const companyName = retailer?.company_name || 'Unknown retailer';
+      const source: PrivateLaunchPromoSource = body.private_promo_source === 'welcome_offer'
+        ? 'welcome_offer'
+        : 'dashboard_request';
 
-      const { data: existingRequest } = await supabase
-        .from('launch_promo_requests')
-        .select('id')
-        .eq('retailer_id', user.id)
-        .eq('status', 'pending')
-        .maybeSingle();
+      const promoRequest = await schedulePrivateLaunchPromo({
+        adminClient: supabase,
+        retailerId: user.id,
+        source,
+        startDate,
+        durationWeeks,
+        retailerNotes: typeof launchPromoRequest.notes === 'string' ? launchPromoRequest.notes : '',
+      });
 
-      const requestPayload = {
-        retailer_id: user.id,
-        promo_discount_percent: 10,
-        duration_weeks: durationWeeks,
-        start_date: startDate,
-        status: 'pending',
-      };
-
-      const { error: requestError } = existingRequest?.id
-        ? await supabase
-            .from('launch_promo_requests')
-            .update(requestPayload)
-            .eq('id', existingRequest.id)
-        : await supabase
-            .from('launch_promo_requests')
-            .insert(requestPayload);
-
-      if (requestError) {
-        console.error('Launch promo request save error:', requestError);
-      }
+      updates.launch_promo_status = promoRequest.status;
+      updates.private_promo_status = promoRequest.status;
+      updates.private_promo_source = source;
+      updates.private_promo_start_date = promoRequest.start_date;
+      updates.private_promo_end_date = promoRequest.end_date;
+      updates.private_promo_duration_weeks = promoRequest.duration_weeks;
+      updates.private_promo_discount_percent = promoRequest.promo_discount_percent;
+      updates.private_promo_last_email_stage = 'scheduled_confirmation';
 
       try {
-        await sendTeamEmail({
-          to: 'info@barenakedpet.com',
-          subject: `Launch promo requested: ${companyName}`,
-          text: `
-A retailer requested a fully supported in-store launch promo.
-
-Retailer: ${companyName}
-Account Number: ${retailer?.account_number || 'Not provided'}
-Email: ${user.email || 'Not provided'}
-Phone: ${retailer?.phone || 'Not provided'}
-Address: ${retailer?.business_address || 'Not provided'}
-
-Promo Details:
-- Discount: 10% off
-- Requested Start Date: ${startDate}
-- Requested Duration: ${durationWeeks} weeks
-          `.trim(),
-        });
+        if (user.email) {
+          await sendPrivateLaunchPromoEmail({
+            to: user.email,
+            storeName: companyName,
+            stage: 'scheduled_confirmation',
+            startDate: promoRequest.start_date,
+            endDate: promoRequest.end_date,
+            durationWeeks: promoRequest.duration_weeks,
+            discountPercent: promoRequest.promo_discount_percent,
+          });
+        }
       } catch (emailError) {
         console.error('Launch promo notification email error:', emailError);
-        notificationWarning = 'Launch promo was marked requested, but the admin email could not be sent. Please contact the team if this is urgent.';
+        notificationWarning = 'Launch promo was saved, but the confirmation email could not be sent. Please contact the team if this is urgent.';
       }
     }
 
-    if ('launch_promo_status' in updates && updates.launch_promo_status !== 'requested') {
+    if ('launch_promo_status' in updates && ['not_requested', 'canceled'].includes(String(updates.launch_promo_status))) {
       const { error: cancelLaunchPromoError } = await supabase
         .from('launch_promo_requests')
         .update({ status: 'canceled' })
         .eq('retailer_id', user.id)
-        .eq('status', 'pending');
+        .in('status', ['pending', 'dates_needed', 'scheduled', 'active', 'awaiting_sales_summary']);
 
       if (cancelLaunchPromoError) {
         console.error('Launch promo request cancel error:', cancelLaunchPromoError);

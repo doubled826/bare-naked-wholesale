@@ -7,7 +7,16 @@ export type RetailerLifecycleStatus =
   | 'high_performer';
 
 export type MarketingMaterialsStatus = 'not_requested' | 'have_materials' | 'requested' | 'sent';
-export type LaunchPromoStatus = 'not_requested' | 'requested';
+export type LaunchPromoStatus =
+  | 'not_started'
+  | 'not_requested'
+  | 'requested'
+  | 'dates_needed'
+  | 'scheduled'
+  | 'active'
+  | 'awaiting_sales_summary'
+  | 'completed'
+  | 'canceled';
 export type ShelfPlacementStatus =
   | 'not_set'
   | 'front_counter'
@@ -23,6 +32,16 @@ export type RetailerSuccessProfileInput = {
   astro_enrolled?: boolean | null;
   marketing_materials_status?: MarketingMaterialsStatus | null;
   launch_promo_status?: LaunchPromoStatus | null;
+  private_promo_status?: LaunchPromoStatus | null;
+  private_promo_source?: 'welcome_offer' | 'dashboard_request' | 'admin_created' | null;
+  private_promo_start_date?: string | null;
+  private_promo_end_date?: string | null;
+  private_promo_duration_weeks?: number | null;
+  private_promo_discount_percent?: number | null;
+  private_promo_sales_summary_requested_at?: string | null;
+  private_promo_sales_summary_received_at?: string | null;
+  private_promo_last_reminder_sent_at?: string | null;
+  private_promo_last_email_stage?: string | null;
   shelf_placement_status?: ShelfPlacementStatus | null;
   shelf_placement_note?: string | null;
   current_promo_status?: CurrentPromoStatus | null;
@@ -36,6 +55,12 @@ export type RetailerSuccessProfile = {
   marketingMaterialsStatus: MarketingMaterialsStatus;
   launchPromoStatus: LaunchPromoStatus;
   launchPromoEligible: boolean;
+  privatePromoStatus: LaunchPromoStatus;
+  privatePromoSource: 'welcome_offer' | 'dashboard_request' | 'admin_created' | null;
+  privatePromoStartDate: string | null;
+  privatePromoEndDate: string | null;
+  privatePromoDurationWeeks: number | null;
+  privatePromoDiscountPercent: number;
   shelfPlacementStatus: ShelfPlacementStatus;
   shelfPlacementNote: string;
   currentPromoStatus: CurrentPromoStatus;
@@ -63,7 +88,7 @@ export type RetailerSuccessChecklistItem = {
   title: string;
   description: string;
   complete: boolean;
-  statusLabel: 'Done' | 'Not Started' | 'Have Materials' | 'Requested' | 'Sent' | 'Not This Time';
+  statusLabel: 'Done' | 'Not Started' | 'Have Materials' | 'Requested' | 'Sent' | 'Not This Time' | 'Dates Needed' | 'Scheduled' | 'Active' | 'Needs Summary';
   primaryAction?: RetailerSuccessAction;
   secondaryAction?: RetailerSuccessAction;
   tertiaryAction?: RetailerSuccessAction;
@@ -114,6 +139,12 @@ export const defaultRetailerSuccessProfile: RetailerSuccessProfile = {
   marketingMaterialsStatus: 'not_requested',
   launchPromoStatus: 'not_requested',
   launchPromoEligible: false,
+  privatePromoStatus: 'not_started',
+  privatePromoSource: null,
+  privatePromoStartDate: null,
+  privatePromoEndDate: null,
+  privatePromoDurationWeeks: null,
+  privatePromoDiscountPercent: 10,
   shelfPlacementStatus: 'not_set',
   shelfPlacementNote: '',
   currentPromoStatus: 'not_started',
@@ -234,6 +265,12 @@ export function getRetailerSuccessProfile(
     marketingMaterialsStatus: storedProfile?.marketing_materials_status || 'not_requested',
     launchPromoStatus: storedProfile?.launch_promo_status || 'not_requested',
     launchPromoEligible: isLaunchPromoEligible(validOrders.length, firstOrderDate),
+    privatePromoStatus: storedProfile?.private_promo_status || storedProfile?.launch_promo_status || 'not_started',
+    privatePromoSource: storedProfile?.private_promo_source || null,
+    privatePromoStartDate: storedProfile?.private_promo_start_date || null,
+    privatePromoEndDate: storedProfile?.private_promo_end_date || null,
+    privatePromoDurationWeeks: storedProfile?.private_promo_duration_weeks || null,
+    privatePromoDiscountPercent: Number(storedProfile?.private_promo_discount_percent || 10),
     shelfPlacementStatus: storedProfile?.shelf_placement_status || 'not_set',
     shelfPlacementNote: storedProfile?.shelf_placement_note || '',
     currentPromoStatus: storedProfile?.current_promo_status || 'not_started',
@@ -306,12 +343,12 @@ export function getRecommendedNextStep(
       primaryAction: 'request_materials',
     };
   }
-  if (successProfile.launchPromoEligible && successProfile.launchPromoStatus === 'not_requested') {
+  if (successProfile.launchPromoEligible && ['not_requested', 'dates_needed'].includes(successProfile.privatePromoStatus)) {
     return {
       key: 'launch_promo',
-      headline: 'Request a supported launch promo',
-      body: 'New stores can request a fully supported 10% off in-store launch promo for 2 to 4 weeks.',
-      primaryLabel: 'Request Launch Promo',
+      headline: successProfile.privatePromoStatus === 'dates_needed' ? 'Choose your private promo dates' : 'Schedule your private launch promo',
+      body: 'Pick a 2 to 4 week window, mark Bare down 10% during that period, then email us a POS screenshot or sales summary after it ends.',
+      primaryLabel: successProfile.privatePromoStatus === 'dates_needed' ? 'Choose Dates' : 'Schedule Promo',
       primaryAction: 'launch_promo',
     };
   }
@@ -390,12 +427,27 @@ export function getRetailerSuccessChecklist(
   ];
 
   if (successProfile.launchPromoEligible) {
+    const promoComplete = ['scheduled', 'active', 'awaiting_sales_summary', 'completed'].includes(successProfile.privatePromoStatus) ||
+      successProfile.launchPromoStatus === 'requested';
+    const promoStatusLabel = successProfile.privatePromoStatus === 'completed'
+      ? 'Done'
+      : successProfile.privatePromoStatus === 'awaiting_sales_summary'
+        ? 'Needs Summary'
+        : successProfile.privatePromoStatus === 'active'
+          ? 'Active'
+          : successProfile.privatePromoStatus === 'scheduled'
+            ? 'Scheduled'
+            : successProfile.privatePromoStatus === 'dates_needed'
+              ? 'Dates Needed'
+          : promoComplete
+            ? 'Requested'
+            : 'Not Started';
     items.push({
       id: 'launch_promo',
-      title: 'Launch promo requested',
-      description: 'New stores can request a fully supported 10% off promo for 2 to 4 weeks.',
-      complete: successProfile.launchPromoStatus === 'requested',
-      statusLabel: successProfile.launchPromoStatus === 'requested' ? 'Requested' : 'Not Started',
+      title: 'Private promo scheduled',
+      description: 'Choose a 2 to 4 week window, mark Bare down 10%, then send us a POS sales summary after the promo ends.',
+      complete: promoComplete,
+      statusLabel: promoStatusLabel,
       primaryAction: 'launch_promo',
     });
   }

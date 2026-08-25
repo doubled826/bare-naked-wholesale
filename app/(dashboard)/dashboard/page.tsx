@@ -522,6 +522,12 @@ export default function DashboardPage() {
       astro_enrolled: successProfile.astroEnrolled,
       marketing_materials_status: successProfile.marketingMaterialsStatus,
       launch_promo_status: successProfile.launchPromoStatus,
+      private_promo_status: successProfile.privatePromoStatus,
+      private_promo_source: successProfile.privatePromoSource,
+      private_promo_start_date: successProfile.privatePromoStartDate,
+      private_promo_end_date: successProfile.privatePromoEndDate,
+      private_promo_duration_weeks: successProfile.privatePromoDurationWeeks,
+      private_promo_discount_percent: successProfile.privatePromoDiscountPercent,
       shelf_placement_status: successProfile.shelfPlacementStatus,
       shelf_placement_note: successProfile.shelfPlacementNote,
       current_promo_status: successProfile.currentPromoStatus,
@@ -649,9 +655,9 @@ export default function DashboardPage() {
 
   const handleLaunchPromoRequest = (request: LaunchPromoRequestInput) => {
     updateSuccessProfile(
-      { launch_promo_status: 'requested' as LaunchPromoStatus },
-      'Launch promo requested. Our team will follow up with next steps.',
-      { launch_promo_request: request },
+      { launch_promo_status: 'scheduled' as LaunchPromoStatus },
+      'Private promo scheduled. We sent the instructions to your email.',
+      { launch_promo_request: request, private_promo_source: 'dashboard_request' },
       { allowLocalFallback: false },
     );
     setIsRequestingLaunchPromo(false);
@@ -942,7 +948,7 @@ const actionLabels: Partial<Record<RetailerSuccessAction, string>> = {
   astro_enrolled: 'Mark as Enrolled',
   request_materials: 'Request Materials',
   materials_have: 'I Have Them',
-  launch_promo: 'Request Launch Promo',
+  launch_promo: 'Schedule Promo',
   treats: 'Add Treats to Order',
   shelf_placement: 'Mark Placement',
   promo_link: 'Opt In Through Astro',
@@ -954,6 +960,7 @@ type MarketingMaterialsSelection = 'shelf_talker' | 'table_tent' | 'both';
 type LaunchPromoRequestInput = {
   start_date: string;
   duration_weeks: number;
+  notes?: string;
 };
 
 const marketingMaterialsLabels: Record<MarketingMaterialsSelection, string> = {
@@ -979,8 +986,15 @@ const undoableChecklistItems: Partial<Record<string, {
     message: 'Marketing materials request reset.',
   },
   launch_promo: {
-    updates: { launch_promo_status: 'not_requested' },
-    message: 'Launch promo request reset.',
+    updates: {
+      launch_promo_status: 'not_requested',
+      private_promo_status: 'not_started',
+      private_promo_source: null,
+      private_promo_start_date: null,
+      private_promo_end_date: null,
+      private_promo_duration_weeks: null,
+    },
+    message: 'Private promo reset.',
   },
   placement: {
     updates: { shelf_placement_status: 'not_set', shelf_placement_note: '' },
@@ -1816,9 +1830,9 @@ function LaunchPromoModal({
   return (
     <div className="fixed inset-0 z-50 bg-bark-500/40 p-4 flex items-center justify-center">
       <div className="bg-cream-100 rounded-2xl shadow-xl max-w-lg w-full p-6">
-        <h2 className="section-title">Request a launch promo</h2>
+        <h2 className="section-title">Schedule your private promo</h2>
         <p className="text-sm text-bark-500/70 mt-2">
-          We can fully support a 10% off in-store launch promo for new stores. Choose your preferred start date and length.
+          Choose when you want to run your private 10% Bare promo. During that window, mark Bare down 10% in your POS. After it ends, email us a screenshot or short POS sales summary from that date range.
         </p>
 
         <div className="mt-5 space-y-5">
@@ -1862,7 +1876,7 @@ function LaunchPromoModal({
           </div>
 
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-bark-500/80">
-            Bare will support the promo cost. Our team will review the timing and follow up to confirm details.
+            We will email these instructions to you now and automatically follow up after the promo ends for the POS summary.
           </div>
         </div>
 
@@ -1873,7 +1887,7 @@ function LaunchPromoModal({
             onClick={() => onSubmit({ start_date: startDate, duration_weeks: durationWeeks })}
             className="rounded-xl bg-bark-500 px-4 py-2 font-semibold text-white hover:bg-bark-600 disabled:opacity-50"
           >
-            Submit Request
+            Schedule Promo
           </button>
           <button
             type="button"
