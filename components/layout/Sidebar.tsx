@@ -7,6 +7,9 @@ import {
   ShoppingBag, 
   Package, 
   User, 
+  FolderOpen,
+  MessageSquare,
+  Mail,
   LogOut,
   Menu,
   X,
@@ -16,11 +19,18 @@ import {
 import { cn, getInitials } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { createClient } from '@/lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useCallback, useEffect, useState } from 'react';
+
+const FEED_READ_EVENT = 'bnpc:feed-read';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Feed', href: '/feed', icon: MessageSquare },
   { name: 'Product Catalog', href: '/catalog', icon: ShoppingBag },
   { name: 'Order History', href: '/orders', icon: Package },
+  { name: 'Resources', href: '/resources', icon: FolderOpen },
+  { name: 'Message', href: '/messages', icon: Mail },
   { name: 'Account', href: '/account', icon: User },
 ];
 
@@ -28,6 +38,10 @@ export function Sidebar() {
   const pathname = usePathname();
   const { sidebarOpen, setSidebarOpen, retailer, setRetailer, clearCart } = useAppStore();
   const supabase = createClient();
+  const supabaseClient = createClientComponentClient();
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadFeed, setUnreadFeed] = useState(false);
+  const isFeedRoute = pathname.startsWith('/feed');
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -38,6 +52,179 @@ export function Sidebar() {
 
   // Get the business name - check both possible field names
   const businessName = retailer?.company_name || retailer?.business_name || 'Retailer';
+
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      if (!retailer?.id) return;
+
+      const { data: conversation } = await supabaseClient
+        .from('conversations')
+        .select('id, last_read_by_retailer_at')
+        .eq('retailer_id', retailer.id)
+        .single();
+
+      if (!conversation?.id) {
+        setUnreadCount(0);
+        return;
+      }
+
+      let query = supabaseClient
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversation.id)
+        .eq('sender_role', 'admin');
+
+      if (conversation.last_read_by_retailer_at) {
+        query = query.gt('created_at', conversation.last_read_by_retailer_at);
+      }
+
+      const { count } = await query;
+      setUnreadCount(count || 0);
+    };
+
+    fetchUnreadCount();
+  }, [supabaseClient, retailer?.id]);
+
+  const markFeedRead = useCallback(async () => {
+    if (!retailer?.id) return;
+    await supabaseClient
+      .from('feed_reads')
+      .upsert({ retailer_id: retailer.id, last_read_at: new Date().toISOString() }, { onConflict: 'retailer_id' });
+    setUnreadFeed(false);
+  }, [retailer?.id, supabaseClient]);
+
+  useEffect(() => {
+    const fetchFeedUnread = async () => {
+      if (!retailer?.id) return;
+      if (isFeedRoute) {
+        markFeedRead();
+        return;
+      }
+
+      const { data: latestPost } = await supabaseClient
+        .from('feed_posts')
+        .select('created_at')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!latestPost?.created_at) {
+        setUnreadFeed(false);
+        return;
+      }
+
+      const { data: readState } = await supabaseClient
+        .from('feed_reads')
+        .select('last_read_at')
+        .eq('retailer_id', retailer.id)
+        .single();
+
+      if (!readState?.last_read_at) {
+        setUnreadFeed(true);
+        return;
+      }
+
+      setUnreadFeed(new Date(readState.last_read_at) < new Date(latestPost.created_at));
+    };
+
+    fetchFeedUnread();
+  }, [isFeedRoute, markFeedRead, supabaseClient, retailer?.id]);
+
+  useEffect(() => {
+    if (pathname.startsWith('/messages')) {
+      setUnreadCount(0);
+    }
+    if (isFeedRoute) {
+      markFeedRead();
+    }
+  }, [isFeedRoute, markFeedRead, pathname]);
+
+  useEffect(() => {
+    const handleFeedRead = () => setUnreadFeed(false);
+    window.addEventListener(FEED_READ_EVENT, handleFeedRead);
+    return () => window.removeEventListener(FEED_READ_EVENT, handleFeedRead);
+  }, []);
+
+  useEffect(() => {
+    if (!retailer?.id) return;
+
+    const conversationChannel = supabaseClient
+      .channel(`conversation-${retailer.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'conversations', filter: `retailer_id=eq.${retailer.id}` },
+        () => {
+          supabaseClient
+            .from('conversations')
+            .select('id, last_read_by_retailer_at')
+            .eq('retailer_id', retailer.id)
+            .single()
+            .then(({ data }) => {
+              if (!data?.id) {
+                setUnreadCount(0);
+                return;
+              }
+
+              let query = supabaseClient
+                .from('messages')
+                .select('id', { count: 'exact', head: true })
+                .eq('conversation_id', data.id)
+                .eq('sender_role', 'admin');
+
+              if (data.last_read_by_retailer_at) {
+                query = query.gt('created_at', data.last_read_by_retailer_at);
+              }
+
+              query.then(({ count }) => setUnreadCount(count || 0));
+            });
+        }
+      )
+      .subscribe();
+
+    const messagesChannel = supabaseClient
+      .channel(`message-notify-${retailer.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `sender_role=eq.admin` },
+        (payload) => {
+          const message = payload.new as { conversation_id: string };
+          supabaseClient
+            .from('conversations')
+            .select('id, last_read_by_retailer_at')
+            .eq('retailer_id', retailer.id)
+            .single()
+            .then(({ data }) => {
+              if (!data?.id || data.id !== message.conversation_id) return;
+              setUnreadCount((current) => current + 1);
+            });
+        }
+      )
+      .subscribe();
+
+    const feedChannel = supabaseClient
+      .channel('feed-notify')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_posts' }, () => {
+        if (isFeedRoute) {
+          markFeedRead();
+        } else {
+          setUnreadFeed(true);
+        }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feed_comments' }, () => {
+        if (isFeedRoute) {
+          markFeedRead();
+        } else {
+          setUnreadFeed(true);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabaseClient.removeChannel(conversationChannel);
+      supabaseClient.removeChannel(messagesChannel);
+      supabaseClient.removeChannel(feedChannel);
+    };
+  }, [isFeedRoute, markFeedRead, supabaseClient, retailer?.id]);
 
   return (
     <>
@@ -54,7 +241,7 @@ export function Sidebar() {
         className={cn(
           'fixed top-0 left-0 z-50 h-full w-72 bg-cream-100 border-r border-cream-200',
           'transform transition-transform duration-300 ease-in-out',
-          'lg:translate-x-0 lg:static lg:z-auto',
+          'lg:translate-x-0 lg:sticky lg:top-0 lg:z-auto',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
@@ -87,7 +274,13 @@ export function Sidebar() {
                   className={cn('sidebar-link', isActive && 'active')}
                 >
                   <item.icon className="w-5 h-5" />
-                  {item.name}
+                  <span className="flex-1">{item.name}</span>
+                  {item.name === 'Message' && unreadCount > 0 && (
+                    <span className="ml-auto w-2.5 h-2.5 rounded-full bg-red-500" />
+                  )}
+                  {item.name === 'Feed' && unreadFeed && (
+                    <span className="ml-auto w-2.5 h-2.5 rounded-full bg-red-500" />
+                  )}
                 </Link>
               );
             })}
@@ -151,18 +344,19 @@ export function MobileHeader() {
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <header className="lg:hidden fixed top-0 left-0 right-0 z-30 bg-cream-100 border-b border-cream-200 px-4 h-16 flex items-center justify-between">
+    <header className="fixed left-0 right-0 top-0 z-30 flex h-16 items-center justify-between border-b border-cream-200 bg-cream-100 px-3 lg:hidden sm:px-4">
       <button
         onClick={() => setSidebarOpen(true)}
-        className="p-2 text-bark-500 hover:text-bark-600 rounded-lg hover:bg-cream-200 transition-colors"
+        className="rounded-lg p-2 text-bark-500 transition-colors hover:bg-cream-200 hover:text-bark-600"
+        aria-label="Open navigation"
       >
         <Menu className="w-6 h-6" />
       </button>
-      <Link href="/dashboard" className="font-bold text-lg" style={{ fontFamily: 'var(--font-poppins)' }}>
+      <Link href="/dashboard" className="min-w-0 truncate px-2 text-center text-sm font-bold sm:text-lg" style={{ fontFamily: 'var(--font-poppins)' }}>
         <span className="text-bark-500">Bare Naked</span>
         <span className="text-bark-500/60"> Pet Co.</span>
       </Link>
-      <Link href="/catalog" className="relative p-2">
+      <Link href="/catalog" className="relative rounded-lg p-2" aria-label="Open product catalog">
         <ShoppingBag className="w-6 h-6 text-bark-500" />
         {cartCount > 0 && (
           <span className="absolute -top-1 -right-1 bg-bark-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">

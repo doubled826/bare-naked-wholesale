@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/bare-launch-offer-reminders",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/wholesale-lead-followups",
+      "schedule": "30 14 * * *"
+    },
+    {
+      "path": "/api/cron/private-launch-promos",
+      "schedule": "0 15 * * *"
+    }
+  ]
+}

@@ -13,18 +13,67 @@ import {
   Check,
   CheckCircle,
   FileText,
-  Hash
+  Hash,
+  Plus,
+  Trash2,
+  Edit2,
+  Star,
+  ImagePlus
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import type { RetailerLocation } from '@/types';
+import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
 
 export default function AccountPage() {
-  const { retailer } = useAppStore();
+  const { retailer, setRetailer } = useAppStore();
   const [activeTab, setActiveTab] = useState('profile');
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [profileError, setProfileError] = useState('');
   const [userMetadata, setUserMetadata] = useState<any>(null);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [locations, setLocations] = useState<RetailerLocation[]>([]);
+  const [locationsLoading, setLocationsLoading] = useState(false);
+  const [locationsError, setLocationsError] = useState('');
+  const [locationNotice, setLocationNotice] = useState('');
+  const [hasSyncedProfileLocation, setHasSyncedProfileLocation] = useState(false);
+  const [showAddLocation, setShowAddLocation] = useState(false);
+  const [newLocation, setNewLocation] = useState({
+    location_name: '',
+    businessStreet: '',
+    businessCity: '',
+    businessState: '',
+    businessZip: '',
+    phone: '',
+    makeDefault: false,
+  });
+  const [editLocationId, setEditLocationId] = useState<string | null>(null);
+  const [editLocation, setEditLocation] = useState({
+    location_name: '',
+    businessStreet: '',
+    businessCity: '',
+    businessState: '',
+    businessZip: '',
+    phone: '',
+  });
+  const [isSavingLocation, setIsSavingLocation] = useState(false);
+  const [isDeletingLocationId, setIsDeletingLocationId] = useState<string | null>(null);
+  const [isSettingDefaultId, setIsSettingDefaultId] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [logoStatus, setLogoStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [logoError, setLogoError] = useState('');
   
   const supabase = createClientComponentClient();
 
@@ -39,9 +88,272 @@ export default function AccountPage() {
     fetchUserData();
   }, [supabase.auth]);
 
+  const showLocationNotice = (message: string) => {
+    setLocationNotice(message);
+    setTimeout(() => setLocationNotice(''), 3000);
+  };
+
+  const fetchLocations = async () => {
+    setLocationsLoading(true);
+    setLocationsError('');
+    const { data, error } = await supabase
+      .from('retailer_locations')
+      .select('*')
+      .order('is_default', { ascending: false })
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error loading locations:', error);
+      setLocationsError('Unable to load locations.');
+      setLocationsLoading(false);
+      return;
+    }
+
+    const nextLocations = (data || []) as RetailerLocation[];
+    setLocations(nextLocations);
+    setLocationsLoading(false);
+
+    if (!hasSyncedProfileLocation && retailer?.business_address) {
+      const normalizedProfileAddress = retailer.business_address.trim().toLowerCase();
+      const matchesProfileAddress = nextLocations.some(
+        (location) => location.business_address.trim().toLowerCase() === normalizedProfileAddress
+      );
+
+      if (!matchesProfileAddress) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from('retailer_locations').insert({
+            retailer_id: user.id,
+            location_name: 'Primary Address',
+            business_address: retailer.business_address,
+            phone: retailer.phone || null,
+            is_default: nextLocations.length === 0,
+          });
+          setHasSyncedProfileLocation(true);
+          fetchLocations();
+          return;
+        }
+      }
+
+      setHasSyncedProfileLocation(true);
+    }
+  };
+
+  useEffect(() => {
+    fetchLocations();
+  }, [supabase]);
+
+  const handleAddLocation = async () => {
+    if (
+      !newLocation.location_name.trim() ||
+      !newLocation.businessStreet.trim() ||
+      !newLocation.businessCity.trim() ||
+      !newLocation.businessState.trim() ||
+      !newLocation.businessZip.trim()
+    ) {
+      showLocationNotice('Location name and full address are required.');
+      return;
+    }
+
+    setIsSavingLocation(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        showLocationNotice('Please sign in again.');
+        return;
+      }
+
+      const shouldBeDefault = newLocation.makeDefault || locations.length === 0;
+      const businessAddress = formatBusinessAddress({
+        street: newLocation.businessStreet,
+        city: newLocation.businessCity,
+        state: newLocation.businessState,
+        zip: newLocation.businessZip,
+      });
+      const { data: insertedLocation, error } = await supabase
+        .from('retailer_locations')
+        .insert({
+          retailer_id: user.id,
+          location_name: newLocation.location_name.trim(),
+          business_address: businessAddress,
+          phone: newLocation.phone.trim() || null,
+          is_default: shouldBeDefault,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      if (shouldBeDefault && insertedLocation?.id) {
+        await supabase
+          .from('retailer_locations')
+          .update({ is_default: false })
+          .eq('retailer_id', user.id)
+          .neq('id', insertedLocation.id);
+      }
+
+      if (insertedLocation?.id) {
+        fetch('/api/retailer-locations/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ locationId: insertedLocation.id }),
+        }).catch((notifyError) => {
+          console.error('Failed to notify team about location:', notifyError);
+        });
+      }
+
+      setNewLocation({
+        location_name: '',
+        businessStreet: '',
+        businessCity: '',
+        businessState: '',
+        businessZip: '',
+        phone: '',
+        makeDefault: false,
+      });
+      setShowAddLocation(false);
+      showLocationNotice('Location added.');
+      fetchLocations();
+    } catch (error) {
+      console.error('Error adding location:', error);
+      showLocationNotice('Failed to add location.');
+    } finally {
+      setIsSavingLocation(false);
+    }
+  };
+
+  const handleEditLocation = (location: RetailerLocation) => {
+    const parsed = parseBusinessAddress(location.business_address || '');
+
+    setEditLocationId(location.id);
+    setEditLocation({
+      location_name: location.location_name,
+      businessStreet: parsed.street || location.business_address || '',
+      businessCity: parsed.city || '',
+      businessState: parsed.state || '',
+      businessZip: parsed.zip || '',
+      phone: location.phone || '',
+    });
+  };
+
+  const handleUpdateLocation = async () => {
+    if (!editLocationId) return;
+    if (
+      !editLocation.location_name.trim() ||
+      !editLocation.businessStreet.trim() ||
+      !editLocation.businessCity.trim() ||
+      !editLocation.businessState.trim() ||
+      !editLocation.businessZip.trim()
+    ) {
+      showLocationNotice('Location name and full address are required.');
+      return;
+    }
+
+    setIsSavingLocation(true);
+    try {
+      const businessAddress = formatBusinessAddress({
+        street: editLocation.businessStreet,
+        city: editLocation.businessCity,
+        state: editLocation.businessState,
+        zip: editLocation.businessZip,
+      });
+      const { error } = await supabase
+        .from('retailer_locations')
+        .update({
+          location_name: editLocation.location_name.trim(),
+          business_address: businessAddress,
+          phone: editLocation.phone.trim() || null,
+        })
+        .eq('id', editLocationId);
+
+      if (error) {
+        throw error;
+      }
+
+      setEditLocationId(null);
+      showLocationNotice('Location updated.');
+      fetchLocations();
+    } catch (error) {
+      console.error('Error updating location:', error);
+      showLocationNotice('Failed to update location.');
+    } finally {
+      setIsSavingLocation(false);
+    }
+  };
+
+  const handleSetDefaultLocation = async (locationId: string) => {
+    setIsSettingDefaultId(locationId);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        showLocationNotice('Please sign in again.');
+        return;
+      }
+
+      await supabase
+        .from('retailer_locations')
+        .update({ is_default: false })
+        .eq('retailer_id', user.id);
+
+      const { error } = await supabase
+        .from('retailer_locations')
+        .update({ is_default: true })
+        .eq('id', locationId);
+
+      if (error) {
+        throw error;
+      }
+
+      showLocationNotice('Default location updated.');
+      fetchLocations();
+    } catch (error) {
+      console.error('Error setting default location:', error);
+      showLocationNotice('Failed to update default.');
+    } finally {
+      setIsSettingDefaultId(null);
+    }
+  };
+
+  const handleDeleteLocation = async (location: RetailerLocation) => {
+    setIsDeletingLocationId(location.id);
+    try {
+      const { error } = await supabase
+        .from('retailer_locations')
+        .delete()
+        .eq('id', location.id);
+
+      if (error) {
+        throw error;
+      }
+
+      if (location.is_default) {
+        const remaining = locations.filter((loc) => loc.id !== location.id);
+        if (remaining.length > 0) {
+          await supabase
+            .from('retailer_locations')
+            .update({ is_default: true })
+            .eq('id', remaining[0].id);
+        }
+      }
+
+      showLocationNotice('Location removed.');
+      fetchLocations();
+    } catch (error) {
+      console.error('Error deleting location:', error);
+      showLocationNotice('Failed to delete location.');
+    } finally {
+      setIsDeletingLocationId(null);
+    }
+  };
+
   const [profile, setProfile] = useState({
     businessName: '',
-    businessAddress: '',
+    businessStreet: '',
+    businessCity: '',
+    businessState: '',
+    businessZip: '',
     name: '',
     email: '',
     phone: '',
@@ -51,9 +363,13 @@ export default function AccountPage() {
 
   // Update profile state when retailer or userMetadata changes
   useEffect(() => {
+    const fallbackStreet = retailer?.business_address || userMetadata?.business_address || '';
     setProfile({
       businessName: retailer?.company_name || userMetadata?.company_name || '',
-      businessAddress: retailer?.business_address || userMetadata?.business_address || '',
+      businessStreet: userMetadata?.business_street || fallbackStreet,
+      businessCity: userMetadata?.business_city || '',
+      businessState: userMetadata?.business_state || '',
+      businessZip: userMetadata?.business_zip || '',
       name: userMetadata?.display_name || userMetadata?.full_name || '',
       email: userMetadata?.email || '',
       phone: retailer?.phone || userMetadata?.phone || '',
@@ -62,52 +378,227 @@ export default function AccountPage() {
     });
   }, [retailer, userMetadata]);
 
+  useEffect(() => {
+    setLogoUrl(retailer?.logo_url || null);
+  }, [retailer?.logo_url]);
+
+  useEffect(() => {
+    if (!logoPreview) return;
+    return () => URL.revokeObjectURL(logoPreview);
+  }, [logoPreview]);
+
+  const handleLogoUpload = async () => {
+    if (!logoFile || isUploadingLogo) return;
+    setIsUploadingLogo(true);
+    setLogoStatus('idle');
+    setLogoError('');
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Please sign in again.');
+
+      const extension = logoFile.name.split('.').pop() || 'png';
+      const path = `retailers/${user.id}/logo-${crypto.randomUUID()}.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from('profile-media')
+        .upload(path, logoFile, { cacheControl: '3600', upsert: true, contentType: logoFile.type });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('profile-media').getPublicUrl(path);
+      const { error: updateError } = await supabase
+        .from('retailers')
+        .update({ logo_url: data.publicUrl })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
+      setLogoUrl(data.publicUrl);
+      setRetailer(retailer ? { ...retailer, logo_url: data.publicUrl } : retailer);
+      setLogoFile(null);
+      if (logoPreview) {
+        URL.revokeObjectURL(logoPreview);
+      }
+      setLogoPreview(null);
+      setLogoStatus('success');
+      setTimeout(() => setLogoStatus('idle'), 3000);
+    } catch (error) {
+      setLogoStatus('error');
+      setLogoError(error instanceof Error ? error.message : 'Unable to upload logo.');
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
+  const handleLogoRemove = async () => {
+    if (isUploadingLogo) return;
+    setIsUploadingLogo(true);
+    setLogoStatus('idle');
+    setLogoError('');
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Please sign in again.');
+
+      const { error } = await supabase
+        .from('retailers')
+        .update({ logo_url: null })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      setLogoUrl(null);
+      setRetailer(retailer ? { ...retailer, logo_url: null } : retailer);
+      setLogoStatus('success');
+      setTimeout(() => setLogoStatus('idle'), 3000);
+    } catch (error) {
+      setLogoStatus('error');
+      setLogoError(error instanceof Error ? error.message : 'Unable to remove logo.');
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
+    setProfileError('');
     
     try {
-      // Update user metadata
-      const { error: userError } = await supabase.auth.updateUser({
-        data: {
-          display_name: profile.name,
-          full_name: profile.name,
-          phone: profile.phone,
-          company_name: profile.businessName,
-          business_address: profile.businessAddress,
-          tax_id: profile.taxId,
-        }
+      const businessAddress = formatBusinessAddress({
+        street: profile.businessStreet,
+        city: profile.businessCity,
+        state: profile.businessState,
+        zip: profile.businessZip,
       });
 
-      if (userError) throw userError;
+      const response = await fetch('/api/account/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessName: profile.businessName,
+          businessStreet: profile.businessStreet,
+          businessCity: profile.businessCity,
+          businessState: profile.businessState,
+          businessZip: profile.businessZip,
+          name: profile.name,
+          email: profile.email,
+          phone: profile.phone,
+          taxId: profile.taxId,
+        }),
+      });
+      const result = await response.json();
 
-      // Update retailer table
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { error: retailerError } = await supabase
-          .from('retailers')
-          .update({
-            company_name: profile.businessName,
-            business_address: profile.businessAddress,
-            phone: profile.phone,
-            tax_id: profile.taxId,
-          })
-          .eq('id', user.id);
-
-        if (retailerError) throw retailerError;
+      if (!response.ok) {
+        throw new Error(result?.error || 'Unable to save your profile.');
       }
+
+      const updatedEmail = result.profile?.email || profile.email.trim().toLowerCase();
+      await supabase.auth.refreshSession();
+      setProfile((current) => ({ ...current, email: updatedEmail }));
+      setUserMetadata(result.profile?.metadata || null);
+      if (retailer) {
+        setRetailer({
+          ...retailer,
+          company_name: profile.businessName,
+          business_address: businessAddress,
+          phone: profile.phone,
+          tax_id: profile.taxId,
+          email: updatedEmail,
+        });
+      }
+
+      await fetch('/api/account/notify-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessName: profile.businessName,
+          businessStreet: profile.businessStreet,
+          businessCity: profile.businessCity,
+          businessState: profile.businessState,
+          businessZip: profile.businessZip,
+          name: profile.name,
+          email: updatedEmail,
+          phone: profile.phone,
+          taxId: profile.taxId,
+          accountNumber: profile.accountNumber,
+        }),
+      });
 
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {
       console.error('Error saving profile:', error);
+      setProfileError(error instanceof Error ? error.message : 'Unable to save your profile.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handlePasswordUpdate = async () => {
+    setIsUpdatingPassword(true);
+    setPasswordError('');
+    setPasswordSuccess(false);
+
+    try {
+      if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+        setPasswordError('Please fill out all password fields.');
+        return;
+      }
+
+      if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+        setPasswordError('New password and confirmation do not match.');
+        return;
+      }
+
+      if (passwordForm.newPassword.length < 8) {
+        setPasswordError('New password must be at least 8 characters.');
+        return;
+      }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.email) {
+        setPasswordError('Unable to verify your account. Please sign in again.');
+        return;
+      }
+
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: passwordForm.currentPassword,
+      });
+
+      if (signInError) {
+        setPasswordError('Current password is incorrect.');
+        return;
+      }
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: passwordForm.newPassword,
+      });
+
+      if (updateError) {
+        setPasswordError(updateError.message);
+        return;
+      }
+
+      setPasswordSuccess(true);
+      setPasswordForm({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+      });
+      setTimeout(() => setPasswordSuccess(false), 3000);
+    } catch (error) {
+      console.error('Error updating password:', error);
+      setPasswordError('An unexpected error occurred. Please try again.');
+    } finally {
+      setIsUpdatingPassword(false);
     }
   };
 
   const tabs = [
     { id: 'profile', label: 'Business Profile', icon: Building },
     { id: 'security', label: 'Security', icon: Lock },
+    { id: 'locations', label: 'Locations', icon: MapPin },
   ];
 
   return (
@@ -148,6 +639,86 @@ export default function AccountPage() {
               <h2 className="section-title mb-6">Business Profile</h2>
 
               <div className="space-y-6">
+                {/* Logo */}
+                <div>
+                  <label className="label">Business Logo</label>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between p-4 bg-cream-200 rounded-xl">
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-2xl bg-white border border-cream-300 overflow-hidden flex items-center justify-center">
+                        {logoPreview || logoUrl ? (
+                          <img
+                            src={logoPreview || logoUrl || ''}
+                            alt="Business logo"
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <span className="text-sm font-semibold text-bark-500">
+                            {profile.businessName
+                              .split(' ')
+                              .map((part) => part[0])
+                              .join('')
+                              .slice(0, 2)
+                              .toUpperCase() || 'BN'}
+                          </span>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-bark-500">Upload your store logo</p>
+                        <p className="text-xs text-bark-500/70">
+                          Recommended for a more professional look in the community feed.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="btn-ghost px-3 text-sm">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            if (logoPreview) {
+                              URL.revokeObjectURL(logoPreview);
+                            }
+                            setLogoFile(file);
+                            setLogoPreview(URL.createObjectURL(file));
+                          }}
+                        />
+                        <ImagePlus className="w-4 h-4" />
+                        Choose Logo
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleLogoUpload}
+                        className="btn-primary px-4 py-2 text-sm"
+                        disabled={!logoFile || isUploadingLogo}
+                      >
+                        {isUploadingLogo ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Upload'}
+                      </button>
+                      {(logoUrl || logoPreview) && (
+                        <button
+                          type="button"
+                          onClick={handleLogoRemove}
+                          className="btn-ghost px-3 text-sm text-bark-500/70"
+                          disabled={isUploadingLogo}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {logoStatus === 'success' && (
+                    <div className="mt-3 text-sm text-emerald-700 flex items-center gap-2">
+                      <Check className="w-4 h-4" />
+                      Logo updated.
+                    </div>
+                  )}
+                  {logoStatus === 'error' && (
+                    <div className="mt-3 text-sm text-red-600">{logoError}</div>
+                  )}
+                </div>
+
                 {/* Account Number (readonly) */}
                 <div>
                   <label htmlFor="accountNumber" className="label">Account Number</label>
@@ -175,22 +746,56 @@ export default function AccountPage() {
                       value={profile.businessName}
                       onChange={(e) => setProfile({ ...profile, businessName: e.target.value })}
                       className="input pl-10"
+                      autoComplete="organization"
                     />
                   </div>
                 </div>
 
                 {/* Business Address */}
                 <div>
-                  <label htmlFor="businessAddress" className="label">Business Address</label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bark-500/40" />
-                    <input
-                      id="businessAddress"
-                      type="text"
-                      value={profile.businessAddress}
-                      onChange={(e) => setProfile({ ...profile, businessAddress: e.target.value })}
-                      className="input pl-10"
-                    />
+                  <label htmlFor="businessStreet" className="label">Business Address</label>
+                  <div className="space-y-3">
+                    <div className="relative">
+                      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-bark-500/40" />
+                      <input
+                        id="businessStreet"
+                        type="text"
+                        value={profile.businessStreet}
+                        onChange={(e) => setProfile({ ...profile, businessStreet: e.target.value })}
+                        className="input pl-10"
+                        autoComplete="address-line1"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <input
+                        id="businessCity"
+                        type="text"
+                        value={profile.businessCity}
+                        onChange={(e) => setProfile({ ...profile, businessCity: e.target.value })}
+                        className="input"
+                        placeholder="City"
+                        autoComplete="address-level2"
+                      />
+                      <input
+                        id="businessState"
+                        type="text"
+                        value={profile.businessState}
+                        onChange={(e) => setProfile({ ...profile, businessState: e.target.value })}
+                        className="input"
+                        placeholder="State"
+                        autoComplete="address-level1"
+                      />
+                      <input
+                        id="businessZip"
+                        type="text"
+                        value={profile.businessZip}
+                        onChange={(e) => setProfile({ ...profile, businessZip: e.target.value })}
+                        className="input"
+                        placeholder="ZIP"
+                        autoComplete="postal-code"
+                        inputMode="numeric"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -205,11 +810,12 @@ export default function AccountPage() {
                       value={profile.name}
                       onChange={(e) => setProfile({ ...profile, name: e.target.value })}
                       className="input pl-10"
+                      autoComplete="name"
                     />
                   </div>
                 </div>
 
-                {/* Email (readonly - managed by auth) */}
+                {/* Email */}
                 <div>
                   <label htmlFor="email" className="label">Email Address</label>
                   <div className="relative">
@@ -218,11 +824,12 @@ export default function AccountPage() {
                       id="email"
                       type="email"
                       value={profile.email}
-                      disabled
-                      className="input pl-10 opacity-60 cursor-not-allowed bg-cream-200"
+                      onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                      className="input pl-10"
+                      autoComplete="email"
                     />
                   </div>
-                  <p className="text-xs text-bark-500/50 mt-1">Contact support to change your email</p>
+                  <p className="text-xs text-bark-500/50 mt-1">This is also the email you use to sign in.</p>
                 </div>
 
                 {/* Phone */}
@@ -236,6 +843,7 @@ export default function AccountPage() {
                       value={profile.phone}
                       onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
                       className="input pl-10"
+                      autoComplete="tel"
                     />
                   </div>
                 </div>
@@ -258,6 +866,11 @@ export default function AccountPage() {
 
               <div className="mt-8 pt-6 border-t border-cream-200 flex items-center justify-between">
                 <div>
+                  {profileError && (
+                    <span className="text-sm text-red-600">
+                      {profileError}
+                    </span>
+                  )}
                   {saved && (
                     <span className="text-sm text-emerald-600 flex items-center gap-2 animate-fade-in">
                       <Check className="w-4 h-4" />
@@ -291,50 +904,340 @@ export default function AccountPage() {
                   <p className="text-sm text-bark-500/70 mb-4">
                     Update your password to keep your account secure
                   </p>
+                  {passwordError && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
+                      {passwordError}
+                    </div>
+                  )}
+                  {passwordSuccess && (
+                    <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700 flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4" />
+                      Password updated successfully
+                    </div>
+                  )}
                   <div className="space-y-3 max-w-md">
                     <div>
                       <label className="label">Current Password</label>
-                      <input type="password" className="input" placeholder="••••••••" />
+                      <input
+                        type="password"
+                        className="input"
+                        placeholder="••••••••"
+                        value={passwordForm.currentPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                        autoComplete="current-password"
+                      />
                     </div>
                     <div>
                       <label className="label">New Password</label>
-                      <input type="password" className="input" placeholder="••••••••" />
+                      <input
+                        type="password"
+                        className="input"
+                        placeholder="••••••••"
+                        value={passwordForm.newPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                        autoComplete="new-password"
+                      />
                     </div>
                     <div>
                       <label className="label">Confirm New Password</label>
-                      <input type="password" className="input" placeholder="••••••••" />
+                      <input
+                        type="password"
+                        className="input"
+                        placeholder="••••••••"
+                        value={passwordForm.confirmPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                        autoComplete="new-password"
+                      />
                     </div>
                   </div>
-                  <button className="btn-primary mt-4">
-                    Update Password
+                  <button
+                    className="btn-primary mt-4"
+                    onClick={handlePasswordUpdate}
+                    disabled={isUpdatingPassword}
+                  >
+                    {isUpdatingPassword ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      'Update Password'
+                    )}
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Wholesale Benefits Card */}
-          <div className="card p-6 mt-6">
-            <h3 className="section-title mb-4">Your Wholesale Benefits</h3>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-                <span className="text-sm text-bark-500">Free shipping on all orders</span>
+          {activeTab === 'locations' && (
+            <div className="card p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+                <div>
+                  <h2 className="section-title">Locations</h2>
+                  <p className="text-sm text-bark-500/70 mt-1">Manage ship-to addresses for your orders</p>
+                </div>
+                <button onClick={() => setShowAddLocation(true)} className="btn-primary">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Location
+                </button>
               </div>
-              <div className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-                <span className="text-sm text-bark-500">No minimum order quantity</span>
-              </div>
-              <div className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-                <span className="text-sm text-bark-500">Net 30 payment terms</span>
-              </div>
-              <div className="flex items-center gap-3 p-3 bg-cream-200 rounded-xl">
-                <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-                <span className="text-sm text-bark-500">Dedicated account manager</span>
-              </div>
+
+              {locationNotice && (
+                <div className="mb-4 p-3 bg-cream-200 rounded-xl text-sm text-bark-500">
+                  {locationNotice}
+                </div>
+              )}
+
+              {locationsError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
+                  {locationsError}
+                </div>
+              )}
+
+              {showAddLocation && (
+                <div className="mb-6 p-4 bg-cream-200 rounded-xl space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">Location Name</label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={newLocation.location_name}
+                        onChange={(e) => setNewLocation({ ...newLocation, location_name: e.target.value })}
+                        placeholder="Warehouse, Storefront, etc."
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Phone (Optional)</label>
+                      <input
+                        type="tel"
+                        className="input"
+                        value={newLocation.phone}
+                        onChange={(e) => setNewLocation({ ...newLocation, phone: e.target.value })}
+                        placeholder="(555) 555-5555"
+                        autoComplete="tel"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="label">Business Address</label>
+                      <div className="space-y-3">
+                        <input
+                          type="text"
+                          className="input"
+                          value={newLocation.businessStreet}
+                          onChange={(e) => setNewLocation({ ...newLocation, businessStreet: e.target.value })}
+                          placeholder="123 Main St"
+                          autoComplete="shipping address-line1"
+                        />
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <input
+                            type="text"
+                            className="input"
+                            value={newLocation.businessCity}
+                            onChange={(e) => setNewLocation({ ...newLocation, businessCity: e.target.value })}
+                            placeholder="City"
+                            autoComplete="shipping address-level2"
+                          />
+                          <input
+                            type="text"
+                            className="input"
+                            value={newLocation.businessState}
+                            onChange={(e) => setNewLocation({ ...newLocation, businessState: e.target.value })}
+                            placeholder="State"
+                            autoComplete="shipping address-level1"
+                          />
+                          <input
+                            type="text"
+                            className="input"
+                            value={newLocation.businessZip}
+                            onChange={(e) => setNewLocation({ ...newLocation, businessZip: e.target.value })}
+                            placeholder="ZIP"
+                            autoComplete="shipping postal-code"
+                            inputMode="numeric"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-bark-500">
+                    <input
+                      type="checkbox"
+                      checked={newLocation.makeDefault}
+                      onChange={(e) => setNewLocation({ ...newLocation, makeDefault: e.target.checked })}
+                      className="rounded border-cream-300 text-bark-500 focus:ring-bark-500"
+                    />
+                    Make this the default ship-to location
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button onClick={handleAddLocation} disabled={isSavingLocation} className="btn-primary">
+                      {isSavingLocation ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Location'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowAddLocation(false);
+                        setNewLocation({
+                          location_name: '',
+                          businessStreet: '',
+                          businessCity: '',
+                          businessState: '',
+                          businessZip: '',
+                          phone: '',
+                          makeDefault: false,
+                        });
+                      }}
+                      className="btn-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {locationsLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <div className="w-8 h-8 border-2 border-bark-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : locations.length === 0 ? (
+                <div className="p-6 bg-cream-200 rounded-xl text-sm text-bark-500/70">
+                  No locations added yet. Add a location to manage alternate ship-to addresses.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {locations.map((location) => (
+                    <div key={location.id} className="p-4 bg-cream-200 rounded-xl">
+                      {editLocationId === location.id ? (
+                        <div className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="label">Location Name</label>
+                              <input
+                                type="text"
+                                className="input"
+                                value={editLocation.location_name}
+                                onChange={(e) => setEditLocation({ ...editLocation, location_name: e.target.value })}
+                              />
+                            </div>
+                            <div>
+                              <label className="label">Phone (Optional)</label>
+                              <input
+                                type="tel"
+                                className="input"
+                                value={editLocation.phone}
+                                onChange={(e) => setEditLocation({ ...editLocation, phone: e.target.value })}
+                                autoComplete="tel"
+                              />
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="label">Business Address</label>
+                              <div className="space-y-3">
+                                <input
+                                  type="text"
+                                  className="input"
+                                  value={editLocation.businessStreet}
+                                  onChange={(e) => setEditLocation({ ...editLocation, businessStreet: e.target.value })}
+                                  autoComplete="shipping address-line1"
+                                />
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                  <input
+                                    type="text"
+                                    className="input"
+                                    value={editLocation.businessCity}
+                                    onChange={(e) => setEditLocation({ ...editLocation, businessCity: e.target.value })}
+                                    placeholder="City"
+                                    autoComplete="shipping address-level2"
+                                  />
+                                  <input
+                                    type="text"
+                                    className="input"
+                                    value={editLocation.businessState}
+                                    onChange={(e) => setEditLocation({ ...editLocation, businessState: e.target.value })}
+                                    placeholder="State"
+                                    autoComplete="shipping address-level1"
+                                  />
+                                  <input
+                                    type="text"
+                                    className="input"
+                                    value={editLocation.businessZip}
+                                    onChange={(e) => setEditLocation({ ...editLocation, businessZip: e.target.value })}
+                                    placeholder="ZIP"
+                                    autoComplete="shipping postal-code"
+                                    inputMode="numeric"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <button onClick={handleUpdateLocation} disabled={isSavingLocation} className="btn-primary">
+                              {isSavingLocation ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Changes'}
+                            </button>
+                            <button
+                              onClick={() => setEditLocationId(null)}
+                              className="btn-secondary"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-bark-500">{location.location_name}</p>
+                              {location.is_default && (
+                                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                  <Star className="w-3 h-3" />
+                                  Default
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-bark-500/70 mt-1">{location.business_address}</p>
+                            {location.phone && (
+                              <p className="text-sm text-bark-500/70 mt-1">{location.phone}</p>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {!location.is_default && (
+                              <button
+                                onClick={() => handleSetDefaultLocation(location.id)}
+                                disabled={isSettingDefaultId === location.id}
+                                className="btn-secondary"
+                              >
+                                {isSettingDefaultId === location.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  'Make Default'
+                                )}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleEditLocation(location)}
+                              className="btn-secondary"
+                            >
+                              <Edit2 className="w-4 h-4 mr-2" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteLocation(location)}
+                              disabled={isDeletingLocationId === location.id}
+                              className="btn-secondary text-red-600 hover:text-red-700"
+                            >
+                              {isDeletingLocationId === location.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Delete
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
+          )}
+
         </div>
       </div>
     </div>

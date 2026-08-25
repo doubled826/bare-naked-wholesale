@@ -21,7 +21,7 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -29,7 +29,27 @@ export default function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        router.push('/dashboard');
+        const session = data?.session;
+        const adminCheck = await fetch('/api/admin/check', {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined,
+        });
+        const adminData = await adminCheck.json();
+        if (adminData?.isAdmin) {
+          router.push('/admin/dashboard');
+        } else {
+          if (data?.user?.id) {
+            try {
+              await supabase
+                .from('retailers')
+                .update({ status: 'active' })
+                .eq('id', data.user.id)
+                .eq('status', 'pending');
+            } catch (statusError) {
+              console.error('Failed to update retailer status:', statusError);
+            }
+          }
+          router.push('/dashboard');
+        }
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
@@ -42,7 +62,7 @@ export default function LoginPage() {
     <div className="w-full max-w-md animate-fade-in">
       <div className="card-elevated p-8 md:p-10">
         <div className="text-center mb-8">
-          <h1 className="text-2xl md:text-3xl font-bold text-bark-500 mb-2" style={{ fontFamily: 'var(--font-poppins)' }}>
+          <h1 className="text-2xl md:text-3xl font-bold mb-2 text-bark-500" style={{ fontFamily: 'var(--font-poppins)' }}>
             Welcome back
           </h1>
           <p className="text-bark-500/70">
@@ -81,7 +101,7 @@ export default function LoginPage() {
               </label>
               <Link
                 href="/forgot-password"
-                className="text-sm text-bark-500 hover:text-bark-600 font-medium"
+                className="text-sm font-medium text-bark-500 hover:text-bark-600"
               >
                 Forgot password?
               </Link>
@@ -123,6 +143,14 @@ export default function LoginPage() {
           </button>
         </form>
 
+        <div className="mt-5 rounded-xl border border-cream-300 bg-cream-100/80 px-4 py-3 text-sm text-bark-500/70">
+          First time signing in from an email invite?{' '}
+          <Link href="/forgot-password" className="font-medium text-bark-500 hover:text-bark-600">
+            Request a fresh setup link
+          </Link>
+          .
+        </div>
+
         <div className="relative my-8">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-cream-200" />
@@ -135,7 +163,20 @@ export default function LoginPage() {
         <Link href="/signup" className="btn-secondary w-full">
           Create an account
         </Link>
+
       </div>
+
+      <div className="mt-6 flex items-center justify-center gap-4 text-sm">
+        <div className="flex items-center gap-2 rounded-full px-3 py-2 font-medium bg-cream-200 text-bark-500">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/90 text-white text-xs">✓</span>
+          No Minimums
+        </div>
+        <div className="flex items-center gap-2 rounded-full px-3 py-2 font-medium bg-cream-200 text-bark-500">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/90 text-white text-xs">✓</span>
+          Free Shipping
+        </div>
+      </div>
+
     </div>
   );
 }

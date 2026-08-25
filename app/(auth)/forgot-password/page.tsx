@@ -2,11 +2,11 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2, Mail, CheckCircle } from 'lucide-react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 export default function ForgotPasswordPage() {
-  const supabase = createClientComponentClient();
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -18,14 +18,23 @@ export default function ForgotPasswordPage() {
     setError('');
 
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+      const response = await fetch('/api/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
       });
 
-      if (error) {
-        setError(error.message);
-      } else {
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || 'Unable to process your request right now.');
+      } else if (data.action === 'signup' && data.redirectTo) {
+        router.push(data.redirectTo);
+        return;
+      } else if (data.action === 'reset') {
         setSuccess(true);
+      } else {
+        setError('Unable to process your request right now.');
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
@@ -45,7 +54,7 @@ export default function ForgotPasswordPage() {
             Check your email
           </h1>
           <p className="text-bark-500/70 mb-6">
-            We have sent password reset instructions to <strong>{email}</strong>.
+            We have sent password reset or account setup instructions to <strong>{email}</strong>.
           </p>
           <Link href="/login" className="btn-primary w-full">
             Back to Sign In
@@ -71,10 +80,10 @@ export default function ForgotPasswordPage() {
             <Mail className="w-6 h-6 text-bark-500" />
           </div>
           <h1 className="text-2xl font-bold text-bark-500 mb-2" style={{ fontFamily: 'var(--font-poppins)' }}>
-            Forgot password?
+            Reset password or finish setup
           </h1>
           <p className="text-bark-500/70">
-            No worries, we will send you reset instructions.
+            Enter your email and we will send a fresh sign-in or account setup link.
           </p>
         </div>
 
@@ -109,7 +118,7 @@ export default function ForgotPasswordPage() {
             {isLoading ? (
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : (
-              'Reset password'
+              'Email me a setup link'
             )}
           </button>
         </form>

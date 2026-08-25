@@ -1,10 +1,26 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 
 export async function GET(request: Request) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { data: adminUser } = await supabase
+      .from('admin_users')
+      .select('id')
+      .eq('id', user.id)
+      .single();
+
+    if (!adminUser) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const { searchParams } = new URL(request.url);
     
     const status = searchParams.get('status');
@@ -19,8 +35,15 @@ export async function GET(request: Request) {
         status,
         total,
         subtotal,
+        promotion_discount_applied,
+        credit_applied,
         delivery_date,
         tracking_number,
+        tracking_carrier,
+        invoice_url,
+        include_samples,
+        include_marketing_materials,
+        marketing_materials_type,
         promotion_code,
         created_at,
         retailer:retailers(company_name, business_address, phone)
@@ -51,8 +74,15 @@ export async function GET(request: Request) {
       'Address',
       'Phone',
       'Subtotal',
+      'Promotion Discount Applied',
+      'Account Credit Applied',
       'Total',
       'Tracking Number',
+      'Tracking Carrier',
+      'Invoice URL',
+      'Includes Samples',
+      'Includes Marketing Materials',
+      'Marketing Materials Type',
       'Promotion Code',
       'Delivery Date',
       'Order Date'
@@ -65,8 +95,15 @@ export async function GET(request: Request) {
       order.retailer?.business_address || '',
       order.retailer?.phone || '',
       order.subtotal?.toFixed(2) || '0.00',
+      order.promotion_discount_applied?.toFixed(2) || '0.00',
+      order.credit_applied?.toFixed(2) || '0.00',
       order.total?.toFixed(2) || '0.00',
       order.tracking_number || '',
+      order.tracking_carrier || '',
+      order.invoice_url || '',
+      order.include_samples ? 'Yes' : 'No',
+      order.include_marketing_materials ? 'Yes' : 'No',
+      order.include_marketing_materials ? formatMarketingMaterialsLabel(order.marketing_materials_type) : '',
       order.promotion_code || '',
       order.delivery_date || '',
       new Date(order.created_at).toLocaleDateString()

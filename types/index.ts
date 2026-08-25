@@ -5,10 +5,21 @@ export interface Retailer {
   business_address: string;
   phone: string;
   account_number: string;
+  logo_url?: string | null;
   email?: string;
   tax_id?: string;  // Add this line
   created_at?: string;
   updated_at?: string;
+}
+
+export interface RetailerLocation {
+  id: string;
+  retailer_id: string;
+  location_name: string;
+  business_address: string;
+  phone?: string | null;
+  is_default: boolean;
+  created_at?: string;
 }
 
 export interface Product {
@@ -45,10 +56,18 @@ export interface Order {
   id: string;
   order_number: string;
   retailer_id: string;
+  location_id?: string | null;
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'canceled';
   delivery_date?: string;
   promotion_code?: string;
   tracking_number?: string;
+  tracking_carrier?: string;
+  include_samples?: boolean;
+  credit_applied?: number;
+  promotion_discount_applied?: number;
+  invoice_url?: string;
+  invoice_sent_at?: string;
+  invoice_sent_count?: number;
   shipped_at?: string;
   subtotal: number;
   total: number;
@@ -62,7 +81,20 @@ export interface Announcement {
   id: string;
   title: string;
   message: string;
+  bar_message?: string | null;
   is_active: boolean;
+  popup_enabled?: boolean | null;
+  popup_headline?: string | null;
+  popup_body?: string | null;
+  cta_label?: string | null;
+  cta_url?: string | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  version?: number | null;
+  targeting_type?: string | null;
+  manual_retailer_ids?: string[] | null;
+  linked_discount_code_id?: string | null;
+  inherit_discount_eligibility?: boolean | null;
   created_at: string;
   updated_at?: string;
 }
@@ -71,6 +103,7 @@ export interface AdminUser {
   id: string;
   email: string;
   name?: string;
+  avatar_url?: string | null;
   created_at: string;
 }
 
@@ -102,4 +135,92 @@ export interface DashboardStats {
   monthRevenue: number;
   totalRetailers: number;
   totalProducts: number;
+}
+
+export interface Resource {
+  id: string;
+  title: string;
+  description?: string;
+  category?: string;
+  file_url: string;
+  file_name?: string;
+  file_type?: string;
+  file_size?: number;
+  preview_url?: string;
+  sort_order?: number;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Conversation {
+  id: string;
+  retailer_id: string;
+  last_message_at?: string | null;
+  last_message_preview?: string | null;
+  last_sender_role?: 'retailer' | 'admin' | null;
+  last_read_by_retailer_at?: string | null;
+  archived_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  sender_role: 'retailer' | 'admin';
+  sender_id: string;
+  sender_name?: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface OnboardingChecklistItemState {
+  item_id: string;
+  completed: boolean;
+  agreed_value?: string | null;
+  completed_at?: string | null;
+  updated_at?: string;
+}
+
+export interface OnboardingNote {
+  id: string;
+  onboarding_id: string;
+  body: string;
+  source: 'portal' | 'pipedrive_sync';
+  pipedrive_note_id?: number | null;
+  created_by?: string | null;
+  created_at: string;
+}
+
+export interface LinkedPipedriveDealSummary {
+  id: number;
+  title: string;
+  stageId: number | null;
+  stageName: string;
+  ownerName: string | null;
+  orgName: string | null;
+  addTime: string | null;
+  updateTime: string | null;
+  status: string | null;
+}
+
+export interface RetailerOnboarding {
+  id: string;
+  retailer_id: string;
+  pipedrive_deal_id: number | null;
+  pipedrive_stage_name?: string | null;
+  first_order_received_at?: string | null;
+  second_order_received_at?: string | null;
+  third_order_received_at?: string | null;
+  next_follow_up_at?: string | null;
+  follow_up_status?: 'upcoming' | 'due' | 'overdue' | 'complete' | 'needs_link';
+  owner_name?: string | null;
+  last_synced_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  retailer?: Retailer | null;
+  checklist_items?: OnboardingChecklistItemState[];
+  notes?: OnboardingNote[];
+  linked_deal?: LinkedPipedriveDealSummary | null;
 }

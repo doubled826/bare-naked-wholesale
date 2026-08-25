@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
+import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
 
 const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   pending: { icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100', label: 'Pending' },
@@ -25,15 +26,19 @@ const statusConfig: Record<string, { icon: React.ElementType; color: string; bg:
 };
 
 export default function OrdersPage() {
-  const { orders, products } = useAppStore();
+  const { orders, products, retailer } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   let totalWholesale = 0;
   let totalMSRP = 0;
 
   orders.forEach(order => {
+    const isCanceled = order.status === 'canceled';
+    if (isCanceled) return;
     totalWholesale += Number(order.total);
     const orderItems = order.order_items as Array<{ product_id: string; quantity: number }> | undefined;
     orderItems?.forEach((item) => {
@@ -50,8 +55,43 @@ export default function OrdersPage() {
   const filteredOrders = orders.filter((order) => {
     const matchesSearch = order.order_number.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesStart = !startDate || new Date(order.created_at) >= new Date(`${startDate}T00:00:00`);
+    const matchesEnd = !endDate || new Date(order.created_at) <= new Date(`${endDate}T23:59:59.999`);
+    return matchesSearch && matchesStatus && matchesStart && matchesEnd;
   });
+
+  const getTrackingUrl = (carrier?: string, trackingNumber?: string) => {
+    if (!carrier || !trackingNumber) return null;
+    const encoded = encodeURIComponent(trackingNumber.trim());
+    switch (carrier) {
+      case 'UPS':
+        return `https://www.ups.com/track?loc=en_US&tracknum=${encoded}`;
+      case 'FedEx':
+        return `https://www.fedex.com/fedextrack/?tracknumbers=${encoded}`;
+      case 'USPS':
+        return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encoded}`;
+      case 'DHL':
+        return `https://www.dhl.com/us-en/home/tracking/tracking-express.html?submit=1&tracking-id=${encoded}`;
+      case 'OnTrac':
+        return `https://www.ontrac.com/tracking?tracking=${encoded}`;
+      default:
+        return null;
+    }
+  };
+
+  const handleExport = async () => {
+    const params = new URLSearchParams();
+    if (statusFilter) params.set('status', statusFilter);
+    if (startDate) params.set('startDate', `${startDate}T00:00:00.000`);
+    if (endDate) params.set('endDate', `${endDate}T23:59:59.999`);
+    const response = await fetch(`/api/orders/export?${params.toString()}`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orders-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+  };
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
@@ -127,11 +167,28 @@ export default function OrdersPage() {
               className="input pl-10 pr-10 appearance-none cursor-pointer min-w-[160px]"
             >
               <option value="all">All Status</option>
-              <option value="pending">Processing</option>
+              <option value="pending">Pending</option>
+              <option value="processing">Processing</option>
               <option value="shipped">Shipped</option>
               <option value="delivered">Delivered</option>
+              <option value="canceled">Canceled</option>
             </select>
           </div>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="input min-w-[160px]"
+          />
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="input min-w-[160px]"
+          />
+          <button onClick={handleExport} className="btn-primary whitespace-nowrap">
+            Download CSV
+          </button>
         </div>
       </div>
 
@@ -151,6 +208,13 @@ export default function OrdersPage() {
             const isExpanded = expandedOrder === order.id;
             const orderItems = order.order_items as Array<{ product_id: string; quantity: number; total_price: number }> | undefined;
             const itemCount = orderItems?.reduce((sum: number, item) => sum + item.quantity, 0) || 0;
+            const hasSamples = Boolean((order as any).include_samples);
+            const hasMarketingMaterials = Boolean((order as any).include_marketing_materials);
+            const marketingMaterialsLabel = formatMarketingMaterialsLabel((order as any).marketing_materials_type);
+            const shipTo = (order as any).location as { location_name?: string; business_address?: string; phone?: string } | undefined;
+            const shipToName = shipTo?.location_name || retailer?.company_name;
+            const shipToAddress = shipTo?.business_address || retailer?.business_address;
+            const shipToPhone = shipTo?.phone || retailer?.phone;
 
             return (
               <div key={order.id} className="card overflow-hidden">
@@ -165,6 +229,16 @@ export default function OrdersPage() {
                         <StatusIcon className="w-3.5 h-3.5" />
                         {status.label}
                       </span>
+                      {hasSamples && (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+                          Samples
+                        </span>
+                      )}
+                      {hasMarketingMaterials && (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+                          Materials
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-bark-500/70">
                       Ordered on {formatDate(order.created_at)} • {itemCount} items
@@ -188,6 +262,74 @@ export default function OrdersPage() {
                 {isExpanded && (
                   <div className="border-t border-cream-200">
                     <div className="p-4 lg:p-6">
+                      {(order.tracking_number || order.tracking_carrier) && (
+                        <div className="mb-6 rounded-xl bg-cream-200/70 border border-cream-200 p-4">
+                          <h4 className="text-sm font-semibold text-bark-500/70 mb-2">Tracking</h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                            {order.tracking_number && (
+                              <div>
+                                <p className="text-bark-500/60">Tracking Number</p>
+                                {getTrackingUrl(order.tracking_carrier, order.tracking_number) ? (
+                                  <a
+                                    href={getTrackingUrl(order.tracking_carrier, order.tracking_number) || '#'}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="font-mono text-bark-500 underline underline-offset-2 hover:text-bark-600"
+                                  >
+                                    {order.tracking_number}
+                                  </a>
+                                ) : (
+                                  <p className="font-mono text-bark-500">{order.tracking_number}</p>
+                                )}
+                              </div>
+                            )}
+                            {order.tracking_carrier && (
+                              <div>
+                                <p className="text-bark-500/60">Carrier</p>
+                                <p className="text-bark-500">{order.tracking_carrier}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {hasSamples && (
+                        <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold px-3 py-1">
+                          Samples included with this order
+                        </div>
+                      )}
+                      {hasMarketingMaterials && (
+                        <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1">
+                          {marketingMaterialsLabel} included with this order
+                        </div>
+                      )}
+                      {Number(order.credit_applied || 0) > 0 && (
+                        <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1">
+                          Account credit: {formatCurrency(Number(order.credit_applied || 0))}
+                        </div>
+                      )}
+                      {(shipToName || shipToAddress || shipToPhone) && (
+                        <div className="mb-6 rounded-xl bg-cream-200/70 border border-cream-200 p-4">
+                          <h4 className="text-sm font-semibold text-bark-500/70 mb-2">Ship-To Location</h4>
+                          <div className="text-sm text-bark-500/80 space-y-1">
+                            {shipToName && <p className="text-bark-500">{shipToName}</p>}
+                            {shipToAddress && <p>{shipToAddress}</p>}
+                            {shipToPhone && <p>{shipToPhone}</p>}
+                          </div>
+                        </div>
+                      )}
+                      {order.invoice_url && (
+                        <div className="mb-6 rounded-xl bg-cream-200/70 border border-cream-200 p-4">
+                          <h4 className="text-sm font-semibold text-bark-500/70 mb-2">Invoice</h4>
+                          <a
+                            href={order.invoice_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn-primary inline-flex items-center"
+                          >
+                            View QuickBooks Invoice
+                          </a>
+                        </div>
+                      )}
                       <h4 className="text-sm font-semibold text-bark-500/70 mb-4">Order Items</h4>
                       <div className="space-y-3">
                         {orderItems?.map((item, index: number) => {
@@ -214,6 +356,18 @@ export default function OrdersPage() {
                           <span className="text-bark-500/70">Subtotal</span>
                           <span className="text-bark-500">{formatCurrency(Number(order.subtotal))}</span>
                         </div>
+                        {Number(order.promotion_discount_applied || 0) > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-bark-500/70">Promotion Discount</span>
+                            <span className="font-medium text-emerald-700">-{formatCurrency(Number(order.promotion_discount_applied || 0))}</span>
+                          </div>
+                        )}
+                        {Number(order.credit_applied || 0) > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-bark-500/70">Account Credit</span>
+                            <span className="font-medium text-blue-700">-{formatCurrency(Number(order.credit_applied || 0))}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between text-sm">
                           <span className="text-bark-500/70">Shipping</span>
                           <span className="text-bark-500">Free</span>

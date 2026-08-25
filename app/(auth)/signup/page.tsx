@@ -1,30 +1,139 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import Script from 'next/script';
 import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
 
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (
+        container: HTMLElement,
+        options: {
+          sitekey: string;
+          callback?: (token: string) => void;
+          'expired-callback'?: () => void;
+          'error-callback'?: () => void;
+        }
+      ) => string;
+      reset: (widgetId?: string) => void;
+      remove: (widgetId?: string) => void;
+    };
+  }
+}
+
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
+
+const hearAboutUsOptions = [
+  { value: 'facebook_instagram', label: 'Facebook/Instagram' },
+  { value: 'google_search', label: 'Google Search' },
+  { value: 'referral', label: 'Referral' },
+  { value: 'team_outreach', label: 'Bare Naked team reached out' },
+  { value: 'other', label: 'Other' },
+];
+
 export default function SignupPage() {
+  const searchParams = useSearchParams();
   const [formData, setFormData] = useState({
     businessName: '',
-    businessAddress: '',
+    businessStreet: '',
+    businessCity: '',
+    businessState: '',
+    businessZip: '',
     name: '',
     email: '',
     password: '',
     phone: '',
     taxId: '',
+    howHeardAboutUs: '',
+    howHeardAboutUsOther: '',
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
   const [success, setSuccess] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileReady, setTurnstileReady] = useState(false);
+  const turnstileRef = useRef<HTMLDivElement | null>(null);
+  const widgetIdRef = useRef<string | null>(null);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    if (!turnstileReady || !turnstileSiteKey || !turnstileRef.current || !window.turnstile || widgetIdRef.current) {
+      return;
+    }
+
+    widgetIdRef.current = window.turnstile.render(turnstileRef.current, {
+      sitekey: turnstileSiteKey,
+      callback: (token) => {
+        setTurnstileToken(token);
+        setError('');
+      },
+      'expired-callback': () => {
+        setTurnstileToken('');
+      },
+      'error-callback': () => {
+        setTurnstileToken('');
+        setError('Verification failed to load. Please refresh and try again.');
+      },
+    });
+
+    return () => {
+      if (widgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(widgetIdRef.current);
+        widgetIdRef.current = null;
+      }
+    };
+  }, [turnstileReady]);
+
+  useEffect(() => {
+    const emailFromQuery = searchParams.get('email');
+    const welcome = searchParams.get('welcome');
+
+    if (emailFromQuery) {
+      setFormData((current) => ({
+        ...current,
+        email: current.email || emailFromQuery,
+      }));
+    }
+
+    if (welcome === 'new-portal') {
+      setInfoMessage(
+        'Welcome to the new wholesale portal. It looks like this email has not been set up yet. Create your account to get started.'
+      );
+    } else {
+      setInfoMessage('');
+    }
+  }, [searchParams]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!turnstileSiteKey) {
+      setError('Signup verification is not configured yet.');
+      return;
+    }
+
+    if (!turnstileToken) {
+      setError('Please complete the verification before creating your account.');
+      return;
+    }
+
+    if (!formData.howHeardAboutUs) {
+      setError('Please tell us how you heard about us.');
+      return;
+    }
+
+    if (formData.howHeardAboutUs === 'other' && !formData.howHeardAboutUsOther.trim()) {
+      setError('Please add how you heard about us.');
+      return;
+    }
+
     setIsLoading(true);
     setError('');
 
@@ -32,7 +141,7 @@ export default function SignupPage() {
       const response = await fetch('/api/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, turnstileToken }),
       });
 
       const data = await response.json();
@@ -41,9 +150,17 @@ export default function SignupPage() {
         setSuccess(true);
       } else {
         setError(data.error || 'Signup failed. Please try again.');
+        setTurnstileToken('');
+        if (widgetIdRef.current && window.turnstile) {
+          window.turnstile.reset(widgetIdRef.current);
+        }
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
+      setTurnstileToken('');
+      if (widgetIdRef.current && window.turnstile) {
+        window.turnstile.reset(widgetIdRef.current);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -77,6 +194,12 @@ export default function SignupPage() {
 
   return (
     <div className="w-full max-w-md animate-fade-in">
+      <Script
+        src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+        strategy="afterInteractive"
+        onLoad={() => setTurnstileReady(true)}
+      />
+
       {/* Card */}
       <div className="card-elevated p-8 md:p-10">
         {/* Header */}
@@ -96,6 +219,12 @@ export default function SignupPage() {
           </div>
         )}
 
+        {infoMessage && (
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 animate-slide-up">
+            {infoMessage}
+          </div>
+        )}
+
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Business Name */}
@@ -111,25 +240,65 @@ export default function SignupPage() {
               onChange={handleChange}
               placeholder="Pet Paradise Boutique"
               className="input"
+              autoComplete="organization"
               required
             />
           </div>
 
           {/* Business Address */}
           <div>
-            <label htmlFor="businessAddress" className="label">
+            <label htmlFor="businessStreet" className="label">
               Business Address
             </label>
-            <input
-              id="businessAddress"
-              name="businessAddress"
-              type="text"
-              value={formData.businessAddress}
-              onChange={handleChange}
-              placeholder="123 Main St, City, State 12345"
-              className="input"
-              required
-            />
+            <div className="space-y-3">
+              <input
+                id="businessStreet"
+                name="businessStreet"
+                type="text"
+                value={formData.businessStreet}
+                onChange={handleChange}
+                placeholder="123 Main St"
+                className="input"
+                autoComplete="address-line1"
+                required
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <input
+                  id="businessCity"
+                  name="businessCity"
+                  type="text"
+                  value={formData.businessCity}
+                  onChange={handleChange}
+                  placeholder="City"
+                  className="input"
+                  autoComplete="address-level2"
+                  required
+                />
+                <input
+                  id="businessState"
+                  name="businessState"
+                  type="text"
+                  value={formData.businessState}
+                  onChange={handleChange}
+                  placeholder="State"
+                  className="input"
+                  autoComplete="address-level1"
+                  required
+                />
+                <input
+                  id="businessZip"
+                  name="businessZip"
+                  type="text"
+                  value={formData.businessZip}
+                  onChange={handleChange}
+                  placeholder="ZIP"
+                  className="input"
+                  autoComplete="postal-code"
+                  inputMode="numeric"
+                  required
+                />
+              </div>
+            </div>
           </div>
 
           {/* Contact Name */}
@@ -145,6 +314,7 @@ export default function SignupPage() {
               onChange={handleChange}
               placeholder="John Smith"
               className="input"
+              autoComplete="name"
               required
             />
           </div>
@@ -162,6 +332,7 @@ export default function SignupPage() {
               onChange={handleChange}
               placeholder="orders@petparadise.com"
               className="input"
+              autoComplete="email"
               required
             />
           </div>
@@ -182,6 +353,7 @@ export default function SignupPage() {
                 className="input pr-12"
                 required
                 minLength={6}
+                autoComplete="new-password"
               />
               <button
                 type="button"
@@ -206,6 +378,7 @@ export default function SignupPage() {
               onChange={handleChange}
               placeholder="(555) 123-4567"
               className="input"
+              autoComplete="tel"
               required
             />
           </div>
@@ -227,10 +400,65 @@ export default function SignupPage() {
             />
           </div>
 
+          <div>
+            <label htmlFor="howHeardAboutUs" className="label">
+              How did you hear about us?
+            </label>
+            <select
+              id="howHeardAboutUs"
+              name="howHeardAboutUs"
+              value={formData.howHeardAboutUs}
+              onChange={(e) => {
+                const value = e.target.value;
+                setFormData({
+                  ...formData,
+                  howHeardAboutUs: value,
+                  howHeardAboutUsOther: value === 'other' ? formData.howHeardAboutUsOther : '',
+                });
+              }}
+              className="input"
+              required
+            >
+              <option value="">Select an option</option>
+              {hearAboutUsOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {formData.howHeardAboutUs === 'other' && (
+            <div>
+              <label htmlFor="howHeardAboutUsOther" className="label">
+                Tell us where
+              </label>
+              <input
+                id="howHeardAboutUsOther"
+                name="howHeardAboutUsOther"
+                type="text"
+                value={formData.howHeardAboutUsOther}
+                onChange={handleChange}
+                placeholder="Trade show, vendor, local event..."
+                className="input"
+                required
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="label">Verification</label>
+            {turnstileSiteKey ? (
+              <div ref={turnstileRef} />
+            ) : (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                Signup verification is not configured yet.
+              </div>
+            )}
+          </div>
+
           {/* Submit */}
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || !turnstileSiteKey}
             className="btn-primary w-full group mt-6"
           >
             {isLoading ? (
@@ -252,6 +480,18 @@ export default function SignupPage() {
           </Link>
         </p>
       </div>
+
+      <div className="mt-6 flex items-center justify-center gap-4 text-sm">
+        <div className="flex items-center gap-2 rounded-full px-3 py-2 font-medium bg-cream-200 text-bark-500">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/90 text-white text-xs">✓</span>
+          No Minimums
+        </div>
+        <div className="flex items-center gap-2 rounded-full px-3 py-2 font-medium bg-cream-200 text-bark-500">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/90 text-white text-xs">✓</span>
+          Free Shipping
+        </div>
+      </div>
+
     </div>
   );
 }

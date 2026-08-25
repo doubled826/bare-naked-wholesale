@@ -8,7 +8,6 @@ import {
   Users, 
   Package,
   TrendingUp,
-  ArrowUpRight,
   Clock
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
@@ -18,11 +17,8 @@ interface DashboardStats {
   pendingOrders: number;
   shippedOrders: number;
   totalRevenue: number;
-  todayRevenue: number;
-  weekRevenue: number;
-  monthRevenue: number;
+  unitsSold: number;
   totalRetailers: number;
-  totalProducts: number;
 }
 
 interface TopProduct {
@@ -47,54 +43,91 @@ export default function AdminDashboard() {
   const [topRetailers, setTopRetailers] = useState<TopRetailer[]>([]);
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState<'day' | 'week' | 'month'>('week');
+  const [timeRange, setTimeRange] = useState<'day' | 'yesterday' | 'week' | 'month'>('week');
 
   useEffect(() => { fetchDashboardData(); }, [timeRange]);
 
   const fetchDashboardData = async () => {
     setIsLoading(true);
     try {
-      const { data: orders } = await supabase.from('orders').select('*');
-      const { data: retailers } = await supabase.from('retailers').select('id');
-      const { data: products } = await supabase.from('products').select('id');
+      const { data: orders } = await supabase
+        .from('orders')
+        .select(`
+          id,
+          total,
+          status,
+          created_at,
+          retailer:retailers(id, company_name),
+          order_items(
+            quantity,
+            total_price,
+            product:products(id, name, size)
+          )
+        `);
+      const validOrders = (orders || []).filter(o => o.status !== 'canceled');
+      const { count: retailerCount } = await supabase
+        .from('retailers')
+        .select('id', { count: 'exact', head: true });
+      const { count: locationCount } = await supabase
+        .from('retailer_locations')
+        .select('id', { count: 'exact', head: true });
 
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const startOfYesterday = new Date(today);
+      startOfYesterday.setDate(today.getDate() - 1);
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - today.getDay());
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const rangeStart =
+        timeRange === 'day' ? today :
+        timeRange === 'yesterday' ? startOfYesterday :
+        timeRange === 'week' ? startOfWeek :
+        startOfMonth;
+      const rangeEnd = timeRange === 'yesterday' ? today : null;
+      const inRange = (dateValue: string) => {
+        const date = new Date(dateValue);
+        return date >= rangeStart && (!rangeEnd || date < rangeEnd);
+      };
+      const rangeOrders = validOrders.filter(o => inRange(o.created_at));
 
       const statsData: DashboardStats = {
-        totalOrders: orders?.length || 0,
-        pendingOrders: orders?.filter(o => o.status === 'pending').length || 0,
-        shippedOrders: orders?.filter(o => o.status === 'shipped').length || 0,
-        totalRevenue: orders?.reduce((sum, o) => sum + (o.total || 0), 0) || 0,
-        todayRevenue: orders?.filter(o => new Date(o.created_at) >= today).reduce((sum, o) => sum + (o.total || 0), 0) || 0,
-        weekRevenue: orders?.filter(o => new Date(o.created_at) >= weekAgo).reduce((sum, o) => sum + (o.total || 0), 0) || 0,
-        monthRevenue: orders?.filter(o => new Date(o.created_at) >= monthAgo).reduce((sum, o) => sum + (o.total || 0), 0) || 0,
-        totalRetailers: retailers?.length || 0,
-        totalProducts: products?.length || 0,
+        totalOrders: rangeOrders.length,
+        pendingOrders: rangeOrders.filter(o => o.status === 'pending').length,
+        shippedOrders: rangeOrders.filter(o => o.status === 'shipped').length,
+        totalRevenue: rangeOrders.reduce((sum, o) => sum + (o.total || 0), 0),
+        unitsSold: 0,
+        totalRetailers: (retailerCount || 0) + (locationCount || 0),
       };
       setStats(statsData);
 
-      // Top products
-      const { data: orderItems } = await supabase.from('order_items').select('quantity, total_price, product:products(id, name, size)');
       const productSales = new Map<string, { name: string; size: string; total_sold: number; total_revenue: number }>();
-      orderItems?.forEach((item: any) => {
-        if (item.product) {
+      let unitsSold = 0;
+      rangeOrders.forEach((order: any) => {
+        order.order_items?.forEach((item: any) => {
+          if (!item.product) return;
+
           const key = item.product.id;
-          const existing = productSales.get(key) || { name: item.product.name, size: item.product.size, total_sold: 0, total_revenue: 0 };
-          existing.total_sold += item.quantity;
-          existing.total_revenue += item.total_price;
+          const existing = productSales.get(key) || {
+            name: item.product.name,
+            size: item.product.size,
+            total_sold: 0,
+            total_revenue: 0,
+          };
+
+          existing.total_sold += item.quantity || 0;
+          existing.total_revenue += item.total_price || 0;
           productSales.set(key, existing);
-        }
+          unitsSold += item.quantity || 0;
+        });
       });
       setTopProducts(Array.from(productSales.entries()).map(([id, data]) => ({ id, ...data })).sort((a, b) => b.total_sold - a.total_sold).slice(0, 5));
+      setStats(prev => prev ? { ...prev, unitsSold } : prev);
 
       // Top retailers
-      const { data: retailerOrders } = await supabase.from('orders').select('total, retailer:retailers(id, company_name)');
       const retailerStats = new Map<string, { company_name: string; total_orders: number; total_spent: number }>();
-      retailerOrders?.forEach((order: any) => {
-        if (order.retailer) {
+      rangeOrders?.forEach((order: any) => {
+        if (order.retailer && order.status !== 'canceled') {
           const key = order.retailer.id;
           const existing = retailerStats.get(key) || { company_name: order.retailer.company_name, total_orders: 0, total_spent: 0 };
           existing.total_orders += 1;
@@ -141,13 +174,13 @@ export default function AdminDashboard() {
       {/* Time range selector */}
       <div className="flex justify-end">
         <div className="inline-flex rounded-lg border border-gray-200 p-1 bg-white">
-          {(['day', 'week', 'month'] as const).map((range) => (
+          {(['day', 'yesterday', 'week', 'month'] as const).map((range) => (
             <button 
               key={range} 
               onClick={() => setTimeRange(range)} 
               className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${timeRange === range ? 'bg-bark-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
             >
-              {range === 'day' ? 'Today' : range === 'week' ? 'This Week' : 'This Month'}
+              {range === 'day' ? 'Today' : range === 'yesterday' ? 'Yesterday' : range === 'week' ? 'This Week' : 'This Month'}
             </button>
           ))}
         </div>
@@ -164,13 +197,6 @@ export default function AdminDashboard() {
             <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
               <DollarSign className="w-6 h-6 text-emerald-600" />
             </div>
-          </div>
-          <div className="mt-4 flex items-center text-sm">
-            <span className="text-emerald-600 font-medium flex items-center">
-              <ArrowUpRight className="w-4 h-4 mr-1" />
-              {formatCurrency(timeRange === 'day' ? stats?.todayRevenue || 0 : timeRange === 'week' ? stats?.weekRevenue || 0 : stats?.monthRevenue || 0)}
-            </span>
-            <span className="text-gray-500 ml-2">{timeRange === 'day' ? 'today' : timeRange === 'week' ? 'this week' : 'this month'}</span>
           </div>
         </div>
 
@@ -194,32 +220,24 @@ export default function AdminDashboard() {
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Total Retailers</p>
+              <p className="text-sm text-gray-500">Total Locations</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{stats?.totalRetailers}</p>
             </div>
             <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
               <Users className="w-6 h-6 text-purple-600" />
             </div>
           </div>
-          <div className="mt-4 flex items-center text-sm">
-            <span className="text-purple-600 font-medium flex items-center">
-              <TrendingUp className="w-4 h-4 mr-1" />Active accounts
-            </span>
-          </div>
         </div>
 
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Products</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{stats?.totalProducts}</p>
+              <p className="text-sm text-gray-500">Units Sold</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{stats?.unitsSold}</p>
             </div>
             <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
               <Package className="w-6 h-6 text-orange-600" />
             </div>
-          </div>
-          <div className="mt-4 flex items-center text-sm">
-            <span className="text-orange-600 font-medium">In catalog</span>
           </div>
         </div>
       </div>

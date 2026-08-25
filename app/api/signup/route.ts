@@ -1,11 +1,107 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { sendTeamEmail } from '@/lib/email';
+import { formatBusinessAddress } from '@/lib/address';
+import { sendWholesaleLeadQualifiedEvent } from '@/lib/metaConversions';
+import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
+
+type TurnstileVerificationResult = {
+  success: boolean;
+  'error-codes'?: string[];
+};
+
+const HEAR_ABOUT_US_LABELS: Record<string, string> = {
+  facebook_instagram: 'Facebook/Instagram',
+  google_search: 'Google Search',
+  referral: 'Referral',
+  team_outreach: 'Bare Naked team reached out',
+  other: 'Other',
+};
+
+async function verifyTurnstileToken(token: string, remoteIp?: string | null) {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+
+  if (!secret) {
+    console.error('TURNSTILE_SECRET_KEY is not configured');
+    return { success: false, 'error-codes': ['missing-secret'] } satisfies TurnstileVerificationResult;
+  }
+
+  const formData = new FormData();
+  formData.append('secret', secret);
+  formData.append('response', token);
+
+  if (remoteIp) {
+    formData.append('remoteip', remoteIp);
+  }
+
+  try {
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      return { success: false, 'error-codes': ['verification-request-failed'] } satisfies TurnstileVerificationResult;
+    }
+
+    return (await response.json()) as TurnstileVerificationResult;
+  } catch (error) {
+    console.error('Turnstile verification error:', error);
+    return { success: false, 'error-codes': ['verification-request-failed'] } satisfies TurnstileVerificationResult;
+  }
+}
 
 export async function POST(request: Request) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
-    const { businessName, businessAddress, name, email, password, phone, taxId } = await request.json();
+    const {
+      businessName,
+      businessStreet,
+      businessCity,
+      businessState,
+      businessZip,
+      name,
+      email,
+      password,
+      phone,
+      taxId,
+      howHeardAboutUs,
+      howHeardAboutUsOther,
+      turnstileToken,
+    } = await request.json();
+
+    if (!turnstileToken || typeof turnstileToken !== 'string') {
+      return NextResponse.json({ error: 'Please complete the verification challenge.' }, { status: 400 });
+    }
+
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    const remoteIp =
+      request.headers.get('cf-connecting-ip') ||
+      (forwardedFor ? forwardedFor.split(',')[0].trim() : null);
+    const verification = await verifyTurnstileToken(turnstileToken, remoteIp);
+
+    if (!verification.success) {
+      console.warn('Turnstile rejected signup:', verification['error-codes']);
+      return NextResponse.json({ error: 'Verification failed. Please try again.' }, { status: 400 });
+    }
+
+    const formattedBusinessAddress = formatBusinessAddress({
+      street: businessStreet,
+      city: businessCity,
+      state: businessState,
+      zip: businessZip,
+    });
+    const heardAboutUsValue = typeof howHeardAboutUs === 'string' ? howHeardAboutUs.trim() : '';
+    const heardAboutUsOtherValue = typeof howHeardAboutUsOther === 'string' ? howHeardAboutUsOther.trim() : '';
+
+    if (!HEAR_ABOUT_US_LABELS[heardAboutUsValue]) {
+      return NextResponse.json({ error: 'Please tell us how you heard about us.' }, { status: 400 });
+    }
+
+    if (heardAboutUsValue === 'other' && !heardAboutUsOtherValue) {
+      return NextResponse.json({ error: 'Please add how you heard about us.' }, { status: 400 });
+    }
 
     // 1. Create the auth user with metadata
     // IMPORTANT: Use 'company_name' to match the database trigger!
@@ -16,9 +112,15 @@ export async function POST(request: Request) {
         data: {
           display_name: name,
           company_name: businessName,      // Changed from business_name to company_name
-          business_address: businessAddress,
+          business_address: formattedBusinessAddress,
+          business_street: businessStreet?.trim(),
+          business_city: businessCity?.trim(),
+          business_state: businessState?.trim(),
+          business_zip: businessZip?.trim(),
           phone: phone,
           tax_id: taxId,
+          how_heard_about_us: heardAboutUsValue,
+          how_heard_about_us_other: heardAboutUsValue === 'other' ? heardAboutUsOtherValue : null,
         },
       },
     });
@@ -34,10 +136,75 @@ export async function POST(request: Request) {
 
     // The database trigger will create the retailer record automatically
     // using the metadata we just set (company_name, business_address, phone)
+    try {
+      const adminClient = createSupabaseAdminClient();
+      const qualifiedAt = new Date().toISOString();
+      const normalizedSignupEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+      const { data: matchingLead, error: matchingLeadError } = await adminClient
+        .from('wholesale_leads')
+        .select('*')
+        .eq('email', normalizedSignupEmail)
+        .maybeSingle();
 
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Account created successfully' 
+      if (matchingLeadError) {
+        console.error('Wholesale lead signup match error:', matchingLeadError);
+      }
+
+      if (matchingLead) {
+        const sampleStatus = matchingLead.sample_status || 'not_sent';
+        const { data: updatedLead, error: leadUpdateError } = await adminClient
+          .from('wholesale_leads')
+          .update({
+            lead_status: matchingLead.lead_status === 'wholesale_customer' ? 'wholesale_customer' : 'qualified',
+            sample_status: sampleStatus,
+            status: matchingLead.lead_status === 'wholesale_customer'
+              ? 'converted'
+              : sampleStatus === 'sent'
+                ? 'tracking_added'
+                : 'sample_pack_pending',
+            qualified_at: matchingLead.qualified_at || qualifiedAt,
+            converted_retailer_id: authData.user.id,
+            disqualified_reason: null,
+            disqualified_notes: null,
+            meta_qualified_event_id: matchingLead.meta_qualified_event_id || `WholesaleLeadQualified:${matchingLead.id}`,
+            updated_at: qualifiedAt,
+          })
+          .eq('id', matchingLead.id)
+          .select('*')
+          .single();
+
+        if (leadUpdateError || !updatedLead) {
+          console.error('Wholesale lead signup qualification error:', leadUpdateError);
+        } else {
+          await sendWholesaleLeadQualifiedEvent(adminClient, updatedLead);
+        }
+      }
+    } catch (leadMatchError) {
+      console.error('Wholesale lead signup qualification error:', leadMatchError);
+    }
+
+    try {
+      await sendTeamEmail({
+        subject: 'New Retailer Signup',
+        text: `
+New retailer signup received.
+
+Business Name: ${businessName}
+Contact Name: ${name}
+Email: ${email}
+Phone: ${phone}
+Address: ${formattedBusinessAddress}
+Tax ID: ${taxId}
+How Heard About Us: ${HEAR_ABOUT_US_LABELS[heardAboutUsValue]}${heardAboutUsValue === 'other' ? ` - ${heardAboutUsOtherValue}` : ''}
+        `.trim(),
+      });
+    } catch (emailError) {
+      console.error('Signup notification email error:', emailError);
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Account created successfully',
     });
 
   } catch (error) {

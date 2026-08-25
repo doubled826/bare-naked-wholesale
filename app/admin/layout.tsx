@@ -4,26 +4,102 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { 
-  LayoutDashboard, 
-  ShoppingCart, 
-  Users, 
-  Package, 
+import {
+  LayoutDashboard,
+  ShoppingCart,
+  Users,
+  Package,
+  FolderOpen,
+  Image,
+  BarChart2,
   MessageSquare,
+  Mail,
+  FileText,
+  BadgePercent,
+  Megaphone,
+  User,
   LogOut,
   Menu,
   X,
-  ChevronRight
+  ChevronRight,
+  ChevronDown,
+  Workflow,
+  Send,
+  Zap,
+  ClipboardList,
+  Target
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const navigation = [
+type NavigationItem = {
+  name: string;
+  href?: string;
+  icon: React.ComponentType<{ className?: string }>;
+  children?: Array<{
+    name: string;
+    href: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }>;
+};
+
+const navigation: NavigationItem[] = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+  { name: 'Insights', href: '/admin/insights', icon: BarChart2 },
+  { name: 'Sales Hub', href: '/admin/sales-hub', icon: Zap },
+  { name: 'Wholesale Pipeline', href: '/admin/wholesale-pipeline', icon: ClipboardList },
   { name: 'Orders', href: '/admin/orders', icon: ShoppingCart },
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
-  { name: 'Products', href: '/admin/products', icon: Package },
-  { name: 'Communications', href: '/admin/communications', icon: MessageSquare },
+  {
+    name: 'Community',
+    icon: MessageSquare,
+    children: [
+      { name: 'Feed', href: '/admin/feed', icon: MessageSquare },
+      { name: 'Messages', href: '/admin/messages', icon: Mail },
+    ],
+  },
+  {
+    name: 'Marketing',
+    icon: Megaphone,
+    children: [
+      { name: 'Campaigns', href: '/admin/email-campaigns', icon: Send },
+      { name: 'Audiences', href: '/admin/audiences', icon: Target },
+      { name: 'Private Promos', href: '/admin/private-launch-promos', icon: BadgePercent },
+      { name: 'Discounts', href: '/admin/discounts', icon: BadgePercent },
+      { name: 'Automations', href: '/admin/automations', icon: Workflow },
+      { name: 'Announcements', href: '/admin/announcements', icon: Megaphone },
+      { name: 'Templates', href: '/admin/email-templates', icon: FileText },
+    ],
+  },
+  {
+    name: 'Library',
+    icon: FolderOpen,
+    children: [
+      { name: 'Images', href: '/admin/library/images', icon: Image },
+      { name: 'Products', href: '/admin/products', icon: Package },
+      { name: 'Resources', href: '/admin/resources', icon: FolderOpen },
+    ],
+  },
+  { name: 'Account', href: '/admin/account', icon: User },
 ];
+
+const findNavigationTitle = (pathname: string) => {
+  for (const item of navigation) {
+    if (item.href === pathname) return item.name;
+
+    const child = item.children?.find((childItem) => pathname === childItem.href || pathname.startsWith(`${childItem.href}/`));
+    if (child) return child.name;
+  }
+
+  return 'Admin';
+};
+
+const getInitialOpenGroups = (pathname: string) =>
+  navigation.reduce<Record<string, boolean>>((groups, item) => {
+    if (item.children?.some((child) => pathname === child.href || pathname.startsWith(`${child.href}/`))) {
+      groups[item.name] = true;
+    }
+    return groups;
+  }, {});
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -33,15 +109,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [isAdmin, setIsAdmin] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [adminName, setAdminName] = useState('Admin');
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => getInitialOpenGroups(pathname));
 
   useEffect(() => {
     checkAdminAccess();
   }, []);
 
+  useEffect(() => {
+    setOpenGroups((current) => ({ ...current, ...getInitialOpenGroups(pathname) }));
+  }, [pathname]);
+
   const checkAdminAccess = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      
+
       if (!user) {
         router.push('/login');
         return;
@@ -91,7 +172,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="min-h-screen bg-gray-100">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
@@ -99,10 +180,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       {/* Sidebar */}
       <aside className={cn(
-        "fixed top-0 left-0 z-50 h-full w-64 bg-bark-500 transform transition-transform duration-200 ease-in-out lg:translate-x-0",
+        "fixed top-0 left-0 z-50 h-dvh w-64 bg-bark-500 transform transition-transform duration-200 ease-in-out lg:translate-x-0",
         sidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
-        <div className="flex flex-col h-full">
+        <div className="flex h-full min-h-0 flex-col">
           {/* Logo */}
           <div className="p-6 border-b border-bark-400">
             <div className="flex items-center justify-between">
@@ -112,7 +193,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </h1>
                 <p className="text-cream-300 text-sm mt-1">Admin Portal</p>
               </div>
-              <button 
+              <button
                 onClick={() => setSidebarOpen(false)}
                 className="lg:hidden text-white"
               >
@@ -122,18 +203,66 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 p-4 space-y-1">
+          <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-4">
             {navigation.map((item) => {
-              const isActive = pathname === item.href;
+              const isGroup = Boolean(item.children?.length);
+              const isActive = item.href ? pathname === item.href || pathname.startsWith(`${item.href}/`) : false;
+              const isChildActive = item.children?.some((child) => pathname === child.href || pathname.startsWith(`${child.href}/`)) || false;
+              const isOpen = openGroups[item.name] || isChildActive;
+
+              if (isGroup) {
+                return (
+                  <div key={item.name} className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => setOpenGroups((current) => ({ ...current, [item.name]: !isOpen }))}
+                      className={cn(
+                        "flex w-full items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors",
+                        isChildActive
+                          ? "bg-cream-100 text-bark-500"
+                          : "text-cream-200 hover:bg-bark-400 hover:text-white"
+                      )}
+                    >
+                      <item.icon className="w-5 h-5" />
+                      {item.name}
+                      {isOpen ? <ChevronDown className="w-4 h-4 ml-auto" /> : <ChevronRight className="w-4 h-4 ml-auto" />}
+                    </button>
+                    {isOpen && (
+                      <div className="ml-8 space-y-1 border-l border-bark-400 pl-3">
+                        {item.children?.map((child) => {
+                          const childActive = pathname === child.href || pathname.startsWith(`${child.href}/`);
+                          return (
+                            <Link
+                              key={child.name}
+                              href={child.href}
+                              onClick={() => setSidebarOpen(false)}
+                              className={cn(
+                                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                                childActive
+                                  ? "bg-cream-100 text-bark-500"
+                                  : "text-cream-200 hover:bg-bark-400 hover:text-white"
+                              )}
+                            >
+                              <child.icon className="w-4 h-4" />
+                              {child.name}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
               return (
                 <Link
                   key={item.name}
-                  href={item.href}
+                  href={item.href || '#'}
                   onClick={() => setSidebarOpen(false)}
                   className={cn(
                     "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors",
-                    isActive 
-                      ? "bg-cream-100 text-bark-500" 
+                    isActive
+                      ? "bg-cream-100 text-bark-500"
                       : "text-cream-200 hover:bg-bark-400 hover:text-white"
                   )}
                 >
@@ -146,7 +275,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </nav>
 
           {/* User section */}
-          <div className="p-4 border-t border-bark-400">
+          <div className="shrink-0 border-t border-bark-400 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
             <div className="flex items-center gap-3 px-4 py-3">
               <div className="w-10 h-10 rounded-full bg-cream-100 flex items-center justify-center">
                 <span className="text-bark-500 font-bold">
@@ -182,15 +311,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </button>
             <div className="flex-1">
               <h2 className="text-lg font-semibold text-gray-900" style={{ fontFamily: 'var(--font-poppins)' }}>
-                {navigation.find(n => n.href === pathname)?.name || 'Admin'}
+                {findNavigationTitle(pathname)}
               </h2>
             </div>
-            <Link 
-              href="/dashboard" 
-              className="text-sm text-bark-500 hover:text-bark-600 font-medium"
-            >
-              View Retailer Portal →
-            </Link>
+
           </div>
         </header>
 
