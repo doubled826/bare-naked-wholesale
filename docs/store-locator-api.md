@@ -41,6 +41,6 @@ The endpoint is public, read-only, CORS-enabled, and returns only `retailer_loca
 
 ## Curation
 
-Admins manage public locator fields from each retailer detail page under the location edit form. A location does not appear in the API until an admin enables **Show in store locator**.
+Store locations are public by default so new retailer locations flow into the locator automatically. Admins can remove any location from the public feed from each retailer detail page by editing the location and turning off **Show in store locator**.
 
 Coordinates are optional. A Replit frontend can still show a searchable list without them, but map pins and distance sorting should prefer rows with `latitude` and `longitude`.
