@@ -3,11 +3,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { AlertCircle, Search, Users, Edit2, Eye, X, CheckCircle, ShoppingCart, DollarSign, Plus, Mail, Download, SlidersHorizontal } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 
-interface Retailer { id: string; company_name: string; business_address: string; phone: string; account_number: string; created_at: string; status?: string; email?: string; how_heard_about_us?: string | null; how_heard_about_us_other?: string | null }
+interface RetailerLocationSummary {
+  id: string;
+  location_name?: string | null;
+  business_address?: string | null;
+  phone?: string | null;
+  public_display_name?: string | null;
+}
+interface Retailer { id: string; company_name: string; contact_name?: string | null; business_address: string; phone: string; account_number: string; created_at: string; status?: string; email?: string; tax_id?: string | null; how_heard_about_us?: string | null; how_heard_about_us_other?: string | null; locations?: RetailerLocationSummary[] }
 interface RetailerWithStats extends Retailer { total_orders: number; total_spent: number; last_order_date: string | null }
 type BuyingStatusFilter = 'all' | 'never_ordered' | 'ordered_once' | 'repeat_buyer';
 type LastOrderFilter = 'any' | 'last_30' | 'days_31_90' | 'days_90_plus' | 'never';
@@ -144,8 +150,14 @@ const getValidatedParam = <T extends string>(params: URLSearchParams, key: strin
   return value && allowedValues.has(value as T) ? value as T : fallback;
 };
 
+const normalizeSearchText = (value: string | number | null | undefined) => (
+  String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+);
+
 export default function AdminRetailersPage() {
-  const supabase = createClientComponentClient();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -208,32 +220,25 @@ export default function AdminRetailersPage() {
 
   const fetchRetailers = async () => {
     try {
-      const { data: retailersData } = await supabase.from('retailers').select('*').order('created_at', { ascending: false });
-      const { data: ordersData } = await supabase.from('orders').select('retailer_id, total, created_at, status');
-      const retailersWithStats: RetailerWithStats[] = (retailersData || []).map(retailer => {
-        const retailerOrders = ordersData?.filter(o => o.retailer_id === retailer.id && o.status !== 'canceled') || [];
-        const totalSpent = retailerOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-        const lastOrder = retailerOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
-        return { ...retailer, total_orders: retailerOrders.length, total_spent: totalSpent, last_order_date: lastOrder?.created_at || null };
-      });
-      setRetailers(retailersWithStats);
+      const response = await fetch('/api/admin/retailers');
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to load retailers');
+      }
+
+      setRetailers(result.retailers || []);
     } catch (error) { console.error('Error:', error); }
     finally { setIsLoading(false); }
   };
 
   const filterRetailers = () => {
-    const q = searchQuery.toLowerCase();
+    const searchTerms = normalizeSearchText(searchQuery).split(' ').filter(Boolean);
     const now = Date.now();
     const matchesSearch = (retailer: RetailerWithStats) => {
-      if (!q) return true;
-      return (
-        retailer.company_name?.toLowerCase().includes(q) ||
-        retailer.account_number?.toLowerCase().includes(q) ||
-        retailer.business_address?.toLowerCase().includes(q) ||
-        retailer.phone?.toLowerCase().includes(q) ||
-        retailer.email?.toLowerCase().includes(q) ||
-        formatHearAboutUs(retailer).toLowerCase().includes(q)
-      );
+      if (searchTerms.length === 0) return true;
+      const searchIndex = buildRetailerSearchIndex(retailer);
+      return searchTerms.every((term) => searchIndex.includes(term));
     };
     const getDaysSince = (date: string | null | undefined) => (
       date ? Math.floor((now - new Date(date).getTime()) / DAYS_IN_MS) : null
@@ -379,6 +384,32 @@ export default function AdminRetailersPage() {
       return `${label}: ${retailer.how_heard_about_us_other}`;
     }
     return label || '—';
+  };
+
+  const buildRetailerSearchIndex = (retailer: RetailerWithStats) => {
+    const searchableValues = [
+      retailer.company_name,
+      retailer.contact_name,
+      retailer.account_number,
+      retailer.status,
+      retailer.business_address,
+      getRetailerState(retailer.business_address),
+      retailer.phone,
+      retailer.email,
+      retailer.tax_id,
+      formatHearAboutUs(retailer),
+      retailer.total_orders,
+      retailer.total_spent,
+      ...((retailer.locations || []).flatMap((location) => [
+        location.location_name,
+        location.public_display_name,
+        location.business_address,
+        getRetailerState(location.business_address),
+        location.phone,
+      ])),
+    ];
+
+    return normalizeSearchText(searchableValues.filter(Boolean).join(' '));
   };
 
   const hasActiveFilters = Boolean(
@@ -602,7 +633,7 @@ export default function AdminRetailersPage() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="relative w-full lg:max-w-xl">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input type="text" placeholder="Search retailers..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
+              <input type="text" placeholder="Search name, address, email, contact, phone..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500" />
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
               <button
