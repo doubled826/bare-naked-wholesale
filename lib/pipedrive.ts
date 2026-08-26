@@ -10,6 +10,12 @@ type PipedriveResponse<T> = {
   success?: boolean;
   data?: T;
   error?: string;
+  additional_data?: {
+    pagination?: {
+      more_items_in_collection?: boolean;
+      next_start?: number;
+    };
+  };
 };
 
 type PipedriveStage = {
@@ -38,6 +44,27 @@ type PipedriveDeal = {
   status?: string | null;
 };
 
+type PipedriveActivity = {
+  id: number;
+  subject?: string | null;
+  type?: string | null;
+  due_date?: string | null;
+  due_time?: string | null;
+  duration?: string | null;
+  note?: string | null;
+  done?: boolean | number | string | null;
+  deal_id?: number | null;
+  deal_title?: string | null;
+  person_id?: number | null;
+  person_name?: string | null;
+  org_id?: number | null;
+  org_name?: string | null;
+  owner_name?: string | null;
+  assigned_to_user_id?: number | null;
+  add_time?: string | null;
+  update_time?: string | null;
+};
+
 export interface PipedriveDealSummary {
   id: number;
   title: string;
@@ -48,6 +75,26 @@ export interface PipedriveDealSummary {
   addTime: string | null;
   updateTime: string | null;
   status: string | null;
+}
+
+export interface PipedriveActivitySummary {
+  id: number;
+  subject: string;
+  type: string | null;
+  dueDate: string | null;
+  dueTime: string | null;
+  duration: string | null;
+  note: string | null;
+  done: boolean;
+  dealId: number | null;
+  dealTitle: string | null;
+  personId: number | null;
+  personName: string | null;
+  orgId: number | null;
+  orgName: string | null;
+  ownerName: string | null;
+  addTime: string | null;
+  updateTime: string | null;
 }
 
 let stageCache: Map<number, string> | null = null;
@@ -64,6 +111,11 @@ function getConfig() {
 }
 
 async function pipedriveRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const payload = await pipedriveEnvelopeRequest<T>(path, init);
+  return payload.data as T;
+}
+
+async function pipedriveEnvelopeRequest<T>(path: string, init?: RequestInit): Promise<PipedriveResponse<T>> {
   const { token, baseUrl } = getConfig();
   const separator = path.includes('?') ? '&' : '?';
   const url = `${baseUrl}${path}${separator}api_token=${token}`;
@@ -82,7 +134,7 @@ async function pipedriveRequest<T>(path: string, init?: RequestInit): Promise<T>
     throw new Error(payload.error || 'Pipedrive request failed.');
   }
 
-  return payload.data as T;
+  return payload;
 }
 
 async function loadStageMap() {
@@ -113,6 +165,28 @@ function toSummary(deal: PipedriveDeal, stageName: string): PipedriveDealSummary
     addTime: deal.add_time || null,
     updateTime: deal.update_time || null,
     status: deal.status || null,
+  };
+}
+
+function toActivitySummary(activity: PipedriveActivity): PipedriveActivitySummary {
+  return {
+    id: activity.id,
+    subject: activity.subject || 'Untitled activity',
+    type: activity.type || null,
+    dueDate: activity.due_date || null,
+    dueTime: activity.due_time || null,
+    duration: activity.duration || null,
+    note: activity.note || null,
+    done: activity.done === true || activity.done === 1 || activity.done === '1',
+    dealId: activity.deal_id || null,
+    dealTitle: activity.deal_title || null,
+    personId: activity.person_id || null,
+    personName: activity.person_name || null,
+    orgId: activity.org_id || null,
+    orgName: activity.org_name || null,
+    ownerName: activity.owner_name || null,
+    addTime: activity.add_time || null,
+    updateTime: activity.update_time || null,
   };
 }
 
@@ -147,6 +221,42 @@ export async function createPipedriveActivity(dealId: number, subject: string, d
   return pipedriveRequest<{ id: number }>('/activities', {
     method: 'POST',
     body: JSON.stringify({ subject, type: 'call', deal_id: dealId, due_date: dueDate, done: 0 }),
+  });
+}
+
+export async function listOverduePipedriveActivities(today: string, maxItems = 1000) {
+  const activities: PipedriveActivity[] = [];
+  let start = 0;
+  const pageSize = 500;
+
+  while (activities.length < maxItems) {
+    const payload = await pipedriveEnvelopeRequest<PipedriveActivity[]>(
+      `/activities?done=0&start=${start}&limit=${pageSize}`
+    );
+    activities.push(...(payload.data || []));
+
+    const pagination = payload.additional_data?.pagination;
+    if (!pagination?.more_items_in_collection || typeof pagination.next_start !== 'number') {
+      break;
+    }
+    start = pagination.next_start;
+  }
+
+  return activities
+    .map(toActivitySummary)
+    .filter((activity) => activity.dueDate && activity.dueDate <= today && !activity.done)
+    .sort((a, b) => {
+      const dateDiff = (a.dueDate || '').localeCompare(b.dueDate || '');
+      if (dateDiff !== 0) return dateDiff;
+      return (a.dueTime || '').localeCompare(b.dueTime || '');
+    })
+    .slice(0, maxItems);
+}
+
+export async function completePipedriveActivity(activityId: number) {
+  return pipedriveRequest<{ id: number; done?: boolean | number | string }>(`/activities/${activityId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ done: 1 }),
   });
 }
 
