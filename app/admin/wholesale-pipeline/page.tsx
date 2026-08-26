@@ -14,6 +14,8 @@ import {
   Radio,
   RefreshCw,
   Search,
+  Send,
+  ShieldCheck,
   Store,
   Trash2,
   Truck,
@@ -30,6 +32,8 @@ type LeadStatus =
   | 'wholesale_customer';
 
 type SampleStatus = 'not_sent' | 'sent';
+
+type VerificationStatus = 'not_requested' | 'requested' | 'submitted' | 'verified' | 'failed';
 
 type LegacyStatus =
   | 'new'
@@ -96,6 +100,16 @@ type WholesaleLead = {
   meta_qualified_event_processing_at: string | null;
   meta_qualified_event_attempts: number | null;
   meta_qualified_event_last_error: string | null;
+  verification_status: VerificationStatus | null;
+  verification_token: string | null;
+  verification_requested_at: string | null;
+  verification_submitted_at: string | null;
+  verification_verified_at: string | null;
+  verification_failed_at: string | null;
+  verification_store_url: string | null;
+  verification_social_url: string | null;
+  verification_google_profile_url: string | null;
+  verification_notes: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -158,6 +172,22 @@ const statusStyles: Record<LeadStatus, string> = {
 const sampleStatusLabels: Record<SampleStatus, string> = {
   not_sent: 'Not sent',
   sent: 'Sent',
+};
+
+const verificationStatusLabels: Record<VerificationStatus, string> = {
+  not_requested: 'Not requested',
+  requested: 'Requested',
+  submitted: 'Submitted',
+  verified: 'Verified',
+  failed: 'Failed',
+};
+
+const verificationStatusStyles: Record<VerificationStatus, string> = {
+  not_requested: 'bg-gray-100 text-gray-700',
+  requested: 'bg-amber-100 text-amber-800',
+  submitted: 'bg-blue-100 text-blue-700',
+  verified: 'bg-emerald-100 text-emerald-700',
+  failed: 'bg-red-100 text-red-700',
 };
 
 const disqualifiedReasonOptions = [
@@ -264,6 +294,9 @@ const getSampleStatus = (lead: WholesaleLead): SampleStatus => {
   if (lead.status === 'tracking_added' || lead.status === 'delivered' || lead.tracking_number || lead.tracking_url) return 'sent';
   return 'not_sent';
 };
+
+const getVerificationStatus = (lead: WholesaleLead): VerificationStatus =>
+  lead.verification_status || 'not_requested';
 
 const isSampleApproved = (lead: WholesaleLead) =>
   Boolean(lead.approved_at) || ['approved', 'sample_pack_pending', 'tracking_added', 'delivered'].includes(lead.status);
@@ -421,6 +454,7 @@ export default function WholesalePipelinePage() {
   const [selectedProvinceKey, setSelectedProvinceKey] = useState('');
   const [selectedLead, setSelectedLead] = useState<WholesaleLead | null>(null);
   const [approvingLeadId, setApprovingLeadId] = useState<string | null>(null);
+  const [requestingVerificationLeadId, setRequestingVerificationLeadId] = useState<string | null>(null);
   const [deletingLeadId, setDeletingLeadId] = useState<string | null>(null);
   const [updatingLeadId, setUpdatingLeadId] = useState<string | null>(null);
   const [leadStatusDraft, setLeadStatusDraft] = useState<LeadStatus>('new');
@@ -432,6 +466,18 @@ export default function WholesalePipelinePage() {
   useEffect(() => {
     fetchLeads();
   }, []);
+
+  useEffect(() => {
+    if (isLoading || selectedLead || typeof window === 'undefined') return;
+
+    const leadId = new URLSearchParams(window.location.search).get('lead');
+    if (!leadId) return;
+
+    const matchingLead = leads.find((lead) => lead.id === leadId);
+    if (matchingLead) {
+      setSelectedLead(matchingLead);
+    }
+  }, [isLoading, leads, selectedLead]);
 
   useEffect(() => {
     if (!selectedLead) return;
@@ -485,6 +531,31 @@ export default function WholesalePipelinePage() {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to approve sample request.' });
     } finally {
       setApprovingLeadId(null);
+    }
+  };
+
+  const requestVerification = async (lead: WholesaleLead) => {
+    setRequestingVerificationLeadId(lead.id);
+    setNotice(null);
+
+    try {
+      const response = await fetch(`/api/admin/wholesale-leads/${lead.id}/request-verification`, {
+        method: 'POST',
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || 'Unable to request retailer verification.');
+      }
+
+      const updatedLead = payload.lead as WholesaleLead;
+      setLeads((current) => current.map((item) => (item.id === updatedLead.id ? updatedLead : item)));
+      setSelectedLead(updatedLead);
+      setNotice({ type: 'success', message: `Verification email sent to ${updatedLead.email}.` });
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to request retailer verification.' });
+    } finally {
+      setRequestingVerificationLeadId(null);
     }
   };
 
@@ -1010,6 +1081,9 @@ export default function WholesalePipelinePage() {
                       {isSampleLead(lead) && (
                         <p className="mt-1 text-xs text-gray-500">Samples: {sampleStatusLabels[getSampleStatus(lead)]}</p>
                       )}
+                      {getVerificationStatus(lead) !== 'not_requested' && (
+                        <p className="mt-1 text-xs text-gray-500">Verification: {verificationStatusLabels[getVerificationStatus(lead)]}</p>
+                      )}
                     </td>
                     <td className="px-5 py-4 text-sm text-gray-600">{formatDate(lead.created_at)}</td>
                     <td className="px-5 py-4 text-right">
@@ -1059,6 +1133,11 @@ export default function WholesalePipelinePage() {
                 {getLeadStatus(selectedLead) === 'wholesale_customer' && (
                   <span className="inline-flex rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">Converted</span>
                 )}
+                {getVerificationStatus(selectedLead) !== 'not_requested' && (
+                  <span className={cn('inline-flex rounded-full px-2.5 py-1 text-xs font-semibold', verificationStatusStyles[getVerificationStatus(selectedLead)])}>
+                    Verification: {verificationStatusLabels[getVerificationStatus(selectedLead)]}
+                  </span>
+                )}
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row">
@@ -1066,7 +1145,7 @@ export default function WholesalePipelinePage() {
                   <button
                     type="button"
                     onClick={() => approveLead(selectedLead)}
-                    disabled={approvingLeadId === selectedLead.id || deletingLeadId === selectedLead.id}
+                    disabled={approvingLeadId === selectedLead.id || requestingVerificationLeadId === selectedLead.id || deletingLeadId === selectedLead.id}
                     className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-bark-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-bark-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                   >
                     {approvingLeadId === selectedLead.id ? (
@@ -1082,10 +1161,30 @@ export default function WholesalePipelinePage() {
                     )}
                   </button>
                 )}
+                {getLeadStatus(selectedLead) !== 'wholesale_customer' && (
+                  <button
+                    type="button"
+                    onClick={() => requestVerification(selectedLead)}
+                    disabled={approvingLeadId === selectedLead.id || requestingVerificationLeadId === selectedLead.id || deletingLeadId === selectedLead.id}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                  >
+                    {requestingVerificationLeadId === selectedLead.id ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4" />
+                        Request Verification
+                      </>
+                    )}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => deleteLead(selectedLead)}
-                  disabled={approvingLeadId === selectedLead.id || deletingLeadId === selectedLead.id}
+                  disabled={approvingLeadId === selectedLead.id || requestingVerificationLeadId === selectedLead.id || deletingLeadId === selectedLead.id}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 >
                   {deletingLeadId === selectedLead.id ? (
@@ -1181,7 +1280,7 @@ export default function WholesalePipelinePage() {
                   <button
                     type="button"
                     onClick={() => updateLead(selectedLead)}
-                    disabled={updatingLeadId === selectedLead.id || approvingLeadId === selectedLead.id || deletingLeadId === selectedLead.id}
+                    disabled={updatingLeadId === selectedLead.id || approvingLeadId === selectedLead.id || requestingVerificationLeadId === selectedLead.id || deletingLeadId === selectedLead.id}
                     className="inline-flex items-center justify-center gap-2 rounded-lg bg-bark-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-bark-600 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {updatingLeadId === selectedLead.id && <RefreshCw className="h-4 w-4 animate-spin" />}
@@ -1191,6 +1290,39 @@ export default function WholesalePipelinePage() {
                     Qualified at: {formatDate(selectedLead.qualified_at)}<br />
                     Sample sent at: {formatDate(selectedLead.sample_sent_at)}
                   </div>
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-gray-200 p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">Verification</h3>
+                    <p className="mt-1 text-sm text-gray-500">Store verification is separate from qualification and sample fulfillment.</p>
+                  </div>
+                  <ShieldCheck className="h-5 w-5 text-bark-500/55" />
+                </div>
+                <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                  {[
+                    ['Status', verificationStatusLabels[getVerificationStatus(selectedLead)]],
+                    ['Requested at', formatDate(selectedLead.verification_requested_at)],
+                    ['Submitted at', formatDate(selectedLead.verification_submitted_at)],
+                    ['Verified at', formatDate(selectedLead.verification_verified_at)],
+                    ['Store website', selectedLead.verification_store_url],
+                    ['Social profile', selectedLead.verification_social_url],
+                    ['Google Business Profile', selectedLead.verification_google_profile_url],
+                    ['Failed at', formatDate(selectedLead.verification_failed_at)],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-md bg-gray-50 p-3">
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</dt>
+                      <dd className="mt-1 break-words font-medium text-gray-900">{value || 'Not captured'}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className="mt-4 rounded-md bg-gray-50 p-3 text-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Verification notes</p>
+                  <p className="mt-1 whitespace-pre-line font-medium text-gray-900">
+                    {selectedLead.verification_notes || 'Not captured'}
+                  </p>
                 </div>
               </section>
 

@@ -71,6 +71,19 @@ const getOptionalString = (body: LeadBody, keys: string[]) => {
   return value || null;
 };
 
+const getContactName = (body: LeadBody) => {
+  const fullName = getString(body, ['contactName', 'contact_name', 'name', 'yourName', 'your_name']);
+  if (fullName) return fullName;
+
+  return [
+    getString(body, ['firstName', 'first_name', 'first']),
+    getString(body, ['lastName', 'last_name', 'last']),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+};
+
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
 const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -322,8 +335,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Send a valid JSON request body.' }, { status: 400 });
     }
 
-    const contactName = getString(body, ['contactName', 'contact_name', 'name']);
-    const email = normalizeEmail(getString(body, ['email']));
+    const contactName = getContactName(body);
+    const email = normalizeEmail(getString(body, ['email', 'storeEmail', 'store_email']));
     const storeName = getString(body, ['storeName', 'store_name', 'businessName', 'business_name']);
     const isCanadaLead = isCanadaEarlyAccessLead(body);
     const isPodcastSource = isPodcastLead(body);
@@ -341,7 +354,7 @@ export async function POST(request: Request) {
         {
           error: isFlexibleLead
             ? 'Missing required fields. Include contactName, email, storeName, city, and state or province.'
-            : 'Missing required fields. Include contactName, email, storeName, shippingAddress1, shippingCity, shippingState, and shippingPostalCode.',
+            : 'Missing required fields. Include firstName, lastName, email, storeName, shippingAddress1, shippingCity, shippingState, and shippingPostalCode.',
         },
         { status: 400 },
       );
