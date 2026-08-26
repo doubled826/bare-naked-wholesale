@@ -85,6 +85,16 @@ interface RetailerLocation {
   business_address: string;
   phone: string | null;
   is_default: boolean;
+  is_public?: boolean;
+  public_display_name?: string | null;
+  website_url?: string | null;
+  instagram_url?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  public_hours?: string | null;
+  public_notes?: string | null;
+  locator_updated_at?: string | null;
+  locator_verified_at?: string | null;
   created_at: string;
 }
 
@@ -308,6 +318,14 @@ export default function AdminRetailerDetailPage() {
     businessState: '',
     businessZip: '',
     phone: '',
+    is_public: false,
+    public_display_name: '',
+    website_url: '',
+    instagram_url: '',
+    latitude: '',
+    longitude: '',
+    public_hours: '',
+    public_notes: '',
   });
   const [isSavingLocation, setIsSavingLocation] = useState(false);
   const [isDeletingLocationId, setIsDeletingLocationId] = useState<string | null>(null);
@@ -358,6 +376,15 @@ export default function AdminRetailerDetailPage() {
     setSuccessNotice({ type, message });
     setTimeout(() => setSuccessNotice(null), 3000);
   };
+
+  const parseCoordinate = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const numericValue = Number(trimmed);
+    return Number.isFinite(numericValue) ? numericValue : null;
+  };
+
+  const isInvalidCoordinate = (value: string) => Boolean(value.trim()) && !Number.isFinite(Number(value.trim()));
 
   const openPipedriveLinkModal = () => {
     setPipedriveDealQuery(retailer?.company_name || '');
@@ -714,6 +741,14 @@ export default function AdminRetailerDetailPage() {
       businessState: parsed.state || '',
       businessZip: parsed.zip || '',
       phone: location.phone || '',
+      is_public: Boolean(location.is_public),
+      public_display_name: location.public_display_name || '',
+      website_url: location.website_url || '',
+      instagram_url: location.instagram_url || '',
+      latitude: location.latitude === null || location.latitude === undefined ? '' : String(location.latitude),
+      longitude: location.longitude === null || location.longitude === undefined ? '' : String(location.longitude),
+      public_hours: location.public_hours || '',
+      public_notes: location.public_notes || '',
     });
   };
 
@@ -727,6 +762,11 @@ export default function AdminRetailerDetailPage() {
       !editLocation.businessZip.trim()
     ) {
       showLocationNotice('Location name and full address are required.', 'error');
+      return;
+    }
+
+    if (isInvalidCoordinate(editLocation.latitude) || isInvalidCoordinate(editLocation.longitude)) {
+      showLocationNotice('Latitude and longitude must be valid numbers.', 'error');
       return;
     }
 
@@ -744,6 +784,16 @@ export default function AdminRetailerDetailPage() {
           location_name: editLocation.location_name.trim(),
           business_address: businessAddress,
           phone: editLocation.phone.trim() || null,
+          is_public: editLocation.is_public,
+          public_display_name: editLocation.public_display_name.trim() || null,
+          website_url: editLocation.website_url.trim() || null,
+          instagram_url: editLocation.instagram_url.trim() || null,
+          latitude: parseCoordinate(editLocation.latitude),
+          longitude: parseCoordinate(editLocation.longitude),
+          public_hours: editLocation.public_hours.trim() || null,
+          public_notes: editLocation.public_notes.trim() || null,
+          locator_updated_at: new Date().toISOString(),
+          locator_verified_at: editLocation.is_public ? new Date().toISOString() : null,
         })
         .eq('id', editLocationId);
 
@@ -1910,6 +1960,96 @@ export default function AdminRetailerDetailPage() {
                           </div>
                         </div>
                       </div>
+                      <div className="md:col-span-2 rounded-lg border border-emerald-100 bg-emerald-50/70 p-4 space-y-4">
+                        <label className="flex items-start gap-3 text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={editLocation.is_public}
+                            onChange={(e) => setEditLocation({ ...editLocation, is_public: e.target.checked })}
+                            className="mt-1 rounded border-gray-300 text-emerald-600 focus:ring-emerald-600"
+                          />
+                          <span>
+                            <span className="block font-semibold text-gray-900">Show in store locator</span>
+                            <span className="block text-gray-500">Only public locations are included in the Replit API feed.</span>
+                          </span>
+                        </label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Public Display Name</label>
+                            <input
+                              type="text"
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                              value={editLocation.public_display_name}
+                              onChange={(e) => setEditLocation({ ...editLocation, public_display_name: e.target.value })}
+                              placeholder={editLocation.location_name || retailer.company_name}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Website URL</label>
+                            <input
+                              type="url"
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                              value={editLocation.website_url}
+                              onChange={(e) => setEditLocation({ ...editLocation, website_url: e.target.value })}
+                              placeholder="https://store.com"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Instagram URL</label>
+                            <input
+                              type="url"
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                              value={editLocation.instagram_url}
+                              onChange={(e) => setEditLocation({ ...editLocation, instagram_url: e.target.value })}
+                              placeholder="https://instagram.com/store"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                                value={editLocation.latitude}
+                                onChange={(e) => setEditLocation({ ...editLocation, latitude: e.target.value })}
+                                placeholder="42.3314"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                                value={editLocation.longitude}
+                                onChange={(e) => setEditLocation({ ...editLocation, longitude: e.target.value })}
+                                placeholder="-83.0458"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Public Hours</label>
+                            <textarea
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                              value={editLocation.public_hours}
+                              onChange={(e) => setEditLocation({ ...editLocation, public_hours: e.target.value })}
+                              rows={3}
+                              placeholder="Mon-Fri 10-6, Sat 10-4"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Public Notes</label>
+                            <textarea
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                              value={editLocation.public_notes}
+                              onChange={(e) => setEditLocation({ ...editLocation, public_notes: e.target.value })}
+                              rows={3}
+                              placeholder="Carries select Bare Naked Pet Co. items."
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                     <div className="flex flex-col sm:flex-row gap-2">
                       <button onClick={handleUpdateLocation} disabled={isSavingLocation} className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-bark-500 text-white rounded-lg hover:bg-bark-600 disabled:opacity-50">
@@ -1931,10 +2071,27 @@ export default function AdminRetailerDetailPage() {
                             Default
                           </span>
                         )}
+                        {location.is_public && (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                            Store locator
+                          </span>
+                        )}
                       </div>
+                      {location.public_display_name && (
+                        <p className="text-sm text-gray-600">{location.public_display_name}</p>
+                      )}
                       <p className="text-sm text-gray-500">{location.business_address}</p>
                       {location.phone && (
                         <p className="text-sm text-gray-500">{location.phone}</p>
+                      )}
+                      {location.is_public && (
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                          {location.website_url && <span>{location.website_url}</span>}
+                          {location.instagram_url && <span>{location.instagram_url}</span>}
+                          {location.latitude !== null && location.latitude !== undefined && location.longitude !== null && location.longitude !== undefined && (
+                            <span>{location.latitude}, {location.longitude}</span>
+                          )}
+                        </div>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-2">

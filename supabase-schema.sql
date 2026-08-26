@@ -251,6 +251,16 @@ CREATE TABLE IF NOT EXISTS retailer_locations (
   business_address TEXT NOT NULL,
   phone TEXT,
   is_default BOOLEAN DEFAULT false,
+  is_public BOOLEAN NOT NULL DEFAULT false,
+  public_display_name TEXT,
+  website_url TEXT,
+  instagram_url TEXT,
+  latitude NUMERIC(10, 7),
+  longitude NUMERIC(10, 7),
+  public_hours TEXT,
+  public_notes TEXT,
+  locator_updated_at TIMESTAMPTZ,
+  locator_verified_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -309,6 +319,12 @@ CREATE INDEX idx_orders_retailer_id ON orders(retailer_id);
 CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
 CREATE INDEX idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX idx_retailer_locations_retailer_id ON retailer_locations(retailer_id);
+CREATE INDEX IF NOT EXISTS idx_retailer_locations_store_locator_public
+  ON retailer_locations(is_public, created_at)
+  WHERE is_public = true;
+CREATE INDEX IF NOT EXISTS idx_retailer_locations_coordinates
+  ON retailer_locations(latitude, longitude)
+  WHERE is_public = true AND latitude IS NOT NULL AND longitude IS NOT NULL;
 CREATE INDEX idx_marketing_material_requests_retailer_status ON marketing_material_requests(retailer_id, status);
 CREATE INDEX idx_launch_promo_requests_retailer_status ON launch_promo_requests(retailer_id, status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_shelf_talker_fulfillments_retailer_flavor_null_location
