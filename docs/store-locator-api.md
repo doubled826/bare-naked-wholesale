@@ -44,3 +44,15 @@ The endpoint is public, read-only, CORS-enabled, and returns only `retailer_loca
 Store locations are public by default so new retailer locations flow into the locator automatically. Admins can remove any location from the public feed from each retailer detail page by editing the location and turning off **Show in store locator**.
 
 Coordinates are optional. A Replit frontend can still show a searchable list without them, but map pins and distance sorting should prefer rows with `latitude` and `longitude`.
+
+## Portal Geocoding
+
+Set `GOOGLE_MAPS_API_KEY` or `GOOGLE_GEOCODING_API_KEY` in Vercel. The key must have access to the Google Geocoding API.
+
+New or updated portal locations call the portal geocoding endpoint after save. Existing public locations can be geocoded in batches by an admin:
+
+```http
+POST /api/admin/store-locator/geocode?limit=25
+```
+
+The batch endpoint only processes public locations missing coordinates. Increase `limit` up to `100` and repeat until `processed` returns `0`.

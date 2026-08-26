@@ -29,6 +29,8 @@ export interface RetailerLocation {
   public_notes?: string | null;
   locator_updated_at?: string | null;
   locator_verified_at?: string | null;
+  geocoded_at?: string | null;
+  geocoding_error?: string | null;
   created_at?: string;
 }
 

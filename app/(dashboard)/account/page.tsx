@@ -93,6 +93,21 @@ export default function AccountPage() {
     setTimeout(() => setLocationNotice(''), 3000);
   };
 
+  const geocodeLocation = async (locationId: string) => {
+    try {
+      const response = await fetch(`/api/retailer-locations/${locationId}/geocode`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Unable to geocode location.');
+      }
+    } catch (error) {
+      console.warn('Location geocoding failed:', error);
+    }
+  };
+
   const fetchLocations = async () => {
     setLocationsLoading(true);
     setLocationsError('');
@@ -122,14 +137,19 @@ export default function AccountPage() {
       if (!matchesProfileAddress) {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          await supabase.from('retailer_locations').insert({
+          const { data: insertedProfileLocation } = await supabase.from('retailer_locations').insert({
             retailer_id: user.id,
             location_name: 'Primary Address',
             public_display_name: retailer.company_name,
             business_address: retailer.business_address,
             phone: retailer.phone || null,
             is_default: nextLocations.length === 0,
-          });
+          }).select('id').single();
+
+          if (insertedProfileLocation?.id) {
+            await geocodeLocation(insertedProfileLocation.id);
+          }
+
           setHasSyncedProfileLocation(true);
           fetchLocations();
           return;
@@ -196,6 +216,8 @@ export default function AccountPage() {
       }
 
       if (insertedLocation?.id) {
+        await geocodeLocation(insertedLocation.id);
+
         fetch('/api/retailer-locations/notify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -272,6 +294,8 @@ export default function AccountPage() {
       if (error) {
         throw error;
       }
+
+      await geocodeLocation(editLocationId);
 
       setEditLocationId(null);
       showLocationNotice('Location updated.');
