@@ -125,6 +125,7 @@ export default function AccountPage() {
           await supabase.from('retailer_locations').insert({
             retailer_id: user.id,
             location_name: 'Primary Address',
+            public_display_name: retailer.company_name,
             business_address: retailer.business_address,
             phone: retailer.phone || null,
             is_default: nextLocations.length === 0,
