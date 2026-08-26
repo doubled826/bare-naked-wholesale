@@ -40,12 +40,20 @@ const getRetailer = (retailer: StoreLocatorLocationRow['retailer']) => (
   Array.isArray(retailer) ? retailer[0] : retailer
 );
 
+const isGenericLocationName = (value: string | null | undefined) => {
+  const normalized = value?.trim().toLowerCase();
+  return !normalized || normalized === 'primary address';
+};
+
 export const toPublicStoreLocatorLocation = (
   location: StoreLocatorLocationRow,
 ): PublicStoreLocatorLocation => {
   const retailer = getRetailer(location.retailer);
+  const locationName = isGenericLocationName(location.location_name)
+    ? null
+    : cleanString(location.location_name);
   const name = cleanString(location.public_display_name)
-    || cleanString(location.location_name)
+    || locationName
     || cleanString(retailer?.company_name)
     || 'Bare Naked Pet Co. Retailer';
 

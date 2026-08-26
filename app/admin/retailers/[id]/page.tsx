@@ -561,6 +561,7 @@ export default function AdminRetailerDetailPage() {
               .insert({
                 retailer_id: retailerData.id,
                 location_name: 'Primary Address',
+                public_display_name: retailerData.company_name,
                 business_address: retailerData.business_address,
                 phone: retailerData.phone || null,
                 is_default: true,
