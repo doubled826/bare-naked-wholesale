@@ -64,7 +64,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
         .order('created_at', { ascending: false }),
       adminClient
         .from('retailer_locations')
-        .select('id, location_name, business_address, phone, is_default, created_at')
+        .select('id, location_name, business_address, phone, is_default, is_public, public_display_name, website_url, instagram_url, latitude, longitude, public_hours, public_notes, locator_updated_at, locator_verified_at, created_at')
         .eq('retailer_id', retailerId)
         .order('is_default', { ascending: false })
         .order('created_at', { ascending: true }),

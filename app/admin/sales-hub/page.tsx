@@ -13,6 +13,7 @@ import {
   ClipboardList,
   Clock,
   Copy,
+  ExternalLink,
   FileText,
   Mail,
   MessageSquare,
@@ -83,6 +84,29 @@ interface DealOption {
   id: number;
   title: string;
 }
+
+type PipedriveActivity = {
+  id: number;
+  subject: string;
+  type: string | null;
+  dueDate: string | null;
+  dueTime: string | null;
+  duration: string | null;
+  note: string | null;
+  dealId: number | null;
+  dealTitle: string | null;
+  personId: number | null;
+  personName: string | null;
+  orgId: number | null;
+  orgName: string | null;
+  ownerName: string | null;
+};
+
+type ActivityDraft = {
+  outcomeNote: string;
+  nextSubject: string;
+  nextDueDate: string;
+};
 
 type FirstOrderPriority = 'setup_pending' | 'overdue' | 'due' | 'aging' | 'new';
 type FirstOrderFollowUpStatus = 'not_set' | 'overdue' | 'due' | 'upcoming';
@@ -668,10 +692,46 @@ async function updateDealStage(dealId: number, stageName: string) {
   return data.deal;
 }
 
+async function loadPipedriveActivities(dueThrough: string) {
+  const res = await fetch(`/api/admin/pipedrive/activities?dueThrough=${encodeURIComponent(dueThrough)}&limit=100`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || 'Unable to load Pipedrive activities.');
+  }
+  return {
+    activities: (data.activities || []) as PipedriveActivity[],
+    stats: (data.stats || { overdue: 0, dueToday: 0 }) as { overdue: number; dueToday: number },
+  };
+}
+
+async function completePipedriveActivity(activity: PipedriveActivity, draft: ActivityDraft) {
+  const res = await fetch('/api/admin/pipedrive/activities', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      activityId: activity.id,
+      dealId: activity.dealId,
+      outcomeNote: draft.outcomeNote,
+      nextSubject: draft.nextSubject,
+      nextDueDate: draft.nextDueDate,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || 'Unable to complete Pipedrive activity.');
+  }
+  return data;
+}
+
 function addDays(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
   return d.toISOString().split('T')[0];
+}
+
+function localDateInputValue(date = new Date()) {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60 * 1000);
+  return offsetDate.toISOString().slice(0, 10);
 }
 
 function subtractDays(dateString: string, days: number): string {
@@ -2607,6 +2667,257 @@ ${retailer.recommended_action.angle}
 Would it be helpful if I sent over a simple next step or suggested order mix?`;
 }
 
+function pipedriveDealUrl(dealId: number) {
+  return `https://app.pipedrive.com/deal/${dealId}`;
+}
+
+function pipedriveActivityUrl(activityId: number) {
+  return `https://app.pipedrive.com/activity/${activityId}`;
+}
+
+function nextActivitySubject(activity: PipedriveActivity) {
+  const account = activity.dealTitle || activity.orgName || activity.personName || 'account';
+  return `BNP - Next follow-up with ${account}`;
+}
+
+function activityDraftDefaults(activity: PipedriveActivity): ActivityDraft {
+  return {
+    outcomeNote: '',
+    nextSubject: activity.dealId ? nextActivitySubject(activity) : '',
+    nextDueDate: localDateInputValue(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)),
+  };
+}
+
+function PipedriveOverdueActivities() {
+  const [activities, setActivities] = useState<PipedriveActivity[]>([]);
+  const [stats, setStats] = useState({ overdue: 0, dueToday: 0 });
+  const [drafts, setDrafts] = useState<Record<number, ActivityDraft>>({});
+  const [notice, setNotice] = useState<AdminNotice | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [showCompleted, setShowCompleted] = useState(0);
+
+  async function loadActivities(initial = false) {
+    if (initial) setLoading(true);
+    else setRefreshing(true);
+    setNotice(null);
+
+    try {
+      const result = await loadPipedriveActivities(localDateInputValue());
+      setActivities(result.activities);
+      setStats(result.stats);
+      setDrafts((current) => {
+        const next = { ...current };
+        result.activities.forEach((activity) => {
+          if (!next[activity.id]) {
+            next[activity.id] = activityDraftDefaults(activity);
+          }
+        });
+        return next;
+      });
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to load Pipedrive activities.' });
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => {
+    loadActivities(true);
+  }, []);
+
+  function updateDraft(activityId: number, updates: Partial<ActivityDraft>) {
+    const activity = activities.find((item) => item.id === activityId);
+    setDrafts((current) => ({
+      ...current,
+      [activityId]: {
+        ...(current[activityId] || (activity ? activityDraftDefaults(activity) : { outcomeNote: '', nextSubject: '', nextDueDate: '' })),
+        ...updates,
+      },
+    }));
+  }
+
+  async function clearActivity(activity: PipedriveActivity) {
+    setSavingId(activity.id);
+    setNotice(null);
+
+    try {
+      const result = await completePipedriveActivity(activity, drafts[activity.id] || activityDraftDefaults(activity));
+      setActivities((current) => current.filter((item) => item.id !== activity.id));
+      setShowCompleted((current) => current + 1);
+      const warnings = Array.isArray(result?.warnings) ? result.warnings.filter(Boolean) : [];
+      setNotice({
+        type: warnings.length > 0 ? 'error' : 'success',
+        message:
+          warnings.length > 0
+            ? `Activity completed, but ${warnings[0]}`
+            : activity.dealId
+              ? 'Activity completed. Deal note and next action saved when provided.'
+              : 'Activity completed.',
+      });
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to complete activity.' });
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  return (
+    <section className="bg-white rounded-2xl border border-cream-200 p-5 space-y-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="section-title">Pipedrive Overdue</h2>
+            {showCompleted > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                <Check className="h-3.5 w-3.5" />
+                {showCompleted} cleared
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-bark-500/60 mt-1">
+            Open Pipedrive activities due through today, ready to complete with a note and next action.
+          </p>
+        </div>
+        <button onClick={() => loadActivities()} className="btn-secondary text-sm gap-2" disabled={refreshing}>
+          <RefreshCw className={cn('w-4 h-4', refreshing && 'animate-spin')} />
+          Refresh CRM
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: 'Overdue', value: stats.overdue, icon: AlertCircle },
+          { label: 'Due today', value: stats.dueToday, icon: CalendarDays },
+          { label: 'Loaded', value: activities.length, icon: ClipboardList },
+          { label: 'Cleared', value: showCompleted, icon: Check },
+        ].map((card) => (
+          <div key={card.label} className="rounded-xl border border-cream-200 bg-cream-50 px-4 py-3">
+            <div className="flex items-center gap-2 text-bark-500/60">
+              <card.icon className="w-4 h-4" />
+              <p className="text-xs font-semibold uppercase tracking-wide">{card.label}</p>
+            </div>
+            <p className="text-2xl font-bold text-bark-500 mt-2">{card.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <AdminNoticeBanner notice={notice} />
+
+      {loading ? (
+        <div className="rounded-xl border border-cream-200 bg-cream-50 p-8 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-bark-500" />
+        </div>
+      ) : activities.length === 0 ? (
+        <div className="rounded-xl border border-cream-200 bg-cream-50 p-8 text-center">
+          <Check className="w-10 h-10 mx-auto text-emerald-600" />
+          <p className="text-sm font-semibold text-bark-500 mt-3">Pipedrive is clear through today.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {activities.map((activity) => {
+            const draft = drafts[activity.id] || activityDraftDefaults(activity);
+            const isSaving = savingId === activity.id;
+            const accountName = activity.dealTitle || activity.orgName || activity.personName || 'No linked account';
+
+            return (
+              <div key={activity.id} className="rounded-xl border border-cream-200 bg-cream-50 p-4 space-y-3">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full border border-red-200 bg-red-50 text-xs font-semibold text-red-700">
+                        {formatShortDate(activity.dueDate)}
+                        {activity.dueTime ? ` at ${activity.dueTime}` : ''}
+                      </span>
+                      {activity.type && (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full border border-cream-200 bg-white text-xs font-semibold text-bark-500/70">
+                          {activity.type}
+                        </span>
+                      )}
+                      {activity.ownerName && (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full border border-cream-200 bg-white text-xs font-semibold text-bark-500/70">
+                          {activity.ownerName}
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-base font-semibold text-bark-500">{activity.subject}</h3>
+                    <p className="text-sm text-bark-500/60">{accountName}</p>
+                    {activity.note && <p className="text-sm text-bark-500/70 line-clamp-2">{activity.note}</p>}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {activity.dealId && (
+                      <a href={pipedriveDealUrl(activity.dealId)} target="_blank" rel="noreferrer" className="btn-secondary text-sm px-3 py-2 gap-2">
+                        <ExternalLink className="w-4 h-4" />
+                        Deal
+                      </a>
+                    )}
+                    <a href={pipedriveActivityUrl(activity.id)} target="_blank" rel="noreferrer" className="btn-secondary text-sm px-3 py-2 gap-2">
+                      <ExternalLink className="w-4 h-4" />
+                      Activity
+                    </a>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_160px_auto] gap-3 items-end">
+                  <div>
+                    <label className="label">Outcome note</label>
+                    <input
+                      value={draft.outcomeNote}
+                      onChange={(event) => updateDraft(activity.id, { outcomeNote: event.target.value })}
+                      disabled={!activity.dealId}
+                      className="input text-sm py-2"
+                      placeholder={activity.dealId ? 'What happened, blocker, or buyer response' : 'Link a deal in Pipedrive to sync a note'}
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Next action</label>
+                    <input
+                      value={draft.nextSubject}
+                      onChange={(event) => updateDraft(activity.id, { nextSubject: event.target.value })}
+                      disabled={!activity.dealId}
+                      className="input text-sm py-2"
+                      placeholder={activity.dealId ? 'Leave blank if no next action' : 'Link a deal in Pipedrive to schedule'}
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Next due</label>
+                    <input
+                      type="date"
+                      value={draft.nextDueDate}
+                      onChange={(event) => updateDraft(activity.id, { nextDueDate: event.target.value })}
+                      disabled={!activity.dealId}
+                      className="input text-sm py-2"
+                    />
+                  </div>
+                  <button
+                    onClick={() => clearActivity(activity)}
+                    disabled={isSaving}
+                    className="btn-primary text-sm px-4 py-2 gap-2"
+                  >
+                    <Check className="w-4 h-4" />
+                    {isSaving ? 'Clearing...' : 'Clear'}
+                  </button>
+                </div>
+
+                {(activity.personName || activity.orgName || activity.dealTitle) && (
+                  <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-bark-500/50">
+                    {activity.personName && <span>Person: {activity.personName}</span>}
+                    {activity.orgName && <span>Org: {activity.orgName}</span>}
+                    {activity.dealTitle && <span>Deal: {activity.dealTitle}</span>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function PlaybooksTab() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -2779,6 +3090,8 @@ function MomentumQueue({ activeTab }: { activeTab: Tab }) {
 
   return (
     <section className="space-y-5">
+      {activeTab === 'today' && <PipedriveOverdueActivities />}
+
       <div className="bg-cream-100 rounded-2xl border border-cream-200 p-5 space-y-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>

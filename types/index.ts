@@ -19,7 +19,34 @@ export interface RetailerLocation {
   business_address: string;
   phone?: string | null;
   is_default: boolean;
+  is_public?: boolean;
+  public_display_name?: string | null;
+  website_url?: string | null;
+  instagram_url?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  public_hours?: string | null;
+  public_notes?: string | null;
+  locator_updated_at?: string | null;
+  locator_verified_at?: string | null;
   created_at?: string;
+}
+
+export interface PublicStoreLocatorLocation {
+  id: string;
+  retailer_id: string;
+  name: string;
+  address: string;
+  phone: string | null;
+  website_url: string | null;
+  instagram_url: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  hours: string | null;
+  notes: string | null;
+  logo_url: string | null;
+  last_updated_at: string | null;
+  verified_at: string | null;
 }
 
 export interface Product {
