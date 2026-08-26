@@ -251,7 +251,7 @@ CREATE TABLE IF NOT EXISTS retailer_locations (
   business_address TEXT NOT NULL,
   phone TEXT,
   is_default BOOLEAN DEFAULT false,
-  is_public BOOLEAN NOT NULL DEFAULT false,
+  is_public BOOLEAN NOT NULL DEFAULT true,
   public_display_name TEXT,
   website_url TEXT,
   instagram_url TEXT,
