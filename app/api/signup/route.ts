@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { sendTeamEmail } from '@/lib/email';
 import { formatBusinessAddress } from '@/lib/address';
+import { geocodeAddress } from '@/lib/geocoding';
 import { sendWholesaleLeadQualifiedEvent } from '@/lib/metaConversions';
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 
@@ -140,6 +141,33 @@ export async function POST(request: Request) {
       const adminClient = createSupabaseAdminClient();
       const qualifiedAt = new Date().toISOString();
       const normalizedSignupEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+
+      try {
+        const { data: defaultLocation } = await adminClient
+          .from('retailer_locations')
+          .select('id, business_address')
+          .eq('retailer_id', authData.user.id)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        if (defaultLocation?.id && defaultLocation.business_address) {
+          const geocoded = await geocodeAddress(defaultLocation.business_address);
+          await adminClient
+            .from('retailer_locations')
+            .update({
+              latitude: geocoded.latitude,
+              longitude: geocoded.longitude,
+              geocoded_at: new Date().toISOString(),
+              geocoding_error: null,
+              locator_updated_at: new Date().toISOString(),
+            })
+            .eq('id', defaultLocation.id);
+        }
+      } catch (geocodeError) {
+        console.warn('Signup location geocoding failed:', geocodeError);
+      }
+
       const { data: matchingLead, error: matchingLeadError } = await adminClient
         .from('wholesale_leads')
         .select('*')
