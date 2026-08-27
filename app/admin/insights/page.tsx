@@ -14,6 +14,7 @@ import {
   Line,
   BarChart,
   Bar,
+  Cell,
 } from 'recharts';
 import { ArrowUpRight, Calendar, ChevronDown, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -79,6 +80,8 @@ type PerformanceMetric = 'revenue' | 'orders' | 'units' | 'velocity';
 
 type PerformanceTrendPoint = {
   period: string;
+  periodRange: string;
+  previousPeriodRange: string | null;
   revenue: number;
   previousRevenue: number | null;
   orders: number;
@@ -87,6 +90,20 @@ type PerformanceTrendPoint = {
   previousUnits: number | null;
   velocity: number;
   previousVelocity: number | null;
+};
+
+type MonthlyRevenuePoint = {
+  month: string;
+  rangeLabel: string;
+  revenue: number;
+  orders: number;
+  units: number;
+  isCurrentMonth: boolean;
+  comparisonLabel: string | null;
+  comparisonRevenue: number | null;
+  fullPreviousMonthLabel: string | null;
+  fullPreviousMonthRevenue: number | null;
+  pacingPercent: number | null;
 };
 
 type ProductRecord = {
@@ -587,33 +604,51 @@ const getTrendBucketLabel = (date: Date, interval: ChartInterval) => {
   return `${date.toLocaleString('en-US', { month: 'short' })} ${String(date.getFullYear()).slice(-2)}`;
 };
 
+const getTrendPeriodStart = (date: Date, interval: ChartInterval) => {
+  if (interval === 'month') {
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+  }
+  if (interval === 'quarter') {
+    const quarterStartMonth = Math.floor(date.getMonth() / 3) * 3;
+    return new Date(date.getFullYear(), quarterStartMonth, 1);
+  }
+  return new Date(date);
+};
+
+const addTrendInterval = (date: Date, interval: ChartInterval) => {
+  const nextDate = new Date(date);
+  if (interval === 'day') nextDate.setDate(nextDate.getDate() + 1);
+  if (interval === 'week') nextDate.setDate(nextDate.getDate() + 7);
+  if (interval === 'month') nextDate.setMonth(nextDate.getMonth() + 1);
+  if (interval === 'quarter') nextDate.setMonth(nextDate.getMonth() + 3);
+  return nextDate;
+};
+
+const formatBucketRangeLabel = (startDate: Date, endExclusiveDate: Date) => (
+  formatRangeLabel(formatDateKey(startDate), formatDateKey(addDays(endExclusiveDate, -1)))
+);
+
 const buildTrendBucketsBetween = (startDate: Date, endExclusiveDate: Date, interval: ChartInterval) => {
-  const buckets: Array<{ key: string; label: string; start: Date; end: Date }> = [];
-  const cursor = new Date(startDate);
+  const buckets: Array<{ key: string; label: string; rangeLabel: string; start: Date; end: Date }> = [];
+  const cursor = getTrendPeriodStart(startDate, interval);
 
   while (cursor < endExclusiveDate) {
-    const bucketStart = new Date(cursor);
-    let bucketEnd: Date;
-    if (interval === 'day') {
-      cursor.setDate(cursor.getDate() + 1);
-      bucketEnd = new Date(cursor);
-    } else if (interval === 'week') {
-      cursor.setDate(cursor.getDate() + 7);
-      bucketEnd = new Date(cursor);
-    } else if (interval === 'quarter') {
-      cursor.setMonth(cursor.getMonth() + 3);
-      bucketEnd = new Date(cursor);
-    } else {
-      cursor.setMonth(cursor.getMonth() + 1);
-      bucketEnd = new Date(cursor);
+    const bucketPeriodStart = new Date(cursor);
+    const bucketPeriodEnd = addTrendInterval(bucketPeriodStart, interval);
+    const bucketStart = bucketPeriodStart < startDate ? new Date(startDate) : bucketPeriodStart;
+    const bucketEnd = bucketPeriodEnd < endExclusiveDate ? bucketPeriodEnd : new Date(endExclusiveDate);
+
+    if (bucketStart < bucketEnd) {
+      buckets.push({
+        key: getTrendBucketKey(bucketPeriodStart, interval),
+        label: getTrendBucketLabel(bucketPeriodStart, interval),
+        rangeLabel: formatBucketRangeLabel(bucketStart, bucketEnd),
+        start: bucketStart,
+        end: bucketEnd,
+      });
     }
 
-    buckets.push({
-      key: getTrendBucketKey(bucketStart, interval),
-      label: getTrendBucketLabel(bucketStart, interval),
-      start: bucketStart,
-      end: bucketEnd < endExclusiveDate ? bucketEnd : endExclusiveDate,
-    });
+    cursor.setTime(bucketPeriodEnd.getTime());
   }
 
   return buckets;
@@ -626,6 +661,7 @@ export default function AdminInsightsPage() {
   const today = useMemo(() => startOfLocalDay(new Date()), []);
   const [isLoading, setIsLoading] = useState(true);
   const [performanceTrend, setPerformanceTrend] = useState<PerformanceTrendPoint[]>([]);
+  const [monthlyRevenueTrend, setMonthlyRevenueTrend] = useState<MonthlyRevenuePoint[]>([]);
   const [activePerformanceMetric, setActivePerformanceMetric] = useState<PerformanceMetric>('revenue');
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [unitsSold, setUnitsSold] = useState(0);
@@ -882,8 +918,75 @@ export default function AdminInsightsPage() {
         quantity: number | null;
         product_id?: string | null;
         product?: ProductRecord;
-        order?: { status?: string | null; retailer_id?: string | null; location_id?: string | null; created_at?: string | null } | null;
+          order?: { status?: string | null; retailer_id?: string | null; location_id?: string | null; created_at?: string | null } | null;
       }> | null) || [];
+
+      const currentYear = today.getFullYear();
+      const currentMonthIndex = today.getMonth();
+      const currentDayOfMonth = today.getDate();
+      const sumOrdersBetween = (start: Date, endExclusive: Date) => {
+        const ordersInRange = validOrders.filter((order) => {
+          const orderDate = new Date(order.created_at);
+          return orderDate >= start && orderDate < endExclusive;
+        });
+        return {
+          revenue: ordersInRange.reduce((sum, order) => sum + (Number(order.total) || 0), 0),
+          orders: ordersInRange.length,
+        };
+      };
+      const sumUnitsBetween = (start: Date, endExclusive: Date) => (
+        itemRows.reduce((sum, item) => {
+          if (item.order?.status === 'canceled' || !item.order?.created_at) return sum;
+          const orderDate = new Date(item.order.created_at);
+          if (orderDate < start || orderDate >= endExclusive) return sum;
+          return sum + (item.quantity || 0);
+        }, 0)
+      );
+
+      setMonthlyRevenueTrend(
+        Array.from({ length: currentMonthIndex + 1 }, (_, monthIndex) => {
+          const monthStart = new Date(currentYear, monthIndex, 1);
+          const fullMonthEndExclusive = new Date(currentYear, monthIndex + 1, 1);
+          const isCurrentMonth = monthIndex === currentMonthIndex;
+          const monthEndExclusive = isCurrentMonth ? addDays(today, 1) : fullMonthEndExclusive;
+          const monthSummary = sumOrdersBetween(monthStart, monthEndExclusive);
+          const previousMonthStart = new Date(currentYear, monthIndex - 1, 1);
+          const previousMonthEndExclusive = new Date(currentYear, monthIndex, 1);
+          const previousMonthLastDay = new Date(previousMonthStart.getFullYear(), previousMonthStart.getMonth() + 1, 0).getDate();
+          const previousComparableEndExclusive = isCurrentMonth
+            ? addDays(new Date(previousMonthStart.getFullYear(), previousMonthStart.getMonth(), Math.min(currentDayOfMonth, previousMonthLastDay)), 1)
+            : previousMonthEndExclusive;
+          const previousMonthSummary = monthIndex > 0 || isCurrentMonth
+            ? sumOrdersBetween(previousMonthStart, previousMonthEndExclusive)
+            : null;
+          const comparisonSummary = monthIndex > 0 || isCurrentMonth
+            ? sumOrdersBetween(previousMonthStart, previousComparableEndExclusive)
+            : null;
+          const comparisonRevenue = comparisonSummary?.revenue ?? null;
+
+          return {
+            month: monthStart.toLocaleString('en-US', { month: 'short' }),
+            rangeLabel: formatBucketRangeLabel(monthStart, monthEndExclusive),
+            revenue: monthSummary.revenue,
+            orders: monthSummary.orders,
+            units: sumUnitsBetween(monthStart, monthEndExclusive),
+            isCurrentMonth,
+            comparisonLabel: comparisonSummary
+              ? isCurrentMonth
+                ? `${previousMonthStart.toLocaleString('en-US', { month: 'short' })} 1-${Math.min(currentDayOfMonth, previousMonthLastDay)}`
+                : previousMonthStart.toLocaleString('en-US', { month: 'long' })
+              : null,
+            comparisonRevenue,
+            fullPreviousMonthLabel: previousMonthSummary
+              ? previousMonthStart.toLocaleString('en-US', { month: 'long' })
+              : null,
+            fullPreviousMonthRevenue: previousMonthSummary?.revenue ?? null,
+            pacingPercent: comparisonRevenue && comparisonRevenue > 0
+              ? ((monthSummary.revenue - comparisonRevenue) / comparisonRevenue) * 100
+              : null,
+          };
+        }),
+      );
 
       setTotalRevenue(totalRevenueValue);
       setUnitsSold(unitsSoldValue);
@@ -1306,6 +1409,8 @@ export default function AdminInsightsPage() {
 
         return {
           period: bucket.label,
+          periodRange: bucket.rangeLabel,
+          previousPeriodRange: previousBucket?.rangeLabel || null,
           revenue: current?.revenue || 0,
           previousRevenue: previous ? previous.revenue : null,
           orders: current?.orders || 0,
@@ -2031,7 +2136,11 @@ export default function AdminInsightsPage() {
           <div>
             <p className="text-xs font-semibold uppercase text-gray-400">Trend</p>
             <h3 className="mt-1 text-lg font-semibold text-gray-900">Wholesale momentum</h3>
-            <p className="mt-1 text-sm text-gray-500">Switch the signal when you want to inspect the movement behind the brief.</p>
+            <p className="mt-1 text-sm text-gray-500">
+              {activePerformanceMetric === 'revenue'
+                ? 'Calendar-month revenue for the year, with this month shown month to date.'
+                : 'Switch the signal when you want to inspect the movement behind the brief.'}
+            </p>
           </div>
           <div className="flex flex-col gap-2 sm:items-end">
             <div className="flex flex-wrap gap-2">
@@ -2054,7 +2163,7 @@ export default function AdminInsightsPage() {
                 );
               })}
             </div>
-            {hasPreviousPerformance && (
+            {activePerformanceMetric !== 'revenue' && hasPreviousPerformance && (
               <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-500">
                 <input
                   type="checkbox"
@@ -2068,7 +2177,29 @@ export default function AdminInsightsPage() {
           </div>
         </div>
         <div className="mt-5 h-72">
-          {performanceTrend.length === 0 ? (
+          {activePerformanceMetric === 'revenue' ? (
+            monthlyRevenueTrend.length === 0 ? (
+              <EmptyPanel message="No calendar-year revenue data is available yet." />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthlyRevenueTrend} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#EFE6CB" strokeDasharray="3 3" />
+                  <XAxis dataKey="month" tick={{ fill: '#6B7280', fontSize: 12 }} />
+                  <YAxis
+                    width={64}
+                    tick={{ fill: '#6B7280', fontSize: 12 }}
+                    tickFormatter={(value) => formatCompactCurrency(Number(value))}
+                  />
+                  <Tooltip content={<MonthlyRevenueTooltip />} cursor={{ fill: '#F9F5EA' }} />
+                  <Bar dataKey="revenue" name="Revenue" radius={[6, 6, 0, 0]}>
+                    {monthlyRevenueTrend.map((point) => (
+                      <Cell key={point.month} fill={point.isCurrentMonth ? '#3F1D0B' : '#B59B82'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )
+          ) : performanceTrend.length === 0 ? (
             <EmptyPanel message="No performance data is available for this range yet." />
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -2078,7 +2209,7 @@ export default function AdminInsightsPage() {
                 <YAxis
                   width={64}
                   tick={{ fill: '#6B7280', fontSize: 12 }}
-                  tickFormatter={(value) => activePerformanceMetric === 'revenue' ? formatCompactCurrency(Number(value)) : Number(value).toLocaleString()}
+                  tickFormatter={(value) => Number(value).toLocaleString()}
                 />
                 <Tooltip
                   content={<PerformanceTooltip metric={activePerformanceMetric} metricLabel={selectedPerformanceMetric.label} comparisonLabel={comparisonMetrics.label} previousKey={previousPerformanceDataKey} />}
@@ -3267,6 +3398,64 @@ function CalendarMonth({
   );
 }
 
+function MonthlyRevenueTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{ value?: number | null; payload?: MonthlyRevenuePoint }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const point = payload[0]?.payload;
+  if (!point) return null;
+  const comparisonDelta = point.comparisonRevenue === null ? null : point.revenue - point.comparisonRevenue;
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-lg">
+      <p className="font-semibold text-gray-900">
+        {label}{point.isCurrentMonth ? ' MTD' : ''}
+      </p>
+      <p className="mt-1 text-gray-500">{point.rangeLabel}</p>
+      <div className="mt-2 space-y-1 text-gray-600">
+        <p className="flex justify-between gap-6">
+          <span>{point.isCurrentMonth ? 'MTD revenue' : 'Revenue'}</span>
+          <span className="font-semibold text-gray-900">{formatCurrency(point.revenue)}</span>
+        </p>
+        <p className="flex justify-between gap-6">
+          <span>Orders</span>
+          <span className="font-semibold text-gray-900">{point.orders.toLocaleString()}</span>
+        </p>
+        <p className="flex justify-between gap-6">
+          <span>Units</span>
+          <span className="font-semibold text-gray-900">{point.units.toLocaleString()}</span>
+        </p>
+        {point.comparisonRevenue !== null && point.comparisonLabel && (
+          <>
+            <p className="flex justify-between gap-6 border-t border-gray-100 pt-2">
+              <span>{point.isCurrentMonth ? `${point.comparisonLabel} revenue` : `${point.comparisonLabel} revenue`}</span>
+              <span className="font-semibold text-gray-900">{formatCurrency(point.comparisonRevenue)}</span>
+            </p>
+            <p className="flex justify-between gap-6">
+              <span>{point.isCurrentMonth ? 'Pacing' : 'Change'}</span>
+              <span className={`font-semibold ${comparisonDelta !== null && comparisonDelta >= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {point.pacingPercent === null ? 'n/a' : formatSignedPercent(point.pacingPercent)}
+              </span>
+            </p>
+          </>
+        )}
+        {point.isCurrentMonth && point.fullPreviousMonthRevenue !== null && point.fullPreviousMonthLabel && (
+          <p className="flex justify-between gap-6">
+            <span>Full {point.fullPreviousMonthLabel}</span>
+            <span className="font-semibold text-gray-900">{formatCurrency(point.fullPreviousMonthRevenue)}</span>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PerformanceTooltip({
   active,
   payload,
@@ -3277,7 +3466,7 @@ function PerformanceTooltip({
   previousKey,
 }: {
   active?: boolean;
-  payload?: Array<{ dataKey?: string | number; value?: number | null }>;
+  payload?: Array<{ dataKey?: string | number; value?: number | null; payload?: PerformanceTrendPoint }>;
   label?: string;
   metric: PerformanceMetric;
   metricLabel: string;
@@ -3290,6 +3479,7 @@ function PerformanceTooltip({
   const previousValue = previousRawValue === null || previousRawValue === undefined ? null : Number(previousRawValue);
   const delta = previousValue === null ? null : currentValue - previousValue;
   const percentDelta = previousValue && previousValue !== 0 && delta !== null ? (delta / previousValue) * 100 : null;
+  const point = payload[0]?.payload;
   const formatValue = (value: number) => metric === 'revenue'
     ? formatCurrency(value)
     : value.toLocaleString(undefined, { maximumFractionDigits: metric === 'velocity' ? 2 : 0 });
@@ -3297,6 +3487,9 @@ function PerformanceTooltip({
   return (
     <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-lg">
       <p className="font-semibold text-gray-900">{label}</p>
+      {point?.periodRange && (
+        <p className="mt-1 text-gray-500">{point.periodRange}</p>
+      )}
       <div className="mt-2 space-y-1 text-gray-600">
         <p className="flex justify-between gap-6">
           <span>Current {metricLabel}</span>
@@ -3305,7 +3498,7 @@ function PerformanceTooltip({
         {previousValue !== null && (
           <>
             <p className="flex justify-between gap-6">
-              <span>{comparisonLabel || 'Comparison'}</span>
+              <span>{point?.previousPeriodRange || comparisonLabel || 'Comparison'}</span>
               <span className="font-semibold text-gray-900">{formatValue(previousValue)}</span>
             </p>
             <p className="flex justify-between gap-6">
