@@ -261,6 +261,8 @@ CREATE TABLE IF NOT EXISTS retailer_locations (
   public_notes TEXT,
   locator_updated_at TIMESTAMPTZ,
   locator_verified_at TIMESTAMPTZ,
+  geocoded_at TIMESTAMPTZ,
+  geocoding_error TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

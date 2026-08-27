@@ -377,6 +377,21 @@ export default function AdminRetailerDetailPage() {
     setTimeout(() => setSuccessNotice(null), 3000);
   };
 
+  const geocodeLocation = async (locationId: string) => {
+    try {
+      const response = await fetch(`/api/retailer-locations/${locationId}/geocode`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Unable to geocode location.');
+      }
+    } catch (error) {
+      console.warn('Location geocoding failed:', error);
+    }
+  };
+
   const parseCoordinate = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return null;
@@ -572,6 +587,8 @@ export default function AdminRetailerDetailPage() {
             if (insertError) throw insertError;
 
             if (insertedLocation?.id) {
+              await geocodeLocation(insertedLocation.id);
+
               await supabase
                 .from('retailer_locations')
                 .update({ is_default: false })
@@ -703,6 +720,10 @@ export default function AdminRetailerDetailPage() {
 
       if (insertError) throw insertError;
 
+      if (insertedLocation?.id) {
+        await geocodeLocation(insertedLocation.id);
+      }
+
       if (shouldBeDefault && insertedLocation?.id) {
         await supabase
           .from('retailer_locations')
@@ -799,6 +820,8 @@ export default function AdminRetailerDetailPage() {
         .eq('id', editLocationId);
 
       if (updateError) throw updateError;
+
+      await geocodeLocation(editLocationId);
 
       setEditLocationId(null);
       showLocationNotice('Location updated.');
