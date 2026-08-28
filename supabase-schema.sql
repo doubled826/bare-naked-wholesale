@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS retailers (
   contact_name TEXT,
   business_address TEXT NOT NULL,
   phone TEXT NOT NULL,
+  tax_id TEXT,
   how_heard_about_us TEXT,
   how_heard_about_us_other TEXT,
   logo_url TEXT,
@@ -28,6 +29,9 @@ ALTER TABLE retailers
 ALTER TABLE retailers
   ADD COLUMN IF NOT EXISTS how_heard_about_us TEXT,
   ADD COLUMN IF NOT EXISTS how_heard_about_us_other TEXT;
+
+ALTER TABLE retailers
+  ADD COLUMN IF NOT EXISTS tax_id TEXT;
 
 -- Products table
 CREATE TABLE products (
@@ -1011,13 +1015,14 @@ BEGIN
   retailer_business_address := COALESCE(new.raw_user_meta_data->>'business_address', 'No Address Provided');
   retailer_phone := COALESCE(new.raw_user_meta_data->>'phone', 'No Phone Provided');
 
-  INSERT INTO public.retailers (id, company_name, business_address, phone, contact_name, how_heard_about_us, how_heard_about_us_other, status)
+  INSERT INTO public.retailers (id, company_name, business_address, phone, contact_name, tax_id, how_heard_about_us, how_heard_about_us_other, status)
   VALUES (
     new.id,
     retailer_company_name,
     retailer_business_address,
     retailer_phone,
     NULLIF(TRIM(new.raw_user_meta_data->>'display_name'), ''),
+    NULLIF(TRIM(new.raw_user_meta_data->>'tax_id'), ''),
     NULLIF(TRIM(new.raw_user_meta_data->>'how_heard_about_us'), ''),
     NULLIF(TRIM(new.raw_user_meta_data->>'how_heard_about_us_other'), ''),
     'pending'
@@ -1050,7 +1055,7 @@ BEGIN
 
   RETURN new;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 -- 4. The Trigger: Fires every time a new user signs up in Supabase Auth
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
