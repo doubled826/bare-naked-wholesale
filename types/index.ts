@@ -31,8 +31,24 @@ export interface RetailerLocation {
   locator_verified_at?: string | null;
   geocoded_at?: string | null;
   geocoding_error?: string | null;
+  google_place_id?: string | null;
+  google_place_match_confidence?: number | null;
+  google_place_matched_at?: string | null;
+  google_place_match_error?: string | null;
+  google_place_review_status?: GooglePlaceReviewStatus | null;
+  google_place_reviewed_at?: string | null;
+  google_place_review_notes?: string | null;
   created_at?: string;
 }
+
+export type GooglePlaceReviewStatus =
+  | 'needs_review'
+  | 'high_confidence'
+  | 'low_confidence'
+  | 'no_listing'
+  | 'approved_portal_data'
+  | 'use_google_manually'
+  | 'dismissed';
 
 export interface PublicStoreLocatorLocation {
   id: string;
@@ -49,6 +65,37 @@ export interface PublicStoreLocatorLocation {
   logo_url: string | null;
   last_updated_at: string | null;
   verified_at: string | null;
+}
+
+export type StoreNominationStatus = 'new' | 'reviewing' | 'contacted' | 'converted' | 'dismissed';
+
+export interface StoreNomination {
+  id: string;
+  consumer_name: string;
+  consumer_email: string;
+  consumer_phone?: string | null;
+  store_name: string;
+  store_address?: string | null;
+  store_city?: string | null;
+  store_state?: string | null;
+  store_postal_code?: string | null;
+  store_url?: string | null;
+  note?: string | null;
+  status: StoreNominationStatus;
+  admin_notes?: string | null;
+  source?: string | null;
+  landing_page_url?: string | null;
+  referrer?: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_content?: string | null;
+  utm_term?: string | null;
+  ip_address?: string | null;
+  user_agent?: string | null;
+  raw_payload?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface Product {

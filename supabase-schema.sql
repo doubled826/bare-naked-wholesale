@@ -267,6 +267,22 @@ CREATE TABLE IF NOT EXISTS retailer_locations (
   locator_verified_at TIMESTAMPTZ,
   geocoded_at TIMESTAMPTZ,
   geocoding_error TEXT,
+  google_place_id TEXT,
+  google_place_match_confidence NUMERIC(5, 2),
+  google_place_matched_at TIMESTAMPTZ,
+  google_place_match_error TEXT,
+  google_place_review_status TEXT NOT NULL DEFAULT 'needs_review'
+    CHECK (google_place_review_status IN (
+      'needs_review',
+      'high_confidence',
+      'low_confidence',
+      'no_listing',
+      'approved_portal_data',
+      'use_google_manually',
+      'dismissed'
+    )),
+  google_place_reviewed_at TIMESTAMPTZ,
+  google_place_review_notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -320,6 +336,36 @@ CREATE TABLE IF NOT EXISTS shelf_talker_fulfillments (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS store_nominations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  consumer_name TEXT NOT NULL,
+  consumer_email TEXT NOT NULL,
+  consumer_phone TEXT,
+  store_name TEXT NOT NULL,
+  store_address TEXT,
+  store_city TEXT,
+  store_state TEXT,
+  store_postal_code TEXT,
+  store_url TEXT,
+  note TEXT,
+  status TEXT NOT NULL DEFAULT 'new'
+    CHECK (status IN ('new', 'reviewing', 'contacted', 'converted', 'dismissed')),
+  admin_notes TEXT,
+  source TEXT,
+  landing_page_url TEXT,
+  referrer TEXT,
+  utm_source TEXT,
+  utm_medium TEXT,
+  utm_campaign TEXT,
+  utm_content TEXT,
+  utm_term TEXT,
+  ip_address TEXT,
+  user_agent TEXT,
+  raw_payload JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Create indexes for performance
 CREATE INDEX idx_orders_retailer_id ON orders(retailer_id);
 CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
@@ -331,6 +377,11 @@ CREATE INDEX IF NOT EXISTS idx_retailer_locations_store_locator_public
 CREATE INDEX IF NOT EXISTS idx_retailer_locations_coordinates
   ON retailer_locations(latitude, longitude)
   WHERE is_public = true AND latitude IS NOT NULL AND longitude IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_retailer_locations_google_place_id
+  ON retailer_locations(google_place_id)
+  WHERE google_place_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_retailer_locations_google_place_review_status
+  ON retailer_locations(google_place_review_status, google_place_matched_at DESC);
 CREATE INDEX idx_marketing_material_requests_retailer_status ON marketing_material_requests(retailer_id, status);
 CREATE INDEX idx_launch_promo_requests_retailer_status ON launch_promo_requests(retailer_id, status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_shelf_talker_fulfillments_retailer_flavor_null_location
@@ -341,6 +392,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_shelf_talker_fulfillments_location_flavor
   WHERE location_id IS NOT NULL AND status IN ('queued', 'sent');
 CREATE INDEX IF NOT EXISTS idx_shelf_talker_fulfillments_retailer_status ON shelf_talker_fulfillments(retailer_id, status);
 CREATE INDEX IF NOT EXISTS idx_shelf_talker_fulfillments_order ON shelf_talker_fulfillments(fulfilled_order_id);
+CREATE INDEX IF NOT EXISTS idx_store_nominations_created_at ON store_nominations(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_store_nominations_status ON store_nominations(status, created_at DESC);
 
 -- Enable Row Level Security
 ALTER TABLE retailers ENABLE ROW LEVEL SECURITY;
@@ -360,6 +413,7 @@ ALTER TABLE first_order_followups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bare_launch_offer_email_reminders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE welcome_offer_reminder_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE welcome_offer_reminder_preferences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE store_nominations ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for retailers
 CREATE POLICY "Users can view their own retailer profile"
@@ -405,6 +459,39 @@ CREATE POLICY "Admins can manage retailer locations"
     )
   )
   WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins can view store nominations"
+  ON store_nominations FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins can update store nominations"
+  ON store_nominations FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins can delete store nominations"
+  ON store_nominations FOR DELETE
+  USING (
     EXISTS (
       SELECT 1 FROM admin_users
       WHERE admin_users.id = auth.uid()
@@ -825,6 +912,9 @@ CREATE TRIGGER update_announcements_updated_at BEFORE UPDATE ON announcements
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_resources_updated_at BEFORE UPDATE ON resources
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_store_nominations_updated_at BEFORE UPDATE ON store_nominations
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Ensure existing orders can add location_id column when migrating
