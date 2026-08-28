@@ -27,7 +27,8 @@ import {
   Send,
   Zap,
   ClipboardList,
-  Target
+  Target,
+  Store
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -47,6 +48,7 @@ const navigation: NavigationItem[] = [
   { name: 'Insights', href: '/admin/insights', icon: BarChart2 },
   { name: 'Sales Hub', href: '/admin/sales-hub', icon: Zap },
   { name: 'Wholesale Pipeline', href: '/admin/wholesale-pipeline', icon: ClipboardList },
+  { name: 'Store Nominations', href: '/admin/store-nominations', icon: Store },
   { name: 'Orders', href: '/admin/orders', icon: ShoppingCart },
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
   {

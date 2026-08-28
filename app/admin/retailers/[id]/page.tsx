@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { AlertCircle, ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target, Search, X, Unlink } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target, Search, X, Unlink, ExternalLink } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
@@ -95,8 +95,28 @@ interface RetailerLocation {
   public_notes?: string | null;
   locator_updated_at?: string | null;
   locator_verified_at?: string | null;
+  geocoded_at?: string | null;
+  geocoding_error?: string | null;
+  google_place_id?: string | null;
+  google_place_match_confidence?: number | null;
+  google_place_matched_at?: string | null;
+  google_place_match_error?: string | null;
   created_at: string;
 }
+
+type GooglePlaceMatch = {
+  placeId: string;
+  displayName: string | null;
+  formattedAddress: string | null;
+  nationalPhoneNumber: string | null;
+  internationalPhoneNumber: string | null;
+  websiteUri: string | null;
+  googleMapsUri: string | null;
+  businessStatus: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  confidence: number;
+};
 
 interface ProductOption {
   id: string;
@@ -330,6 +350,8 @@ export default function AdminRetailerDetailPage() {
   const [isSavingLocation, setIsSavingLocation] = useState(false);
   const [isDeletingLocationId, setIsDeletingLocationId] = useState<string | null>(null);
   const [isSettingDefaultId, setIsSettingDefaultId] = useState<string | null>(null);
+  const [isCheckingGooglePlaceId, setIsCheckingGooglePlaceId] = useState<string | null>(null);
+  const [googlePlaceMatches, setGooglePlaceMatches] = useState<Record<string, GooglePlaceMatch>>({});
   const [locationNotice, setLocationNotice] = useState<Notice | null>(null);
   const [credits, setCredits] = useState<RetailerCredit[]>([]);
   const [availableCreditBalance, setAvailableCreditBalance] = useState(0);
@@ -389,6 +411,31 @@ export default function AdminRetailerDetailPage() {
       }
     } catch (error) {
       console.warn('Location geocoding failed:', error);
+    }
+  };
+
+  const compareLocationWithGoogle = async (locationId: string) => {
+    setIsCheckingGooglePlaceId(locationId);
+    try {
+      const response = await fetch(`/api/admin/retailer-locations/${locationId}/google-place`, {
+        method: 'POST',
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Unable to compare with Google.');
+      }
+
+      setGooglePlaceMatches((current) => ({
+        ...current,
+        [locationId]: payload.match as GooglePlaceMatch,
+      }));
+      showLocationNotice('Google Business listing loaded for review.');
+      fetchData();
+    } catch (error) {
+      showLocationNotice(error instanceof Error ? error.message : 'Unable to compare with Google.', 'error');
+    } finally {
+      setIsCheckingGooglePlaceId(null);
     }
   };
 
@@ -2146,6 +2193,51 @@ export default function AdminRetailerDetailPage() {
                     </div>
                   </div>
                 )}
+                <div className="rounded-lg border border-amber-100 bg-amber-50/60 p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Google Business comparison</p>
+                      <p className="mt-1 text-xs text-gray-600">
+                        {location.google_place_id
+                          ? `Matched ${Math.round(Number(location.google_place_match_confidence || 0) * 100)}% confidence`
+                          : location.google_place_match_error || 'Check Google before using public phone or address details.'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => compareLocationWithGoogle(location.id)}
+                      disabled={isCheckingGooglePlaceId === location.id}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:border-bark-500 hover:text-bark-500 disabled:opacity-50"
+                    >
+                      {isCheckingGooglePlaceId === location.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                      Compare
+                    </button>
+                  </div>
+                  {googlePlaceMatches[location.id] && (
+                    <div className="mt-3 grid gap-3 rounded-lg border border-amber-200 bg-white p-3 text-sm md:grid-cols-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Google listing</p>
+                        <p className="mt-1 font-semibold text-gray-900">{googlePlaceMatches[location.id].displayName || 'Unnamed listing'}</p>
+                        <p className="mt-1 whitespace-pre-line text-gray-600">{googlePlaceMatches[location.id].formattedAddress || 'No address returned'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Public details from Google</p>
+                        <p className="mt-1 text-gray-700">{googlePlaceMatches[location.id].nationalPhoneNumber || googlePlaceMatches[location.id].internationalPhoneNumber || 'No phone returned'}</p>
+                        {googlePlaceMatches[location.id].websiteUri && (
+                          <a href={googlePlaceMatches[location.id].websiteUri || '#'} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-bark-500 hover:text-bark-600">
+                            Website <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        )}
+                        {googlePlaceMatches[location.id].googleMapsUri && (
+                          <a href={googlePlaceMatches[location.id].googleMapsUri || '#'} target="_blank" rel="noreferrer" className="ml-3 mt-1 inline-flex items-center gap-1 text-bark-500 hover:text-bark-600">
+                            Maps <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        )}
+                        <p className="mt-2 text-xs text-gray-500">Source: Google Places. Use this for internal review before updating portal fields.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
