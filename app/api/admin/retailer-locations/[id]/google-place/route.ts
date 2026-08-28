@@ -57,6 +57,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
         google_place_match_confidence: match.confidence,
         google_place_matched_at: new Date().toISOString(),
         google_place_match_error: null,
+        google_place_review_status: match.confidence >= 0.75 ? 'high_confidence' : 'low_confidence',
       })
       .eq('id', location.id);
 
@@ -82,6 +83,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
           .update({
             google_place_match_error: message,
             google_place_matched_at: new Date().toISOString(),
+            google_place_review_status: 'no_listing',
           })
           .eq('id', params.id);
       } catch (updateError) {

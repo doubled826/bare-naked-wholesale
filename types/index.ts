@@ -35,8 +35,20 @@ export interface RetailerLocation {
   google_place_match_confidence?: number | null;
   google_place_matched_at?: string | null;
   google_place_match_error?: string | null;
+  google_place_review_status?: GooglePlaceReviewStatus | null;
+  google_place_reviewed_at?: string | null;
+  google_place_review_notes?: string | null;
   created_at?: string;
 }
+
+export type GooglePlaceReviewStatus =
+  | 'needs_review'
+  | 'high_confidence'
+  | 'low_confidence'
+  | 'no_listing'
+  | 'approved_portal_data'
+  | 'use_google_manually'
+  | 'dismissed';
 
 export interface PublicStoreLocatorLocation {
   id: string;

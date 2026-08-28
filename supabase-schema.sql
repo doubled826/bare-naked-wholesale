@@ -271,6 +271,18 @@ CREATE TABLE IF NOT EXISTS retailer_locations (
   google_place_match_confidence NUMERIC(5, 2),
   google_place_matched_at TIMESTAMPTZ,
   google_place_match_error TEXT,
+  google_place_review_status TEXT NOT NULL DEFAULT 'needs_review'
+    CHECK (google_place_review_status IN (
+      'needs_review',
+      'high_confidence',
+      'low_confidence',
+      'no_listing',
+      'approved_portal_data',
+      'use_google_manually',
+      'dismissed'
+    )),
+  google_place_reviewed_at TIMESTAMPTZ,
+  google_place_review_notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -368,6 +380,8 @@ CREATE INDEX IF NOT EXISTS idx_retailer_locations_coordinates
 CREATE INDEX IF NOT EXISTS idx_retailer_locations_google_place_id
   ON retailer_locations(google_place_id)
   WHERE google_place_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_retailer_locations_google_place_review_status
+  ON retailer_locations(google_place_review_status, google_place_matched_at DESC);
 CREATE INDEX idx_marketing_material_requests_retailer_status ON marketing_material_requests(retailer_id, status);
 CREATE INDEX idx_launch_promo_requests_retailer_status ON launch_promo_requests(retailer_id, status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_shelf_talker_fulfillments_retailer_flavor_null_location
