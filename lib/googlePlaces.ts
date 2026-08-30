@@ -83,6 +83,15 @@ type PlacesApiPlace = {
   };
 };
 
+const getGoogleErrorMessage = async (response: Response) => {
+  const payload = await response.json().catch(() => null);
+  const status = payload?.error?.status || payload?.status;
+  const message = payload?.error?.message || payload?.error_message || payload?.message;
+  const details = [status, message].filter(Boolean).join(': ');
+
+  return details || `Google Places request failed with status ${response.status}.`;
+};
+
 export async function findGoogleBusinessMatch(input: {
   name: string;
   address: string;
@@ -135,7 +144,7 @@ export async function findGoogleBusinessMatch(input: {
   });
 
   if (!response.ok) {
-    throw new GooglePlacesLookupError(`Google Places request failed with status ${response.status}.`);
+    throw new GooglePlacesLookupError(await getGoogleErrorMessage(response));
   }
 
   const payload = await response.json();
