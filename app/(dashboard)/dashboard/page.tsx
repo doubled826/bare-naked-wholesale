@@ -5,7 +5,6 @@ import {
   Package, 
   Eye,
   TrendingUp, 
-  DollarSign,
   ShoppingBag,
   ArrowRight,
   Clock,
@@ -21,6 +20,7 @@ import {
   RefreshCw,
   ShoppingCart,
   X,
+  WalletCards,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
@@ -161,6 +161,8 @@ export default function DashboardPage() {
   const [isSavingLaunchOfferReminder, setIsSavingLaunchOfferReminder] = useState(false);
   const [welcomeOfferPopupState, setWelcomeOfferPopupState] = useState<WelcomeOfferPopupState | null>(null);
   const [successNotice, setSuccessNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [accountCreditAvailable, setAccountCreditAvailable] = useState(0);
+  const [creditAvailableLoading, setCreditAvailableLoading] = useState(true);
   const pendingSuccessSaveRef = useRef(false);
   const launchOfferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shelfTalkerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -272,6 +274,41 @@ export default function DashboardPage() {
     setOfferResolutionLoaded(false);
     loadCurrentOffer();
   }, [retailer?.id, orders.length]);
+
+  useEffect(() => {
+    const loadAccountCredits = async () => {
+      if (!retailer?.id) {
+        setAccountCreditAvailable(0);
+        setCreditAvailableLoading(false);
+        return;
+      }
+
+      setCreditAvailableLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('retailer_credits')
+          .select('remaining_amount')
+          .eq('retailer_id', retailer.id)
+          .in('status', ['available', 'partially_applied'])
+          .gt('remaining_amount', 0);
+
+        if (error) throw error;
+
+        const availableBalance = (data || []).reduce(
+          (sum, credit) => sum + Number(credit.remaining_amount || 0),
+          0,
+        );
+        setAccountCreditAvailable(availableBalance);
+      } catch (error) {
+        console.error('Account credit load error:', error);
+        setAccountCreditAvailable(0);
+      } finally {
+        setCreditAvailableLoading(false);
+      }
+    };
+
+    loadAccountCredits();
+  }, [retailer?.id, supabase]);
 
   useEffect(() => {
     const loadRetailerSuccess = async () => {
@@ -800,9 +837,9 @@ export default function DashboardPage() {
           color="cream"
         />
         <StatCard
-          icon={DollarSign}
-          label="Total Spent"
-          value={formatCurrency(totalWholesale)}
+          icon={WalletCards}
+          label="Credit Available"
+          value={creditAvailableLoading ? '...' : formatCurrency(accountCreditAvailable)}
           color="blue"
         />
         <StatCard
