@@ -10,6 +10,8 @@ type RouteContext = {
 
 const ORDERS_SELECT_WITH_SHELF_TALKERS = 'id, order_number, status, total, subtotal, promotion_discount_applied, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category)), shelf_talker_fulfillments(id, retailer_id, location_id, flavor, status, fulfilled_order_id, qualified_at, fulfilled_at)';
 const ORDERS_SELECT = 'id, order_number, status, total, subtotal, promotion_discount_applied, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category))';
+const LOCATIONS_SELECT = 'id, location_name, business_address, phone, is_default, is_public, public_display_name, public_address, public_phone, website_url, instagram_url, latitude, longitude, public_hours, public_notes, locator_updated_at, locator_verified_at, geocoded_at, geocoding_error, google_place_id, google_place_url, google_place_autofilled_at, google_place_match_confidence, google_place_matched_at, google_place_match_error, created_at';
+const LOCATIONS_SELECT_BASE = 'id, location_name, business_address, phone, is_default, is_public, public_display_name, website_url, instagram_url, latitude, longitude, public_hours, public_notes, locator_updated_at, locator_verified_at, geocoded_at, geocoding_error, google_place_id, google_place_match_confidence, google_place_matched_at, google_place_match_error, created_at';
 
 function isMissingOptionalRelationError(error: { code?: string; message?: string } | null) {
   if (!error) return false;
@@ -20,6 +22,10 @@ function isMissingOptionalRelationError(error: { code?: string; message?: string
     error.code === '42P01' ||
     message.includes('shelf_talker_fulfillments')
   );
+}
+
+function isMissingColumnError(error: { code?: string; message?: string } | null) {
+  return error?.code === '42703';
 }
 
 export async function GET(_request: Request, { params }: RouteContext) {
@@ -64,7 +70,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
         .order('created_at', { ascending: false }),
       adminClient
         .from('retailer_locations')
-        .select('id, location_name, business_address, phone, is_default, is_public, public_display_name, public_address, public_phone, website_url, instagram_url, latitude, longitude, public_hours, public_notes, locator_updated_at, locator_verified_at, geocoded_at, geocoding_error, google_place_id, google_place_url, google_place_autofilled_at, google_place_match_confidence, google_place_matched_at, google_place_match_error, created_at')
+        .select(LOCATIONS_SELECT)
         .eq('retailer_id', retailerId)
         .order('is_default', { ascending: false })
         .order('created_at', { ascending: true }),
@@ -112,8 +118,24 @@ export async function GET(_request: Request, { params }: RouteContext) {
       }
     }
 
+    let locations: any[] = locationsResult.data || [];
     if (locationsResult.error) {
-      console.warn(`Retailer ${retailerId} locations failed to load:`, locationsResult.error);
+      if (isMissingColumnError(locationsResult.error)) {
+        const fallbackLocationsResult = await adminClient
+          .from('retailer_locations')
+          .select(LOCATIONS_SELECT_BASE)
+          .eq('retailer_id', retailerId)
+          .order('is_default', { ascending: false })
+          .order('created_at', { ascending: true });
+
+        if (fallbackLocationsResult.error) {
+          console.warn(`Retailer ${retailerId} fallback locations failed to load:`, fallbackLocationsResult.error);
+        } else {
+          locations = fallbackLocationsResult.data || [];
+        }
+      } else {
+        console.warn(`Retailer ${retailerId} locations failed to load:`, locationsResult.error);
+      }
     }
 
     if (successProfileResult.error) {
@@ -150,7 +172,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
         pipedrive_stage_name: onboardingResult.data?.pipedrive_stage_name || null,
       },
       orders,
-      locations: locationsResult.data || [],
+      locations,
       successProfile: successProfileResult.data || null,
       currentPromo: currentPromoResult.data || null,
       shelfTalkerFulfillments: shelfTalkerResult.data || [],

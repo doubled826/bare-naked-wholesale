@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { AlertCircle, Search, Users, Edit2, Eye, X, CheckCircle, ShoppingCart, DollarSign, Plus, Mail, Download, SlidersHorizontal } from 'lucide-react';
+import { AlertCircle, Search, Users, Edit2, Eye, X, CheckCircle, ShoppingCart, DollarSign, Plus, Mail, Download, SlidersHorizontal, MapPin } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 
 interface RetailerLocationSummary {
@@ -15,6 +15,13 @@ interface RetailerLocationSummary {
 }
 interface Retailer { id: string; company_name: string; contact_name?: string | null; business_address: string; phone: string; account_number: string; created_at: string; status?: string; email?: string; tax_id?: string | null; how_heard_about_us?: string | null; how_heard_about_us_other?: string | null; locations?: RetailerLocationSummary[] }
 interface RetailerWithStats extends Retailer { total_orders: number; total_spent: number; last_order_date: string | null }
+type RetailerLocationDisplay = {
+  key: string;
+  name: string;
+  label: string;
+  address: string;
+  isPrimary: boolean;
+};
 type BuyingStatusFilter = 'all' | 'never_ordered' | 'ordered_once' | 'repeat_buyer';
 type LastOrderFilter = 'any' | 'last_30' | 'days_31_90' | 'days_90_plus' | 'never';
 type RevenueFilter = 'any' | 'zero' | 'under_250' | 'between_250_1000' | 'over_1000';
@@ -270,7 +277,7 @@ export default function AdminRetailersPage() {
     };
     const matchesState = (retailer: RetailerWithStats) => {
       if (stateFilter === 'all') return true;
-      return getRetailerState(retailer.business_address) === stateFilter;
+      return getRetailerStates(retailer).includes(stateFilter);
     };
     const matchesAccountAge = (retailer: RetailerWithStats) => {
       const daysSinceCreated = getDaysSince(retailer.created_at);
@@ -371,8 +378,69 @@ export default function AdminRetailersPage() {
     return address;
   };
 
+  const isGenericLocationName = (value?: string | null) => {
+    const normalized = value?.trim().toLowerCase();
+    return !normalized || normalized === 'primary address';
+  };
+
+  const normalizeLocationKey = (value?: string | null) => (
+    normalizeSearchText(value || '')
+  );
+
+  const getRetailerLocationDisplays = (retailer: Retailer): RetailerLocationDisplay[] => {
+    const locations: RetailerLocationDisplay[] = [];
+    const seenAddresses = new Set<string>();
+    const primaryAddressKey = normalizeLocationKey(retailer.business_address);
+
+    if (retailer.business_address) {
+      seenAddresses.add(primaryAddressKey);
+      locations.push({
+        key: `primary-${primaryAddressKey}`,
+        name: 'Primary',
+        label: getLocationLabel(retailer.business_address),
+        address: retailer.business_address,
+        isPrimary: true,
+      });
+    }
+
+    for (const location of retailer.locations || []) {
+      const addressKey = normalizeLocationKey(location.business_address);
+      if (addressKey && seenAddresses.has(addressKey)) continue;
+      if (addressKey) seenAddresses.add(addressKey);
+
+      const rawName = location.public_display_name || location.location_name || '';
+      const name = isGenericLocationName(rawName) ? 'Ship-to' : rawName.trim();
+      const address = location.business_address || '';
+
+      locations.push({
+        key: location.id || `${name}-${addressKey || locations.length}`,
+        name,
+        label: getLocationLabel(address),
+        address,
+        isPrimary: false,
+      });
+    }
+
+    return locations;
+  };
+
+  const formatRetailerLocationsForExport = (retailer: Retailer) => (
+    getRetailerLocationDisplays(retailer)
+      .map((location) => `${location.name}: ${location.address || location.label}`)
+      .join(' | ')
+  );
+
+  const getRetailerStates = (retailer: Retailer) => {
+    const states = [
+      getRetailerState(retailer.business_address),
+      ...((retailer.locations || []).map((location) => getRetailerState(location.business_address))),
+    ].filter((state): state is string => Boolean(state));
+
+    return Array.from(new Set(states));
+  };
+
   const accountStatusOptions = Array.from(new Set(retailers.map(getRetailerStatus))).sort();
-  const stateOptions = Array.from(new Set(retailers.map((retailer) => getRetailerState(retailer.business_address)).filter((state): state is string => Boolean(state)))).sort();
+  const stateOptions = Array.from(new Set(retailers.flatMap(getRetailerStates))).sort();
   const retailerListReturnTo = retailerListQuery ? `${pathname}?${retailerListQuery}` : pathname;
   const getRetailerDetailHref = (retailerId: string) => (
     `/admin/retailers/${retailerId}?returnTo=${encodeURIComponent(retailerListReturnTo)}`
@@ -463,6 +531,7 @@ export default function AdminRetailersPage() {
       'Total Spent',
       'Last Order',
       'Created At',
+      'Locations',
     ];
 
     const rows = filteredRetailers.map((retailer) => [
@@ -478,6 +547,7 @@ export default function AdminRetailersPage() {
       retailer.total_spent.toFixed(2),
       retailer.last_order_date ? new Date(retailer.last_order_date).toLocaleDateString() : 'Never',
       retailer.created_at ? new Date(retailer.created_at).toLocaleDateString() : '',
+      formatRetailerLocationsForExport(retailer),
     ]);
 
     const csv = [
@@ -813,7 +883,7 @@ export default function AdminRetailersPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Order</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Locations</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
@@ -844,7 +914,37 @@ export default function AdminRetailersPage() {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{retailer.created_at ? new Date(retailer.created_at).toLocaleDateString() : '—'}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">
-                    <span className="block max-w-[180px] truncate">{getLocationLabel(retailer.business_address)}</span>
+                    {(() => {
+                      const retailerLocations = getRetailerLocationDisplays(retailer);
+                      const title = retailerLocations
+                        .map((location) => `${location.name}: ${location.address || location.label}`)
+                        .join('\n');
+
+                      if (retailerLocations.length === 0) {
+                        return <span>—</span>;
+                      }
+
+                      return (
+                        <div className="max-w-[260px]" title={title}>
+                          <div className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                            <MapPin className="h-3 w-3" />
+                            {retailerLocations.length} {retailerLocations.length === 1 ? 'location' : 'locations'}
+                          </div>
+                          <div className="space-y-1">
+                            {retailerLocations.slice(0, 3).map((location) => (
+                              <p key={location.key} className="truncate">
+                                <span className="font-medium text-gray-700">{location.name}</span>
+                                <span className="text-gray-400"> · </span>
+                                <span>{location.label}</span>
+                              </p>
+                            ))}
+                            {retailerLocations.length > 3 && (
+                              <p className="text-xs font-medium text-gray-500">+{retailerLocations.length - 3} more</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
