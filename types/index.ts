@@ -21,6 +21,8 @@ export interface RetailerLocation {
   is_default: boolean;
   is_public?: boolean;
   public_display_name?: string | null;
+  public_address?: string | null;
+  public_phone?: string | null;
   website_url?: string | null;
   instagram_url?: string | null;
   latitude?: number | null;
@@ -35,6 +37,8 @@ export interface RetailerLocation {
   google_place_match_confidence?: number | null;
   google_place_matched_at?: string | null;
   google_place_match_error?: string | null;
+  google_place_url?: string | null;
+  google_place_autofilled_at?: string | null;
   google_place_review_status?: GooglePlaceReviewStatus | null;
   google_place_reviewed_at?: string | null;
   google_place_review_notes?: string | null;

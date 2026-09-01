@@ -12,6 +12,8 @@ export type StoreLocatorLocationRow = {
   business_address: string;
   phone?: string | null;
   public_display_name?: string | null;
+  public_address?: string | null;
+  public_phone?: string | null;
   website_url?: string | null;
   instagram_url?: string | null;
   latitude?: number | string | null;
@@ -61,8 +63,8 @@ export const toPublicStoreLocatorLocation = (
     id: location.id,
     retailer_id: location.retailer_id,
     name,
-    address: location.business_address,
-    phone: cleanString(location.phone),
+    address: cleanString(location.public_address) || location.business_address,
+    phone: cleanString(location.public_phone) || cleanString(location.phone),
     website_url: cleanString(location.website_url),
     instagram_url: cleanString(location.instagram_url),
     latitude: toNullableNumber(location.latitude),

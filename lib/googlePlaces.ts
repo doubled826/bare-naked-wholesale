@@ -10,6 +10,7 @@ export type GooglePlaceMatch = {
   latitude: number | null;
   longitude: number | null;
   confidence: number;
+  resolvedUrl?: string | null;
 };
 
 export class GooglePlacesConfigurationError extends Error {
@@ -83,18 +84,97 @@ type PlacesApiPlace = {
   };
 };
 
+const GOOGLE_MAPS_HOSTS = new Set([
+  'google.com',
+  'www.google.com',
+  'maps.google.com',
+  'maps.app.goo.gl',
+  'share.google',
+  'goo.gl',
+]);
+
+const getHostname = (value: string) => {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+};
+
+export const isGoogleMapsUrl = (value: string) => {
+  const hostname = getHostname(value);
+  return GOOGLE_MAPS_HOSTS.has(hostname) || hostname.endsWith('.google.com');
+};
+
+const ensureUrl = (value: string) => {
+  const trimmed = value.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+};
+
+export async function resolveGoogleMapsUrl(value: string) {
+  const url = ensureUrl(value);
+  if (!isGoogleMapsUrl(url)) {
+    throw new GooglePlacesLookupError('Paste a Google Maps or Google Business listing link.');
+  }
+
+  const response = await fetch(url, {
+    method: 'GET',
+    redirect: 'follow',
+    headers: {
+      'User-Agent': 'Bare Naked Pet Co. Portal',
+    },
+  });
+
+  return response.url || url;
+}
+
+export const extractGoogleMapsQuery = (value: string) => {
+  try {
+    const url = new URL(value);
+    const directQuery = url.searchParams.get('q') || url.searchParams.get('query');
+    if (directQuery) return directQuery.trim();
+
+    const placeMatch = url.pathname.match(/\/maps\/place\/([^/]+)/);
+    if (placeMatch?.[1]) {
+      return decodeURIComponent(placeMatch[1].replace(/\+/g, ' ')).trim();
+    }
+
+    const searchMatch = url.pathname.match(/\/maps\/search\/([^/]+)/);
+    if (searchMatch?.[1]) {
+      return decodeURIComponent(searchMatch[1].replace(/\+/g, ' ')).trim();
+    }
+  } catch {
+    return '';
+  }
+
+  return '';
+};
+
+const getGoogleErrorMessage = async (response: Response) => {
+  const payload = await response.json().catch(() => null);
+  const status = payload?.error?.status || payload?.status;
+  const message = payload?.error?.message || payload?.error_message || payload?.message;
+  const details = [status, message].filter(Boolean).join(': ');
+
+  return details || `Google Places request failed with status ${response.status}.`;
+};
+
 export async function findGoogleBusinessMatch(input: {
   name: string;
   address: string;
   city?: string | null;
   state?: string | null;
+  googleMapsUrl?: string | null;
 }): Promise<GooglePlaceMatch> {
   const apiKey = getGooglePlacesApiKey();
   if (!apiKey) {
     throw new GooglePlacesConfigurationError();
   }
 
-  const textQuery = [
+  const resolvedUrl = input.googleMapsUrl ? await resolveGoogleMapsUrl(input.googleMapsUrl) : '';
+  const linkQuery = resolvedUrl ? extractGoogleMapsQuery(resolvedUrl) : '';
+  const textQuery = linkQuery || [
     input.name,
     input.address,
     input.city,
@@ -135,7 +215,7 @@ export async function findGoogleBusinessMatch(input: {
   });
 
   if (!response.ok) {
-    throw new GooglePlacesLookupError(`Google Places request failed with status ${response.status}.`);
+    throw new GooglePlacesLookupError(await getGoogleErrorMessage(response));
   }
 
   const payload = await response.json();
@@ -160,6 +240,7 @@ export async function findGoogleBusinessMatch(input: {
         latitude: Number.isFinite(place.location?.latitude) ? Number(place.location?.latitude) : null,
         longitude: Number.isFinite(place.location?.longitude) ? Number(place.location?.longitude) : null,
         confidence: 0,
+        resolvedUrl: resolvedUrl || null,
       };
 
       return {

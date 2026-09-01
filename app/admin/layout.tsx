@@ -28,8 +28,7 @@ import {
   Zap,
   ClipboardList,
   Target,
-  Store,
-  Search
+  Store
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -50,7 +49,6 @@ const navigation: NavigationItem[] = [
   { name: 'Sales Hub', href: '/admin/sales-hub', icon: Zap },
   { name: 'Wholesale Pipeline', href: '/admin/wholesale-pipeline', icon: ClipboardList },
   { name: 'Store Nominations', href: '/admin/store-nominations', icon: Store },
-  { name: 'Google Review Queue', href: '/admin/store-locator/google-review', icon: Search },
   { name: 'Orders', href: '/admin/orders', icon: ShoppingCart },
   { name: 'Retailers', href: '/admin/retailers', icon: Users },
   {
