@@ -257,6 +257,8 @@ CREATE TABLE IF NOT EXISTS retailer_locations (
   is_default BOOLEAN DEFAULT false,
   is_public BOOLEAN NOT NULL DEFAULT true,
   public_display_name TEXT,
+  public_address TEXT,
+  public_phone TEXT,
   website_url TEXT,
   instagram_url TEXT,
   latitude NUMERIC(10, 7),
@@ -271,6 +273,8 @@ CREATE TABLE IF NOT EXISTS retailer_locations (
   google_place_match_confidence NUMERIC(5, 2),
   google_place_matched_at TIMESTAMPTZ,
   google_place_match_error TEXT,
+  google_place_url TEXT,
+  google_place_autofilled_at TIMESTAMPTZ,
   google_place_review_status TEXT NOT NULL DEFAULT 'needs_review'
     CHECK (google_place_review_status IN (
       'needs_review',

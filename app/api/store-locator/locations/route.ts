@@ -27,6 +27,8 @@ export async function GET() {
         business_address,
         phone,
         public_display_name,
+        public_address,
+        public_phone,
         website_url,
         instagram_url,
         latitude,

@@ -64,7 +64,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
         .order('created_at', { ascending: false }),
       adminClient
         .from('retailer_locations')
-        .select('id, location_name, business_address, phone, is_default, is_public, public_display_name, website_url, instagram_url, latitude, longitude, public_hours, public_notes, locator_updated_at, locator_verified_at, geocoded_at, geocoding_error, google_place_id, google_place_match_confidence, google_place_matched_at, google_place_match_error, created_at')
+        .select('id, location_name, business_address, phone, is_default, is_public, public_display_name, public_address, public_phone, website_url, instagram_url, latitude, longitude, public_hours, public_notes, locator_updated_at, locator_verified_at, geocoded_at, geocoding_error, google_place_id, google_place_url, google_place_autofilled_at, google_place_match_confidence, google_place_matched_at, google_place_match_error, created_at')
         .eq('retailer_id', retailerId)
         .order('is_default', { ascending: false })
         .order('created_at', { ascending: true }),

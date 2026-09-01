@@ -87,6 +87,8 @@ interface RetailerLocation {
   is_default: boolean;
   is_public?: boolean;
   public_display_name?: string | null;
+  public_address?: string | null;
+  public_phone?: string | null;
   website_url?: string | null;
   instagram_url?: string | null;
   latitude?: number | null;
@@ -98,23 +100,25 @@ interface RetailerLocation {
   geocoded_at?: string | null;
   geocoding_error?: string | null;
   google_place_id?: string | null;
+  google_place_url?: string | null;
+  google_place_autofilled_at?: string | null;
   google_place_match_confidence?: number | null;
   google_place_matched_at?: string | null;
   google_place_match_error?: string | null;
   created_at: string;
 }
 
-type GooglePlaceMatch = {
-  placeId: string;
-  displayName: string | null;
-  formattedAddress: string | null;
-  nationalPhoneNumber: string | null;
-  internationalPhoneNumber: string | null;
-  websiteUri: string | null;
-  googleMapsUri: string | null;
-  businessStatus: string | null;
+type GooglePlaceAutofill = {
+  google_place_id: string | null;
+  google_place_url: string | null;
+  public_display_name: string | null;
+  public_address: string | null;
+  public_phone: string | null;
+  website_url: string | null;
   latitude: number | null;
   longitude: number | null;
+  google_maps_url: string | null;
+  business_status: string | null;
   confidence: number;
 };
 
@@ -340,18 +344,21 @@ export default function AdminRetailerDetailPage() {
     phone: '',
     is_public: false,
     public_display_name: '',
+    public_address: '',
+    public_phone: '',
     website_url: '',
     instagram_url: '',
     latitude: '',
     longitude: '',
     public_hours: '',
     public_notes: '',
+    google_place_url: '',
   });
   const [isSavingLocation, setIsSavingLocation] = useState(false);
   const [isDeletingLocationId, setIsDeletingLocationId] = useState<string | null>(null);
   const [isSettingDefaultId, setIsSettingDefaultId] = useState<string | null>(null);
-  const [isCheckingGooglePlaceId, setIsCheckingGooglePlaceId] = useState<string | null>(null);
-  const [googlePlaceMatches, setGooglePlaceMatches] = useState<Record<string, GooglePlaceMatch>>({});
+  const [isAutofillingGooglePlaceId, setIsAutofillingGooglePlaceId] = useState<string | null>(null);
+  const [googlePlaceAutofill, setGooglePlaceAutofill] = useState<GooglePlaceAutofill | null>(null);
   const [locationNotice, setLocationNotice] = useState<Notice | null>(null);
   const [credits, setCredits] = useState<RetailerCredit[]>([]);
   const [availableCreditBalance, setAvailableCreditBalance] = useState(0);
@@ -414,28 +421,45 @@ export default function AdminRetailerDetailPage() {
     }
   };
 
-  const compareLocationWithGoogle = async (locationId: string) => {
-    setIsCheckingGooglePlaceId(locationId);
+  const autofillPublicInfoFromGoogle = async () => {
+    if (!editLocationId) return;
+    const googlePlaceUrl = editLocation.google_place_url.trim();
+    if (!googlePlaceUrl) {
+      showLocationNotice('Paste a Google Maps listing link first.', 'error');
+      return;
+    }
+
+    setIsAutofillingGooglePlaceId(editLocationId);
+    setGooglePlaceAutofill(null);
     try {
-      const response = await fetch(`/api/admin/retailer-locations/${locationId}/google-place`, {
+      const response = await fetch(`/api/admin/retailer-locations/${editLocationId}/google-place/autofill`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ googleMapsUrl: googlePlaceUrl }),
       });
       const payload = await response.json().catch(() => null);
 
-      if (!response.ok) {
-        throw new Error(payload?.error || 'Unable to compare with Google.');
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || 'Unable to autofill from Google.');
       }
 
-      setGooglePlaceMatches((current) => ({
+      const autofill = payload.autofill as GooglePlaceAutofill;
+      setGooglePlaceAutofill(autofill);
+      setEditLocation((current) => ({
         ...current,
-        [locationId]: payload.match as GooglePlaceMatch,
+        public_display_name: autofill.public_display_name || current.public_display_name,
+        public_address: autofill.public_address || current.public_address,
+        public_phone: autofill.public_phone || current.public_phone,
+        website_url: autofill.website_url || current.website_url,
+        latitude: autofill.latitude === null || autofill.latitude === undefined ? current.latitude : String(autofill.latitude),
+        longitude: autofill.longitude === null || autofill.longitude === undefined ? current.longitude : String(autofill.longitude),
+        google_place_url: autofill.google_place_url || current.google_place_url,
       }));
-      showLocationNotice('Google Business listing loaded for review.');
-      fetchData();
+      showLocationNotice('Public locator fields filled from Google. Review and save.');
     } catch (error) {
-      showLocationNotice(error instanceof Error ? error.message : 'Unable to compare with Google.', 'error');
+      showLocationNotice(error instanceof Error ? error.message : 'Unable to autofill from Google.', 'error');
     } finally {
-      setIsCheckingGooglePlaceId(null);
+      setIsAutofillingGooglePlaceId(null);
     }
   };
 
@@ -812,13 +836,17 @@ export default function AdminRetailerDetailPage() {
       phone: location.phone || '',
       is_public: Boolean(location.is_public),
       public_display_name: location.public_display_name || '',
+      public_address: location.public_address || '',
+      public_phone: location.public_phone || '',
       website_url: location.website_url || '',
       instagram_url: location.instagram_url || '',
       latitude: location.latitude === null || location.latitude === undefined ? '' : String(location.latitude),
       longitude: location.longitude === null || location.longitude === undefined ? '' : String(location.longitude),
       public_hours: location.public_hours || '',
       public_notes: location.public_notes || '',
+      google_place_url: location.google_place_url || '',
     });
+    setGooglePlaceAutofill(null);
   };
 
   const handleUpdateLocation = async () => {
@@ -855,12 +883,20 @@ export default function AdminRetailerDetailPage() {
           phone: editLocation.phone.trim() || null,
           is_public: editLocation.is_public,
           public_display_name: editLocation.public_display_name.trim() || null,
+          public_address: editLocation.public_address.trim() || null,
+          public_phone: editLocation.public_phone.trim() || null,
           website_url: editLocation.website_url.trim() || null,
           instagram_url: editLocation.instagram_url.trim() || null,
           latitude: parseCoordinate(editLocation.latitude),
           longitude: parseCoordinate(editLocation.longitude),
           public_hours: editLocation.public_hours.trim() || null,
           public_notes: editLocation.public_notes.trim() || null,
+          google_place_id: googlePlaceAutofill?.google_place_id || undefined,
+          google_place_url: editLocation.google_place_url.trim() || null,
+          google_place_autofilled_at: googlePlaceAutofill ? new Date().toISOString() : undefined,
+          google_place_match_confidence: googlePlaceAutofill?.confidence ?? undefined,
+          google_place_matched_at: googlePlaceAutofill ? new Date().toISOString() : undefined,
+          google_place_match_error: googlePlaceAutofill ? null : undefined,
           locator_updated_at: new Date().toISOString(),
           locator_verified_at: editLocation.is_public ? new Date().toISOString() : null,
         })
@@ -2041,18 +2077,84 @@ export default function AdminRetailerDetailPage() {
                           />
                           <span>
                             <span className="block font-semibold text-gray-900">Show in store locator</span>
-                            <span className="block text-gray-500">Only public locations are included in the Replit API feed.</span>
+                            <span className="block text-gray-500">Public locator fields below are what customers see.</span>
                           </span>
                         </label>
+                        <div className="rounded-lg border border-emerald-200 bg-white p-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Google Maps Listing URL</label>
+                          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+                            <input
+                              type="url"
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                              value={editLocation.google_place_url}
+                              onChange={(e) => setEditLocation({ ...editLocation, google_place_url: e.target.value })}
+                              placeholder="https://maps.app.goo.gl/..."
+                            />
+                            <button
+                              type="button"
+                              onClick={autofillPublicInfoFromGoogle}
+                              disabled={isAutofillingGooglePlaceId === editLocationId}
+                              className="inline-flex items-center justify-center gap-2 rounded-lg bg-bark-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-bark-600 disabled:opacity-50"
+                            >
+                              {isAutofillingGooglePlaceId === editLocationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                              Autofill
+                            </button>
+                          </div>
+                          {googlePlaceAutofill && (
+                            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-gray-700">
+                              <p className="font-semibold text-gray-900">
+                                {googlePlaceAutofill.public_display_name || 'Google listing loaded'}
+                                {googlePlaceAutofill.confidence !== null && googlePlaceAutofill.confidence !== undefined && (
+                                  <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs text-gray-600">
+                                    {Math.round(googlePlaceAutofill.confidence * 100)}% match
+                                  </span>
+                                )}
+                              </p>
+                              {googlePlaceAutofill.public_address && <p className="mt-1">{googlePlaceAutofill.public_address}</p>}
+                              {googlePlaceAutofill.public_phone && <p className="mt-1">{googlePlaceAutofill.public_phone}</p>}
+                              {googlePlaceAutofill.google_maps_url && (
+                                <a href={googlePlaceAutofill.google_maps_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-bark-500 hover:text-bark-600">
+                                  Open Google listing <ExternalLink className="h-3.5 w-3.5" />
+                                </a>
+                              )}
+                            </div>
+                          )}
+                        </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Public Display Name</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Public Store Name</label>
                             <input
                               type="text"
                               className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
                               value={editLocation.public_display_name}
                               onChange={(e) => setEditLocation({ ...editLocation, public_display_name: e.target.value })}
                               placeholder={editLocation.location_name || retailer.company_name}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Public Phone</label>
+                            <input
+                              type="tel"
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                              value={editLocation.public_phone}
+                              onChange={(e) => setEditLocation({ ...editLocation, public_phone: e.target.value })}
+                              placeholder={editLocation.phone || '(555) 000-0000'}
+                              autoComplete="tel"
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Public Address</label>
+                            <textarea
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                              value={editLocation.public_address}
+                              onChange={(e) => setEditLocation({ ...editLocation, public_address: e.target.value })}
+                              rows={2}
+                              placeholder={formatBusinessAddress({
+                                street: editLocation.businessStreet,
+                                city: editLocation.businessCity,
+                                state: editLocation.businessState,
+                                zip: editLocation.businessZip,
+                              })}
                             />
                           </div>
                           <div>
@@ -2157,6 +2259,8 @@ export default function AdminRetailerDetailPage() {
                       )}
                       {location.is_public && (
                         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                          {location.public_address && <span>Public address: {location.public_address}</span>}
+                          {location.public_phone && <span>Public phone: {location.public_phone}</span>}
                           {location.website_url && <span>{location.website_url}</span>}
                           {location.instagram_url && <span>{location.instagram_url}</span>}
                           {location.latitude !== null && location.latitude !== undefined && location.longitude !== null && location.longitude !== undefined && (
@@ -2193,51 +2297,6 @@ export default function AdminRetailerDetailPage() {
                     </div>
                   </div>
                 )}
-                <div className="rounded-lg border border-amber-100 bg-amber-50/60 p-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">Google Business comparison</p>
-                      <p className="mt-1 text-xs text-gray-600">
-                        {location.google_place_id
-                          ? `Matched ${Math.round(Number(location.google_place_match_confidence || 0) * 100)}% confidence`
-                          : location.google_place_match_error || 'Check Google before using public phone or address details.'}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => compareLocationWithGoogle(location.id)}
-                      disabled={isCheckingGooglePlaceId === location.id}
-                      className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:border-bark-500 hover:text-bark-500 disabled:opacity-50"
-                    >
-                      {isCheckingGooglePlaceId === location.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                      Compare
-                    </button>
-                  </div>
-                  {googlePlaceMatches[location.id] && (
-                    <div className="mt-3 grid gap-3 rounded-lg border border-amber-200 bg-white p-3 text-sm md:grid-cols-2">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Google listing</p>
-                        <p className="mt-1 font-semibold text-gray-900">{googlePlaceMatches[location.id].displayName || 'Unnamed listing'}</p>
-                        <p className="mt-1 whitespace-pre-line text-gray-600">{googlePlaceMatches[location.id].formattedAddress || 'No address returned'}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Public details from Google</p>
-                        <p className="mt-1 text-gray-700">{googlePlaceMatches[location.id].nationalPhoneNumber || googlePlaceMatches[location.id].internationalPhoneNumber || 'No phone returned'}</p>
-                        {googlePlaceMatches[location.id].websiteUri && (
-                          <a href={googlePlaceMatches[location.id].websiteUri || '#'} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-bark-500 hover:text-bark-600">
-                            Website <ExternalLink className="h-3.5 w-3.5" />
-                          </a>
-                        )}
-                        {googlePlaceMatches[location.id].googleMapsUri && (
-                          <a href={googlePlaceMatches[location.id].googleMapsUri || '#'} target="_blank" rel="noreferrer" className="ml-3 mt-1 inline-flex items-center gap-1 text-bark-500 hover:text-bark-600">
-                            Maps <ExternalLink className="h-3.5 w-3.5" />
-                          </a>
-                        )}
-                        <p className="mt-2 text-xs text-gray-500">Source: Google Places. Use this for internal review before updating portal fields.</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
               </div>
             ))}
           </div>
