@@ -387,17 +387,65 @@ const getLeadTypeLabel = (lead: WholesaleLead) => {
   return 'Sample request';
 };
 
+const getSubmittedPhone = (lead: WholesaleLead) =>
+  lead.phone || rawString(lead, ['phone', 'phoneNumber', 'phone_number', 'storePhone', 'store_phone']);
+
+const getSubmittedStoreUrl = (lead: WholesaleLead) =>
+  lead.store_url ||
+  rawString(lead, [
+    'storeUrl',
+    'store_url',
+    'website',
+    'instagram',
+    'websiteOrInstagram',
+    'website_or_instagram',
+    'storeWebsiteOrInstagram',
+    'store_website_or_instagram',
+    'googleBusinessProfile',
+    'google_business_profile',
+  ]);
+
+const getShippingAddress1 = (lead: WholesaleLead) => {
+  if (lead.shipping_address_1 && lead.shipping_address_1 !== 'Not collected') return lead.shipping_address_1;
+  return rawString(lead, [
+    'shippingAddress1',
+    'shipping_address_1',
+    'shippingAddress',
+    'shipping_address',
+    'streetAddress',
+    'street_address',
+    'addressLine1',
+    'address_line_1',
+    'address1',
+    'address',
+  ]);
+};
+
+const getShippingAddress2 = (lead: WholesaleLead) =>
+  lead.shipping_address_2 || rawString(lead, ['shippingAddress2', 'shipping_address_2', 'address2', 'addressLine2', 'address_line_2']);
+
+const getShippingCity = (lead: WholesaleLead) =>
+  lead.shipping_city || rawString(lead, ['shippingCity', 'shipping_city', 'city', 'shippingCityName']);
+
+const getShippingState = (lead: WholesaleLead) =>
+  lead.shipping_state || rawString(lead, ['shippingState', 'shipping_state', 'state', 'province', 'provinceTerritory', 'province_territory']);
+
+const getShippingPostalCode = (lead: WholesaleLead) => {
+  if (lead.shipping_postal_code && lead.shipping_postal_code !== 'Not collected') return lead.shipping_postal_code;
+  return rawString(lead, ['shippingPostalCode', 'shipping_postal_code', 'shippingZip', 'shipping_zip', 'zip', 'zipcode', 'zipCode', 'postalCode', 'postal_code']);
+};
+
 const getAddress = (lead: WholesaleLead) =>
   [
-    lead.shipping_address_1,
-    lead.shipping_address_2,
-    `${lead.shipping_city}, ${lead.shipping_state} ${lead.shipping_postal_code}`,
+    getShippingAddress1(lead),
+    getShippingAddress2(lead),
+    [getShippingCity(lead), getShippingState(lead), getShippingPostalCode(lead)].filter(Boolean).join(', '),
   ]
     .filter(Boolean)
     .join('\n');
 
 const getLocation = (lead: WholesaleLead) =>
-  [lead.shipping_city, lead.shipping_state, lead.shipping_postal_code]
+  [getShippingCity(lead), getShippingState(lead), getShippingPostalCode(lead)]
     .filter((value) => value && value !== 'Not collected')
     .join(', ');
 
@@ -442,6 +490,22 @@ const normalizeUrl = (value: string) => {
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   return `https://${trimmed}`;
 };
+
+const getSubmittedFormRows = (lead: WholesaleLead) => [
+  ['Your Name', lead.contact_name],
+  ['Email', lead.email],
+  ['Store Name', lead.store_name],
+  ['Phone', getSubmittedPhone(lead)],
+  ['Shipping Address', getShippingAddress1(lead)],
+  ['Address Line 2', getShippingAddress2(lead)],
+  ['City', getShippingCity(lead)],
+  ['State', getShippingState(lead)],
+  ['ZIP', getShippingPostalCode(lead)],
+  ['Store Type', getStoreType(lead)],
+  ['Store Website or Instagram', getSubmittedStoreUrl(lead)],
+  ['Podcast Partner', isPodcastLead(lead) ? getPodcastPartner(lead) : ''],
+  ['Offer Code', isPodcastLead(lead) ? getPodcastOffer(lead) : ''],
+];
 
 export default function WholesalePipelinePage() {
   const supabase = createClientComponentClient();
@@ -636,10 +700,12 @@ export default function WholesalePipelinePage() {
         lead.store_name,
         lead.contact_name,
         lead.email,
-        lead.phone,
-        lead.shipping_city,
-        lead.shipping_state,
-        lead.store_url,
+        getSubmittedPhone(lead),
+        getShippingAddress1(lead),
+        getShippingCity(lead),
+        getShippingState(lead),
+        getShippingPostalCode(lead),
+        getSubmittedStoreUrl(lead),
         lead.utm_campaign,
         lead.source,
         getLeadTypeLabel(lead),
@@ -1065,7 +1131,7 @@ export default function WholesalePipelinePage() {
                     <td className="px-5 py-4 text-sm text-gray-700">
                       <p className="font-medium text-gray-900">{lead.contact_name}</p>
                       <p className="mt-1">{lead.email}</p>
-                      {lead.phone && <p className="mt-1 text-gray-500">{lead.phone}</p>}
+                      {getSubmittedPhone(lead) && <p className="mt-1 text-gray-500">{getSubmittedPhone(lead)}</p>}
                     </td>
                     <td className="px-5 py-4 text-sm text-gray-700">
                       {getLocation(lead) || 'Not captured'}
@@ -1293,6 +1359,34 @@ export default function WholesalePipelinePage() {
                 </div>
               </section>
 
+              <section className="rounded-lg border border-bark-200 bg-cream-50 p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">Submitted Form Answers</h3>
+                    <p className="mt-1 text-sm text-gray-600">Answers captured from the Pet Shop Girls sample request form.</p>
+                  </div>
+                  <Store className="h-5 w-5 text-bark-500/55" />
+                </div>
+                <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                  {getSubmittedFormRows(selectedLead)
+                    .filter(([label]) => label !== 'Address Line 2' || Boolean(getShippingAddress2(selectedLead)))
+                    .map(([label, value]) => (
+                      <div
+                        key={label}
+                        className={cn(
+                          'rounded-md border bg-white p-3',
+                          ['Shipping Address', 'City', 'State', 'ZIP'].includes(label)
+                            ? 'border-bark-200'
+                            : 'border-cream-200'
+                        )}
+                      >
+                        <dt className="text-xs font-semibold uppercase tracking-wide text-bark-500/60">{label}</dt>
+                        <dd className="mt-1 break-words font-medium text-gray-900">{value || 'Not captured'}</dd>
+                      </div>
+                    ))}
+                </dl>
+              </section>
+
               <section className="rounded-lg border border-gray-200 p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -1350,24 +1444,24 @@ export default function WholesalePipelinePage() {
                       </a>
                     </div>
                   </div>
-                  {selectedLead.phone && (
+                  {getSubmittedPhone(selectedLead) && (
                     <div className="flex gap-3">
                       <Phone className="mt-0.5 h-4 w-4 text-gray-400" />
-                      <a className="text-bark-500 hover:underline" href={`tel:${selectedLead.phone}`}>
-                        {selectedLead.phone}
+                      <a className="text-bark-500 hover:underline" href={`tel:${getSubmittedPhone(selectedLead)}`}>
+                        {getSubmittedPhone(selectedLead)}
                       </a>
                     </div>
                   )}
-                  {selectedLead.store_url && (
+                  {getSubmittedStoreUrl(selectedLead) && (
                     <div className="flex gap-3">
                       <ExternalLink className="mt-0.5 h-4 w-4 text-gray-400" />
                       <a
                         className="break-all text-bark-500 hover:underline"
-                        href={normalizeUrl(selectedLead.store_url)}
+                        href={normalizeUrl(getSubmittedStoreUrl(selectedLead))}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        {selectedLead.store_url}
+                        {getSubmittedStoreUrl(selectedLead)}
                       </a>
                     </div>
                   )}
