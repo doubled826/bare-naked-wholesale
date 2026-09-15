@@ -341,10 +341,21 @@ export async function POST(request: Request) {
     const isCanadaLead = isCanadaEarlyAccessLead(body);
     const isPodcastSource = isPodcastLead(body);
     const isFlexibleLead = isCanadaLead || isPodcastSource;
-    const shippingAddress1 = getString(body, ['shippingAddress1', 'shipping_address_1', 'address1', 'address']);
-    const shippingCity = getString(body, ['shippingCity', 'shipping_city', 'city']);
+    const shippingAddress1 = getString(body, [
+      'shippingAddress1',
+      'shipping_address_1',
+      'shippingAddress',
+      'shipping_address',
+      'streetAddress',
+      'street_address',
+      'addressLine1',
+      'address_line_1',
+      'address1',
+      'address',
+    ]);
+    const shippingCity = getString(body, ['shippingCity', 'shipping_city', 'city', 'shippingCityName']);
     const shippingState = getString(body, ['shippingState', 'shipping_state', 'state', 'province', 'provinceTerritory', 'province_territory']);
-    const shippingPostalCode = getString(body, ['shippingPostalCode', 'shipping_postal_code', 'zip', 'postalCode', 'postal_code']);
+    const shippingPostalCode = getString(body, ['shippingPostalCode', 'shipping_postal_code', 'shippingZip', 'shipping_zip', 'zip', 'zipcode', 'zipCode', 'postalCode', 'postal_code']);
 
     const hasRequiredContactFields = contactName && email && storeName && shippingCity && shippingState;
     const hasSampleShippingFields = shippingAddress1 && shippingPostalCode;
@@ -374,8 +385,8 @@ export async function POST(request: Request) {
       contact_name: contactName,
       email,
       store_name: storeName,
-      phone: getOptionalString(body, ['phone']),
-      store_url: getOptionalString(body, ['storeUrl', 'store_url', 'website', 'instagram', 'googleBusinessProfile', 'google_business_profile']),
+      phone: getOptionalString(body, ['phone', 'phoneNumber', 'phone_number', 'storePhone', 'store_phone']),
+      store_url: getOptionalString(body, ['storeUrl', 'store_url', 'website', 'instagram', 'websiteOrInstagram', 'website_or_instagram', 'storeWebsiteOrInstagram', 'store_website_or_instagram', 'googleBusinessProfile', 'google_business_profile']),
       store_type: getOptionalString(body, ['storeType', 'store_type']),
       location_count: locationCount,
       currently_buying_wholesale: normalizeBuyingWholesale(

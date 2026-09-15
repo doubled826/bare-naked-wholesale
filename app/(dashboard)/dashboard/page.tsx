@@ -72,6 +72,47 @@ type ResolvedOfferBenefit = {
   isWelcomeOffer: boolean;
 };
 
+type CreditItem = {
+  id: string;
+  product_id: string | null;
+  product_name: string;
+  product_size: string | null;
+  quantity: number | string;
+  unit_price: number | string;
+  total_amount: number | string;
+};
+
+type CreditApplication = {
+  id: string;
+  applied_amount: number | string;
+  created_at: string;
+  order: {
+    id: string;
+    order_number: string;
+    created_at: string;
+  } | null;
+};
+
+type RetailerCreditDetail = {
+  id: string;
+  reason: string;
+  notes: string | null;
+  status: 'available' | 'partially_applied' | 'fully_applied' | 'voided' | string;
+  total_amount: number | string;
+  remaining_amount: number | string;
+  created_at: string;
+  items?: CreditItem[];
+  applications?: CreditApplication[];
+};
+
+type CreditDetailsResponse = {
+  availableBalance: number;
+  totalIssued: number;
+  totalUsed: number;
+  activeCreditCount: number;
+  credits: RetailerCreditDetail[];
+};
+
 type ReorderLine = {
   productId: string;
   quantity: number;
@@ -163,6 +204,10 @@ export default function DashboardPage() {
   const [successNotice, setSuccessNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [accountCreditAvailable, setAccountCreditAvailable] = useState(0);
   const [creditAvailableLoading, setCreditAvailableLoading] = useState(true);
+  const [showCreditDetails, setShowCreditDetails] = useState(false);
+  const [creditDetails, setCreditDetails] = useState<CreditDetailsResponse | null>(null);
+  const [creditDetailsLoading, setCreditDetailsLoading] = useState(false);
+  const [creditDetailsError, setCreditDetailsError] = useState<string | null>(null);
   const pendingSuccessSaveRef = useRef(false);
   const launchOfferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shelfTalkerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -238,6 +283,38 @@ export default function DashboardPage() {
       message: `${reorderItemCount} items from ${latestOrder.order_number} are ready in your cart.`,
     });
     window.location.href = '/catalog?reorder=last';
+  };
+
+  const loadCreditDetails = async () => {
+    setCreditDetailsLoading(true);
+    setCreditDetailsError(null);
+
+    try {
+      const response = await fetch('/api/credits', { cache: 'no-store' });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to load credit details.');
+      }
+
+      setCreditDetails({
+        availableBalance: Number(data.availableBalance || 0),
+        totalIssued: Number(data.totalIssued || 0),
+        totalUsed: Number(data.totalUsed || 0),
+        activeCreditCount: Number(data.activeCreditCount || 0),
+        credits: data.credits || [],
+      });
+      setAccountCreditAvailable(Number(data.availableBalance || 0));
+    } catch (error) {
+      setCreditDetailsError(error instanceof Error ? error.message : 'Unable to load credit details.');
+    } finally {
+      setCreditDetailsLoading(false);
+    }
+  };
+
+  const openCreditDetails = () => {
+    setShowCreditDetails(true);
+    loadCreditDetails();
   };
 
   useEffect(() => {
@@ -841,6 +918,8 @@ export default function DashboardPage() {
           label="Credit Available"
           value={creditAvailableLoading ? '...' : formatCurrency(accountCreditAvailable)}
           color="blue"
+          onClick={openCreditDetails}
+          helperText="View breakdown"
         />
         <StatCard
           icon={TrendingUp}
@@ -924,6 +1003,16 @@ export default function DashboardPage() {
             setIsConfirmingLaunchPromoCancel(false);
           }}
           isSaving={Boolean(successSavingAction)}
+        />
+      )}
+
+      {showCreditDetails && (
+        <CreditDetailsModal
+          details={creditDetails}
+          isLoading={creditDetailsLoading}
+          error={creditDetailsError}
+          onClose={() => setShowCreditDetails(false)}
+          onRetry={loadCreditDetails}
         />
       )}
 
@@ -2180,16 +2269,209 @@ function ConfirmLaunchPromoCancelModal({
   );
 }
 
+function CreditDetailsModal({
+  details,
+  isLoading,
+  error,
+  onClose,
+  onRetry,
+}: {
+  details: CreditDetailsResponse | null;
+  isLoading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  const credits = details?.credits || [];
+  const hasCredits = credits.length > 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-bark-500/40 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-cream-200 p-5 sm:p-6">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-wide text-sky-700">Account Credit</p>
+            <h2 className="mt-1 text-2xl font-bold text-bark-500">Credit Breakdown</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cream-200 text-bark-500 hover:bg-cream-300"
+            aria-label="Close credit breakdown"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="max-h-[calc(90vh-96px)] overflow-y-auto p-5 sm:p-6">
+          {isLoading && (
+            <div className="flex min-h-[280px] items-center justify-center">
+              <div className="text-center">
+                <RefreshCw className="mx-auto h-8 w-8 animate-spin text-sky-600" />
+                <p className="mt-3 text-sm font-medium text-bark-500">Loading your credit details...</p>
+              </div>
+            </div>
+          )}
+
+          {!isLoading && error && (
+            <div className="rounded-xl border border-red-100 bg-red-50 p-4">
+              <p className="font-semibold text-red-700">Unable to load credits</p>
+              <p className="mt-1 text-sm text-red-700/80">{error}</p>
+              <button
+                type="button"
+                onClick={onRetry}
+                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Try Again
+              </button>
+            </div>
+          )}
+
+          {!isLoading && !error && details && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-4">
+                <CreditSummaryTile label="Available" value={formatCurrency(details.availableBalance)} />
+                <CreditSummaryTile label="Issued" value={formatCurrency(details.totalIssued)} />
+                <CreditSummaryTile label="Used" value={formatCurrency(details.totalUsed)} />
+                <CreditSummaryTile label="Active Credits" value={details.activeCreditCount.toLocaleString()} />
+              </div>
+
+              <div className="mt-6">
+                <h3 className="text-lg font-semibold text-bark-500">Credit Activity</h3>
+                {!hasCredits ? (
+                  <p className="mt-3 rounded-xl bg-cream-100 p-4 text-sm text-bark-500/70">
+                    No credits have been issued to your account yet.
+                  </p>
+                ) : (
+                  <div className="mt-3 space-y-4">
+                    {credits.map((credit) => (
+                      <CreditDetailCard key={credit.id} credit={credit} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CreditSummaryTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-cream-200 bg-cream-100 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/60">{label}</p>
+      <p className="mt-2 text-xl font-bold text-bark-500">{value}</p>
+    </div>
+  );
+}
+
+function CreditDetailCard({ credit }: { credit: RetailerCreditDetail }) {
+  const totalAmount = Number(credit.total_amount || 0);
+  const remainingAmount = Number(credit.remaining_amount || 0);
+  const usedAmount = Math.max(0, totalAmount - remainingAmount);
+  const items = credit.items || [];
+  const applications = credit.applications || [];
+
+  return (
+    <div className="rounded-xl border border-cream-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold text-bark-500">{credit.reason || 'Account credit'}</p>
+            <span className={cn('rounded-full px-2.5 py-1 text-xs font-semibold', getCreditStatusClasses(credit.status))}>
+              {formatCreditStatus(credit.status)}
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-bark-500/60">Issued {formatDate(credit.created_at)}</p>
+          {credit.notes && <p className="mt-2 text-sm text-bark-500/75">{credit.notes}</p>}
+        </div>
+        <div className="text-left sm:text-right">
+          <p className="text-lg font-bold text-bark-500">{formatCurrency(remainingAmount)}</p>
+          <p className="text-xs text-bark-500/60">remaining of {formatCurrency(totalAmount)}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 border-t border-cream-200 pt-4 sm:grid-cols-2">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/60">Issued For</p>
+          {items.length ? (
+            <div className="mt-2 space-y-2">
+              {items.map((item) => (
+                <div key={item.id} className="flex justify-between gap-3 text-sm">
+                  <div>
+                    <p className="font-medium text-bark-500">{item.product_name}</p>
+                    <p className="text-bark-500/60">
+                      {item.product_size ? `${item.product_size} · ` : ''}
+                      Qty {Number(item.quantity || 0)}
+                    </p>
+                  </div>
+                  <p className="shrink-0 font-semibold text-bark-500">{formatCurrency(Number(item.total_amount || 0))}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-bark-500/60">No item detail available.</p>
+          )}
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/60">Applied To Orders</p>
+          {applications.length ? (
+            <div className="mt-2 space-y-2">
+              {applications.map((application) => (
+                <div key={application.id} className="flex justify-between gap-3 text-sm">
+                  <div>
+                    <p className="font-medium text-bark-500">
+                      {application.order?.order_number || 'Order'}
+                    </p>
+                    <p className="text-bark-500/60">{formatDate(application.created_at)}</p>
+                  </div>
+                  <p className="shrink-0 font-semibold text-blue-700">
+                    -{formatCurrency(Number(application.applied_amount || 0))}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : usedAmount > 0 ? (
+            <p className="mt-2 text-sm text-bark-500/60">{formatCurrency(usedAmount)} has been used.</p>
+          ) : (
+            <p className="mt-2 text-sm text-bark-500/60">Not applied to an order yet.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatCreditStatus(status: string) {
+  return status.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function getCreditStatusClasses(status: string) {
+  if (status === 'available') return 'bg-emerald-100 text-emerald-700';
+  if (status === 'partially_applied') return 'bg-amber-100 text-amber-700';
+  if (status === 'fully_applied') return 'bg-gray-100 text-gray-700';
+  if (status === 'voided') return 'bg-red-100 text-red-700';
+  return 'bg-cream-200 text-bark-500';
+}
+
 function StatCard({
   icon: Icon,
   label,
   value,
   color,
+  onClick,
+  helperText,
 }: {
   icon: React.ElementType;
   label: string;
   value: string | number;
   color: 'brown' | 'cream' | 'blue' | 'green';
+  onClick?: () => void;
+  helperText?: string;
 }) {
   const colorClasses = {
     brown: 'bg-bark-500 text-white',
@@ -2198,13 +2480,39 @@ function StatCard({
     green: 'bg-emerald-100 text-emerald-600',
   };
 
-  return (
-    <div className="rounded-2xl border border-cream-200 bg-cream-100 p-3 shadow-sm sm:p-4 lg:p-6">
+  const content = (
+    <>
       <div className={cn('mb-3 flex h-9 w-9 items-center justify-center rounded-xl sm:h-10 sm:w-10', colorClasses[color])}>
         <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
       </div>
       <p className="stat-value break-words text-xl sm:text-2xl lg:text-3xl">{value}</p>
-      <p className="stat-label text-xs sm:text-sm">{label}</p>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <p className="stat-label text-xs sm:text-sm">{label}</p>
+        {helperText && (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-sky-700">
+            {helperText}
+            <ArrowRight className="h-3.5 w-3.5" />
+          </span>
+        )}
+      </div>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="rounded-2xl border border-cream-200 bg-cream-100 p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-sky-500/50 sm:p-4 lg:p-6"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-cream-200 bg-cream-100 p-3 shadow-sm sm:p-4 lg:p-6">
+      {content}
     </div>
   );
 }
