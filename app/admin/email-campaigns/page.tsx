@@ -17,6 +17,7 @@ import {
   Save,
   Search,
   Send,
+  Sparkles,
   Type,
   Underline,
   Users,
@@ -73,6 +74,11 @@ type SendResultPayload = {
   failedCount?: number;
   resendMessageId?: string | null;
   sent?: Array<{ email: string; resendMessageId?: string | null }>;
+  error?: string;
+};
+
+type AiDraftPayload = {
+  draft?: Partial<Pick<Campaign, 'name' | 'subject' | 'preheader' | 'headline' | 'body' | 'cta_label' | 'cta_url'>>;
   error?: string;
 };
 
@@ -226,6 +232,8 @@ export default function AdminEmailCampaignsPage() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduledAtLocal, setScheduledAtLocal] = useState('');
+  const [aiContext, setAiContext] = useState('');
+  const [aiGenerating, setAiGenerating] = useState(false);
   const [manualSearch, setManualSearch] = useState('');
   const [manualSuggestions, setManualSuggestions] = useState<RetailerRecipientOption[]>([]);
   const [manualSearchLoading, setManualSearchLoading] = useState(false);
@@ -376,6 +384,45 @@ export default function AdminEmailCampaignsPage() {
 
   function updateForm(updates: Partial<Campaign>) {
     setForm((current) => current ? { ...current, ...updates } : current);
+  }
+
+  async function generateAiDraft() {
+    if (!form || isLocked) return;
+
+    const context = aiContext.trim();
+    if (!context) {
+      setNotice({ type: 'error', message: 'Add a little context for the email first.' });
+      return;
+    }
+
+    setAiGenerating(true);
+    setNotice(null);
+
+    try {
+      const response = await fetch('/api/admin/email-campaigns/ai-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context, campaign: form }),
+      });
+      const payload = await response.json().catch(() => ({})) as AiDraftPayload;
+      if (!response.ok) throw new Error(payload?.error || 'Unable to generate campaign copy.');
+
+      const draft = payload.draft || {};
+      updateForm({
+        name: draft.name || form.name,
+        subject: draft.subject || form.subject,
+        preheader: draft.preheader ?? form.preheader,
+        headline: draft.headline || form.headline,
+        body: draft.body || form.body,
+        cta_label: draft.cta_label ?? form.cta_label,
+        cta_url: draft.cta_url ?? form.cta_url,
+      });
+      setNotice({ type: 'success', message: 'AI draft added to the campaign. Review, edit, and send a test before delivery.' });
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to generate campaign copy.' });
+    } finally {
+      setAiGenerating(false);
+    }
   }
 
   function appendMergeTag(field: 'subject' | 'preheader' | 'headline' | 'body', tag: typeof mergeTags[number]) {
@@ -948,6 +995,35 @@ export default function AdminEmailCampaignsPage() {
         <section className="space-y-5">
           <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,560px)_minmax(0,1fr)] gap-5">
             <div className="space-y-5">
+              <Panel title="AI Campaign Starter" icon={Sparkles}>
+                <div className="space-y-3">
+                  <Field label="Campaign context">
+                    <textarea
+                      value={aiContext}
+                      onChange={(event) => setAiContext(event.target.value)}
+                      disabled={isLocked || aiGenerating}
+                      rows={5}
+                      className="input min-h-[130px] resize-y"
+                      placeholder="Example: Announce a Neighborhood Pet Day BOGO 50% Astro promo for retailers. Mention it runs 9/21, encourage staff to tell regular customers, and point them to the wholesale portal for restocks."
+                    />
+                  </Field>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs leading-5 text-bark-500/60">
+                      Generates editable subject, preheader, headline, body, and CTA fields for this draft.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={generateAiDraft}
+                      disabled={isLocked || aiGenerating || !aiContext.trim()}
+                      className="btn-primary gap-2"
+                    >
+                      {aiGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      {aiGenerating ? 'Generating...' : 'Generate draft'}
+                    </button>
+                  </div>
+                </div>
+              </Panel>
+
               <Panel title="Campaign Copy" icon={Mail}>
                 <Field label="Campaign name">
                   <input value={form.name} onChange={(event) => updateForm({ name: event.target.value })} disabled={isLocked} className="input" />

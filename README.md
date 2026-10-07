@@ -104,6 +104,8 @@ A modern wholesale portal for Bare Naked Pet Co. retailers, featuring a responsi
 | `REPLY_TO_EMAIL` | Reply-to address for outbound emails |
 | `RESEND_API_KEY` | Resend API key for outbound emails |
 | `RESEND_WEBHOOK_SECRET` | Resend webhook signing secret for delivery and engagement events |
+| `OPENAI_API_KEY` | OpenAI API key for admin AI copy generation |
+| `OPENAI_MODEL` | Optional OpenAI model override for admin AI copy generation |
 | `NEXT_PUBLIC_LOGO_URL` | Optional logo URL |
 
 ## Deployment
