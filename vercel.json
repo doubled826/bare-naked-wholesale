@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/private-launch-promos",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/sales-recap",
+      "schedule": "0 14 * * 0"
     }
   ]
 }
