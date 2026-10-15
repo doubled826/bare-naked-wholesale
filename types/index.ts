@@ -45,6 +45,19 @@ export interface RetailerLocation {
   created_at?: string;
 }
 
+export type RetailerMemberRole = 'owner' | 'staff';
+
+export interface RetailerMembership {
+  id: string;
+  retailer_id: string;
+  user_id: string;
+  role: RetailerMemberRole;
+  status: 'active' | 'disabled';
+  display_name: string;
+  email: string;
+  location_ids: string[];
+}
+
 export type GooglePlaceReviewStatus =
   | 'needs_review'
   | 'high_confidence'
@@ -137,6 +150,8 @@ export interface Order {
   order_number: string;
   retailer_id: string;
   location_id?: string | null;
+  placed_by_user_id?: string | null;
+  placed_by_name?: string | null;
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'canceled';
   delivery_date?: string;
   promotion_code?: string;

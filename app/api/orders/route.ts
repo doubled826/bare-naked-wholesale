@@ -10,6 +10,7 @@ import { getOfferResolution, toPublicOfferBenefit } from '@/lib/offerResolver';
 import { createOrderWithPromotions } from '@/lib/orderTransactions';
 import { sendWholesalePurchaseEventForRetailer } from '@/lib/metaConversions';
 import { setPrivatePromoDatesNeeded } from '@/lib/privateLaunchPromo';
+import { canAccessLocation, getRetailerAccess } from '@/lib/retailerAccess';
 
 export async function POST(request: Request) {
   try {
@@ -22,6 +23,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const adminClient = createSupabaseAdminClient();
+    const access = await getRetailerAccess(adminClient, user);
+    if (!access) return NextResponse.json({ error: 'Retailer access not found.' }, { status: 403 });
+    const retailerId = access.retailerId;
+
     const { items, deliveryDate, promotionCode, locationId, includeSamples, orderSubmissionKey } = await request.json();
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -30,11 +36,14 @@ export async function POST(request: Request) {
 
     let shipToLocation: { id: string; location_name: string; business_address: string; phone: string | null } | null = null;
     if (locationId) {
-      const { data: location, error: locationError } = await supabase
+      if (!canAccessLocation(access, locationId)) {
+        return NextResponse.json({ error: 'Invalid ship-to location' }, { status: 400 });
+      }
+      const { data: location, error: locationError } = await adminClient
         .from('retailer_locations')
         .select('id, location_name, business_address, phone')
         .eq('id', locationId)
-        .eq('retailer_id', user.id)
+        .eq('retailer_id', retailerId)
         .single();
 
       if (locationError || !location) {
@@ -43,8 +52,6 @@ export async function POST(request: Request) {
 
       shipToLocation = location;
     }
-
-    const adminClient = createSupabaseAdminClient();
 
     const productIds = items.map((item: any) => item.id).filter(Boolean);
     const { data: products, error: productsError } = await adminClient
@@ -68,16 +75,16 @@ export async function POST(request: Request) {
     }
 
     const subtotal = normalizedItems.reduce((sum: number, item: any) => sum + (Number(item.product.price || 0) * item.quantity), 0);
-    const { data: retailerForOffer } = await supabase
+    const { data: retailerForOffer } = await adminClient
       .from('retailers')
       .select('id, created_at')
-      .eq('id', user.id)
+      .eq('id', retailerId)
       .single();
 
-    const { count: activeOrderCount, error: orderCountError } = await supabase
+    const { count: activeOrderCount, error: orderCountError } = await adminClient
       .from('orders')
       .select('id', { count: 'exact', head: true })
-      .eq('retailer_id', user.id)
+      .eq('retailer_id', retailerId)
       .neq('status', 'canceled');
 
     if (orderCountError) {
@@ -86,7 +93,7 @@ export async function POST(request: Request) {
 
     const offerResolution = await getOfferResolution({
       adminClient,
-      retailer: { id: user.id, created_at: retailerForOffer?.created_at },
+      retailer: { id: retailerId, created_at: retailerForOffer?.created_at },
       activeOrderCount: activeOrderCount || 0,
       subtotal,
       promotionCode,
@@ -107,17 +114,17 @@ export async function POST(request: Request) {
     // Generate order number (avoid collisions with unique constraint)
     const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
-    const { data: sampleRequest } = await supabase
+    const { data: sampleRequest } = await adminClient
       .from('sample_requests')
       .select('id')
-      .eq('retailer_id', user.id)
+      .eq('retailer_id', retailerId)
       .eq('status', 'pending')
       .single();
 
-    const { data: marketingMaterialsRequest } = await supabase
+    const { data: marketingMaterialsRequest } = await adminClient
       .from('marketing_material_requests')
       .select('id, materials_type')
-      .eq('retailer_id', user.id)
+      .eq('retailer_id', retailerId)
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
       .limit(1)
@@ -137,7 +144,7 @@ export async function POST(request: Request) {
       adminClient,
       order: {
         orderNumber,
-        retailerId: user.id,
+        retailerId,
         locationId: shipToLocation?.id ?? null,
         deliveryDate: deliveryDate || null,
         promotionCode: orderPromotionCode,
@@ -163,11 +170,15 @@ export async function POST(request: Request) {
       include_marketing_materials: shouldIncludeMarketingMaterials,
       marketing_materials_type: marketingMaterialsType,
     };
+    await adminClient
+      .from('orders')
+      .update({ placed_by_user_id: user.id, placed_by_name: access.displayName })
+      .eq('id', transactionResult.order_id);
     const creditApplied = Number(transactionResult.credit_applied || 0);
     const finalTotal = Number(transactionResult.total || 0);
 
     await sendWholesalePurchaseEventForRetailer(adminClient, {
-      retailerId: user.id,
+      retailerId,
       retailerEmail: user.email,
       orderId: order.id,
     }).catch((metaError) => {
@@ -197,7 +208,7 @@ export async function POST(request: Request) {
     try {
       queuedShelfTalkers = await queueShelfTalkersForOrder({
         adminClient,
-        retailerId: user.id,
+        retailerId,
         locationId: shipToLocation?.id ?? null,
         orderId: order.id,
       });
@@ -213,7 +224,7 @@ export async function POST(request: Request) {
           fulfilled_order_id: order.id,
           fulfilled_at: new Date().toISOString(),
         })
-        .eq('retailer_id', user.id)
+        .eq('retailer_id', retailerId)
         .eq('status', 'pending');
       if (sampleUpdateError) {
         console.error('Sample request update error:', sampleUpdateError);
@@ -239,20 +250,20 @@ export async function POST(request: Request) {
       try {
         await setPrivatePromoDatesNeeded({
           adminClient,
-          retailerId: user.id,
+          retailerId,
           source: 'welcome_offer',
         });
-        needsPrivatePromoScheduling = true;
+        needsPrivatePromoScheduling = access.role === 'owner';
       } catch (promoError) {
         console.error('Private launch promo setup error:', promoError);
       }
     }
 
     // Get retailer info for email
-    const { data: retailer } = await supabase
+    const { data: retailer } = await adminClient
       .from('retailers')
       .select('company_name, business_address, phone')
-      .eq('id', user.id)
+      .eq('id', retailerId)
       .single();
 
     // Send confirmation email
@@ -444,7 +455,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: orders, error } = await supabase
+    const adminClient = createSupabaseAdminClient();
+    const access = await getRetailerAccess(adminClient, user);
+    if (!access) return NextResponse.json({ error: 'Retailer access not found.' }, { status: 403 });
+
+    let query = adminClient
       .from('orders')
       .select(`
         *,
@@ -454,8 +469,15 @@ export async function GET(request: Request) {
           product:products (*)
         )
       `)
-      .eq('retailer_id', user.id)
+      .eq('retailer_id', access.retailerId)
       .order('created_at', { ascending: false });
+
+    if (access.role === 'staff') {
+      if (!access.locationIds.length) return NextResponse.json({ orders: [] });
+      query = query.in('location_id', access.locationIds);
+    }
+
+    const { data: orders, error } = await query;
 
     if (error) {
       return NextResponse.json({ error: 'Failed to fetch orders' }, { status: 500 });

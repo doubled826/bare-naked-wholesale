@@ -93,7 +93,7 @@ const getGridDescriptionLines = (product: Product) => {
 
 export default function CatalogPage() {
   const supabase = createClientComponentClient();
-  const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart, orders, setOrders, retailer } = useAppStore();
+  const { products, cart, addToCart, updateQuantity, removeFromCart, clearCart, orders, setOrders, retailer, locations: accountLocations } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [showCart, setShowCart] = useState(false);
@@ -120,24 +120,8 @@ export default function CatalogPage() {
   const submissionKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const fetchLocations = async () => {
-      const { data: locationData, error } = await supabase
-        .from('retailer_locations')
-        .select('*')
-        .order('is_default', { ascending: false })
-        .order('created_at', { ascending: true });
-
-      if (error) {
-        console.error('Failed to load locations:', error);
-        return;
-      }
-
-      const nextLocations = (locationData || []) as RetailerLocation[];
-      setLocations(nextLocations);
-    };
-
-    fetchLocations();
-  }, [supabase]);
+    setLocations(accountLocations as RetailerLocation[]);
+  }, [accountLocations]);
 
   useEffect(() => {
     const fetchPendingRequests = async () => {

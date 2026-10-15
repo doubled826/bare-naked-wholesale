@@ -36,12 +36,15 @@ const navigation = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { sidebarOpen, setSidebarOpen, retailer, setRetailer, clearCart } = useAppStore();
+  const { sidebarOpen, setSidebarOpen, retailer, membership, setRetailer, clearCart } = useAppStore();
   const supabase = createClient();
   const supabaseClient = createClientComponentClient();
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadFeed, setUnreadFeed] = useState(false);
   const isFeedRoute = pathname.startsWith('/feed');
+  const visibleNavigation = membership?.role === 'staff'
+    ? navigation.filter((item) => ['Order', 'Order History', 'Resources', 'Account'].includes(item.name))
+    : navigation;
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -55,7 +58,7 @@ export function Sidebar() {
 
   useEffect(() => {
     const fetchUnreadCount = async () => {
-      if (!retailer?.id) return;
+      if (!retailer?.id || membership?.role === 'staff') return;
 
       const { data: conversation } = await supabaseClient
         .from('conversations')
@@ -83,7 +86,7 @@ export function Sidebar() {
     };
 
     fetchUnreadCount();
-  }, [supabaseClient, retailer?.id]);
+  }, [supabaseClient, retailer?.id, membership?.role]);
 
   const markFeedRead = useCallback(async () => {
     if (!retailer?.id) return;
@@ -95,7 +98,7 @@ export function Sidebar() {
 
   useEffect(() => {
     const fetchFeedUnread = async () => {
-      if (!retailer?.id) return;
+      if (!retailer?.id || membership?.role === 'staff') return;
       if (isFeedRoute) {
         markFeedRead();
         return;
@@ -128,7 +131,7 @@ export function Sidebar() {
     };
 
     fetchFeedUnread();
-  }, [isFeedRoute, markFeedRead, supabaseClient, retailer?.id]);
+  }, [isFeedRoute, markFeedRead, supabaseClient, retailer?.id, membership?.role]);
 
   useEffect(() => {
     if (pathname.startsWith('/messages')) {
@@ -146,7 +149,7 @@ export function Sidebar() {
   }, []);
 
   useEffect(() => {
-    if (!retailer?.id) return;
+    if (!retailer?.id || membership?.role === 'staff') return;
 
     const conversationChannel = supabaseClient
       .channel(`conversation-${retailer.id}`)
@@ -224,7 +227,7 @@ export function Sidebar() {
       supabaseClient.removeChannel(messagesChannel);
       supabaseClient.removeChannel(feedChannel);
     };
-  }, [isFeedRoute, markFeedRead, supabaseClient, retailer?.id]);
+  }, [isFeedRoute, markFeedRead, supabaseClient, retailer?.id, membership?.role]);
 
   return (
     <>
@@ -264,7 +267,7 @@ export function Sidebar() {
 
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-            {navigation.map((item) => {
+            {visibleNavigation.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
               return (
                 <Link

@@ -2,6 +2,8 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
+import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
+import { getRetailerAccess } from '@/lib/retailerAccess';
 
 export async function GET(request: Request) {
   try {
@@ -17,7 +19,11 @@ export async function GET(request: Request) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
-    let query = supabase
+    const adminClient = createSupabaseAdminClient();
+    const access = await getRetailerAccess(adminClient, user);
+    if (!access) return NextResponse.json({ error: 'Retailer access not found.' }, { status: 403 });
+
+    let query = adminClient
       .from('orders')
       .select(`
         order_number,
@@ -34,10 +40,20 @@ export async function GET(request: Request) {
         include_marketing_materials,
         marketing_materials_type,
         promotion_code,
+        placed_by_name,
+        location:retailer_locations(location_name),
         created_at
       `)
-      .eq('retailer_id', user.id)
+      .eq('retailer_id', access.retailerId)
       .order('created_at', { ascending: false });
+
+    if (access.role === 'staff') {
+      if (!access.locationIds.length) {
+        query = query.in('location_id', ['00000000-0000-0000-0000-000000000000']);
+      } else {
+        query = query.in('location_id', access.locationIds);
+      }
+    }
 
     if (status && status !== 'all') {
       query = query.eq('status', status);
@@ -69,6 +85,8 @@ export async function GET(request: Request) {
       'Includes Marketing Materials',
       'Marketing Materials Type',
       'Promotion Code',
+      'Ship-To Location',
+      'Placed By',
       'Delivery Date',
       'Order Date'
     ];
@@ -87,6 +105,8 @@ export async function GET(request: Request) {
       order.include_marketing_materials ? 'Yes' : 'No',
       order.include_marketing_materials ? formatMarketingMaterialsLabel(order.marketing_materials_type) : '',
       order.promotion_code || '',
+      order.location?.location_name || '',
+      order.placed_by_name || '',
       order.delivery_date || '',
       new Date(order.created_at).toLocaleDateString()
     ]) || [];

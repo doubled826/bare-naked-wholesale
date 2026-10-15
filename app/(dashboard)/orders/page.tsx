@@ -261,6 +261,7 @@ export default function OrdersPage() {
                     </div>
                     <p className="text-sm text-bark-500/70">
                       Ordered on {formatDate(order.created_at)} • {itemCount} items
+                      {order.placed_by_name ? ` • Placed by ${order.placed_by_name}` : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-6">

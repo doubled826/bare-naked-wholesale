@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import { getOfferResolution, toPublicOfferBenefit } from '@/lib/offerResolver';
+import { getRetailerAccess } from '@/lib/retailerAccess';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,11 +20,13 @@ export async function GET(request: Request) {
     const subtotal = Number(searchParams.get('subtotal') || 0);
     const promotionCode = searchParams.get('promotionCode');
     const adminClient = createSupabaseAdminClient();
+    const access = await getRetailerAccess(adminClient, user);
+    if (!access) return NextResponse.json({ error: 'Retailer access not found.' }, { status: 403 });
 
     const { data: retailer, error: retailerError } = await adminClient
       .from('retailers')
       .select('id, created_at')
-      .eq('id', user.id)
+      .eq('id', access.retailerId)
       .single();
 
     if (retailerError || !retailer) {
@@ -33,7 +36,7 @@ export async function GET(request: Request) {
     const { count: activeOrderCount, error: orderCountError } = await adminClient
       .from('orders')
       .select('id', { count: 'exact', head: true })
-      .eq('retailer_id', user.id)
+      .eq('retailer_id', access.retailerId)
       .neq('status', 'canceled');
 
     if (orderCountError) throw orderCountError;

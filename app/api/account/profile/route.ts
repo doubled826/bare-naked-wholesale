@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { formatBusinessAddress } from '@/lib/address';
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import { isValidEmail } from '@/lib/utils';
+import { getRetailerAccess } from '@/lib/retailerAccess';
 
 export async function PATCH(request: Request) {
   try {
@@ -40,6 +41,10 @@ export async function PATCH(request: Request) {
       zip: businessZip,
     });
     const adminClient = createSupabaseAdminClient();
+    const access = await getRetailerAccess(adminClient, user);
+    if (!access || access.role !== 'owner') {
+      return NextResponse.json({ error: 'Only the account owner can update the business profile.' }, { status: 403 });
+    }
     const existingMetadata = user.user_metadata || {};
     const metadata = {
       ...existingMetadata,
@@ -75,7 +80,7 @@ export async function PATCH(request: Request) {
         phone,
         tax_id: taxId,
       })
-      .eq('id', user.id);
+      .eq('id', access.retailerId);
 
     if (retailerError) {
       return NextResponse.json({ error: retailerError.message || 'Failed to update profile.' }, { status: 400 });
