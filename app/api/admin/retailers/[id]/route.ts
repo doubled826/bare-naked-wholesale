@@ -12,6 +12,7 @@ const ORDERS_SELECT_WITH_SHELF_TALKERS = 'id, order_number, status, total, subto
 const ORDERS_SELECT = 'id, order_number, status, total, subtotal, promotion_discount_applied, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category))';
 const LOCATIONS_SELECT = 'id, location_name, business_address, phone, is_default, is_public, public_display_name, public_address, public_phone, website_url, instagram_url, latitude, longitude, public_hours, public_notes, locator_updated_at, locator_verified_at, geocoded_at, geocoding_error, google_place_id, google_place_url, google_place_autofilled_at, google_place_match_confidence, google_place_matched_at, google_place_match_error, created_at';
 const LOCATIONS_SELECT_BASE = 'id, location_name, business_address, phone, is_default, is_public, public_display_name, website_url, instagram_url, latitude, longitude, public_hours, public_notes, locator_updated_at, locator_verified_at, geocoded_at, geocoding_error, google_place_id, google_place_match_confidence, google_place_matched_at, google_place_match_error, created_at';
+const HEARD_ABOUT_US_VALUES = new Set(['facebook_instagram', 'google_search', 'referral', 'team_outreach', 'other']);
 
 function isMissingOptionalRelationError(error: { code?: string; message?: string } | null) {
   if (!error) return false;
@@ -201,6 +202,13 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     const businessAddress = typeof body.business_address === 'string' ? body.business_address.trim() : '';
     const phone = typeof body.phone === 'string' ? body.phone.trim() : '';
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const updatesSource = Object.prototype.hasOwnProperty.call(body, 'how_heard_about_us');
+    const howHeardAboutUs = updatesSource && typeof body.how_heard_about_us === 'string'
+      ? body.how_heard_about_us.trim()
+      : '';
+    const howHeardAboutUsOther = updatesSource && typeof body.how_heard_about_us_other === 'string'
+      ? body.how_heard_about_us_other.trim()
+      : '';
 
     if (!companyName) {
       return NextResponse.json({ error: 'Company name is required' }, { status: 400 });
@@ -208,6 +216,14 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
     if (!email || !isValidEmail(email)) {
       return NextResponse.json({ error: 'A valid email address is required' }, { status: 400 });
+    }
+
+    if (updatesSource && howHeardAboutUs && !HEARD_ABOUT_US_VALUES.has(howHeardAboutUs)) {
+      return NextResponse.json({ error: 'Select a valid referral source' }, { status: 400 });
+    }
+
+    if (updatesSource && howHeardAboutUs === 'other' && !howHeardAboutUsOther) {
+      return NextResponse.json({ error: 'Enter how the retailer heard about us' }, { status: 400 });
     }
 
     const { data: retailerUser, error: retailerUserError } = await adminClient.auth.admin.getUserById(retailerId);
@@ -237,13 +253,20 @@ export async function PATCH(request: Request, { params }: RouteContext) {
       return NextResponse.json({ error: authUpdateError.message || 'Failed to update retailer email' }, { status: 400 });
     }
 
+    const retailerUpdates: Record<string, string | null> = {
+      company_name: companyName,
+      business_address: businessAddress,
+      phone,
+    };
+
+    if (updatesSource) {
+      retailerUpdates.how_heard_about_us = howHeardAboutUs || null;
+      retailerUpdates.how_heard_about_us_other = howHeardAboutUs === 'other' ? howHeardAboutUsOther : null;
+    }
+
     const { error: retailerUpdateError } = await adminClient
       .from('retailers')
-      .update({
-        company_name: companyName,
-        business_address: businessAddress,
-        phone,
-      })
+      .update(retailerUpdates)
       .eq('id', retailerId);
 
     if (retailerUpdateError) {
@@ -258,6 +281,10 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         business_address: businessAddress,
         phone,
         email,
+        ...(updatesSource ? {
+          how_heard_about_us: howHeardAboutUs || null,
+          how_heard_about_us_other: howHeardAboutUs === 'other' ? howHeardAboutUsOther : null,
+        } : {}),
       },
     });
   } catch (error) {
