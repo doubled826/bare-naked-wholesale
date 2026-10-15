@@ -320,6 +320,19 @@ export default function AdminRetailerDetailPage() {
   const backHref = safeReturnTo || retailerListHref;
 
   const [retailer, setRetailer] = useState<Retailer | null>(null);
+  const [isEditingBusinessInfo, setIsEditingBusinessInfo] = useState(false);
+  const [isSavingBusinessInfo, setIsSavingBusinessInfo] = useState(false);
+  const [businessInfoError, setBusinessInfoError] = useState('');
+  const [businessInfoForm, setBusinessInfoForm] = useState({
+    businessStreet: '',
+    businessCity: '',
+    businessState: '',
+    businessZip: '',
+    phone: '',
+    email: '',
+    how_heard_about_us: '',
+    how_heard_about_us_other: '',
+  });
   const [orders, setOrders] = useState<Order[]>([]);
   const [locations, setLocations] = useState<RetailerLocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -404,6 +417,63 @@ export default function AdminRetailerDetailPage() {
   const showSuccessNotice = (message: string, type: Notice['type'] = 'success') => {
     setSuccessNotice({ type, message });
     setTimeout(() => setSuccessNotice(null), 3000);
+  };
+
+  const openBusinessInfoEditor = () => {
+    if (!retailer) return;
+    const address = parseBusinessAddress(retailer.business_address || '');
+    setBusinessInfoForm({
+      businessStreet: address.street || '',
+      businessCity: address.city || '',
+      businessState: address.state || '',
+      businessZip: address.zip || '',
+      phone: retailer.phone || '',
+      email: retailer.email || '',
+      how_heard_about_us: retailer.how_heard_about_us || '',
+      how_heard_about_us_other: retailer.how_heard_about_us_other || '',
+    });
+    setBusinessInfoError('');
+    setIsEditingBusinessInfo(true);
+  };
+
+  const saveBusinessInfo = async () => {
+    if (!retailerId || !retailer) return;
+
+    const businessAddress = formatBusinessAddress({
+      street: businessInfoForm.businessStreet,
+      city: businessInfoForm.businessCity,
+      state: businessInfoForm.businessState,
+      zip: businessInfoForm.businessZip,
+    });
+
+    setIsSavingBusinessInfo(true);
+    setBusinessInfoError('');
+    try {
+      const response = await fetch(`/api/admin/retailers/${retailerId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_name: retailer.company_name,
+          business_address: businessAddress,
+          phone: businessInfoForm.phone,
+          email: businessInfoForm.email,
+          how_heard_about_us: businessInfoForm.how_heard_about_us,
+          how_heard_about_us_other: businessInfoForm.how_heard_about_us_other,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.retailer) {
+        throw new Error(payload?.error || 'Unable to update business info.');
+      }
+
+      setRetailer((current) => current ? { ...current, ...payload.retailer } : current);
+      setIsEditingBusinessInfo(false);
+      showSuccessNotice('Business info updated.');
+    } catch (saveError) {
+      setBusinessInfoError(saveError instanceof Error ? saveError.message : 'Unable to update business info.');
+    } finally {
+      setIsSavingBusinessInfo(false);
+    }
   };
 
   const geocodeLocation = async (locationId: string) => {
@@ -1546,30 +1616,167 @@ export default function AdminRetailerDetailPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm lg:col-span-1">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Business Info</h2>
-          <div className="space-y-4 text-sm">
-            <div>
-              <p className="text-gray-500">Business Address</p>
-              <p className="text-gray-900 font-medium mt-1">{retailer.business_address}</p>
-            </div>
-            <div>
-              <p className="text-gray-500">Phone</p>
-              <p className="text-gray-900 font-medium mt-1">{retailer.phone}</p>
-            </div>
-            <div>
-              <p className="text-gray-500">Email</p>
-              {retailer.email ? (
-                <a href={`mailto:${retailer.email}`} className="text-gray-900 font-medium mt-1 break-words hover:text-bark-600">
-                  {retailer.email}
-                </a>
-              ) : (
-                <p className="text-gray-900 font-medium mt-1">—</p>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Business Info</h2>
+            {!isEditingBusinessInfo && (
+              <button
+                type="button"
+                onClick={openBusinessInfoEditor}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-bark-600 hover:text-bark-700"
+              >
+                <Edit2 className="w-4 h-4" />
+                Edit
+              </button>
+            )}
+          </div>
+          {isEditingBusinessInfo ? (
+            <form
+              className="space-y-4 text-sm"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveBusinessInfo();
+              }}
+            >
+              <label className="block">
+                <span className="block text-gray-600 mb-1.5">Street address</span>
+                <input
+                  required
+                  value={businessInfoForm.businessStreet}
+                  onChange={(event) => setBusinessInfoForm((current) => ({ ...current, businessStreet: event.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block col-span-2">
+                  <span className="block text-gray-600 mb-1.5">City</span>
+                  <input
+                    required
+                    value={businessInfoForm.businessCity}
+                    onChange={(event) => setBusinessInfoForm((current) => ({ ...current, businessCity: event.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-gray-600 mb-1.5">State</span>
+                  <input
+                    required
+                    value={businessInfoForm.businessState}
+                    onChange={(event) => setBusinessInfoForm((current) => ({ ...current, businessState: event.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-gray-600 mb-1.5">ZIP</span>
+                  <input
+                    required
+                    value={businessInfoForm.businessZip}
+                    onChange={(event) => setBusinessInfoForm((current) => ({ ...current, businessZip: event.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  />
+                </label>
+              </div>
+              <label className="block">
+                <span className="block text-gray-600 mb-1.5">Phone</span>
+                <input
+                  type="tel"
+                  required
+                  value={businessInfoForm.phone}
+                  onChange={(event) => setBusinessInfoForm((current) => ({ ...current, phone: event.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-gray-600 mb-1.5">Email</span>
+                <input
+                  type="email"
+                  required
+                  value={businessInfoForm.email}
+                  onChange={(event) => setBusinessInfoForm((current) => ({ ...current, email: event.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-gray-600 mb-1.5">How Heard About Us</span>
+                <select
+                  value={businessInfoForm.how_heard_about_us}
+                  onChange={(event) => setBusinessInfoForm((current) => ({
+                    ...current,
+                    how_heard_about_us: event.target.value,
+                    how_heard_about_us_other: event.target.value === 'other' ? current.how_heard_about_us_other : '',
+                  }))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                >
+                  <option value="">Not provided</option>
+                  <option value="facebook_instagram">Facebook/Instagram</option>
+                  <option value="google_search">Google Search</option>
+                  <option value="referral">Referral</option>
+                  <option value="team_outreach">Bare Naked team reached out</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              {businessInfoForm.how_heard_about_us === 'other' && (
+                <label className="block">
+                  <span className="block text-gray-600 mb-1.5">Other source</span>
+                  <input
+                    required
+                    value={businessInfoForm.how_heard_about_us_other}
+                    onChange={(event) => setBusinessInfoForm((current) => ({ ...current, how_heard_about_us_other: event.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-bark-500"
+                  />
+                </label>
               )}
+              {businessInfoError && (
+                <p className="text-sm text-red-600" role="alert">{businessInfoError}</p>
+              )}
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={isSavingBusinessInfo}
+                  onClick={() => {
+                    setIsEditingBusinessInfo(false);
+                    setBusinessInfoError('');
+                  }}
+                  className="px-3 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingBusinessInfo}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-bark-600 rounded-lg hover:bg-bark-700 disabled:opacity-50"
+                >
+                  {isSavingBusinessInfo && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Save
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="space-y-4 text-sm">
+              <div>
+                <p className="text-gray-500">Business Address</p>
+                <p className="text-gray-900 font-medium mt-1">{retailer.business_address || '—'}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Phone</p>
+                <p className="text-gray-900 font-medium mt-1">{retailer.phone || '—'}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Email</p>
+                {retailer.email ? (
+                  <a href={`mailto:${retailer.email}`} className="text-gray-900 font-medium mt-1 break-words hover:text-bark-600">
+                    {retailer.email}
+                  </a>
+                ) : (
+                  <p className="text-gray-900 font-medium mt-1">—</p>
+                )}
+              </div>
+              <div>
+                <p className="text-gray-500">How Heard About Us</p>
+                <p className="text-gray-900 font-medium mt-1">{formatHearAboutUs(retailer)}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-gray-500">How Heard About Us</p>
-              <p className="text-gray-900 font-medium mt-1">{formatHearAboutUs(retailer)}</p>
-            </div>
+          )}
+          <div className="space-y-4 text-sm mt-4 pt-4 border-t border-gray-100">
             <div>
               <p className="text-gray-500">Avg Order Value</p>
               <p className="text-gray-900 font-medium mt-1">{formatCurrency(orderStats.avgOrder)}</p>
