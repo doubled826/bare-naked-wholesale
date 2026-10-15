@@ -22,6 +22,7 @@ import {
   Type,
   Trash2,
   Underline,
+  UploadCloud,
   Users,
   X,
 } from 'lucide-react';
@@ -312,6 +313,8 @@ export default function AdminEmailCampaignsPage() {
   const [librarySearch, setLibrarySearch] = useState('');
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
+  const [libraryUploading, setLibraryUploading] = useState(false);
+  const [libraryUploadError, setLibraryUploadError] = useState('');
   const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [deliveryLoading, setDeliveryLoading] = useState(false);
   const [retryDraftCreating, setRetryDraftCreating] = useState(false);
@@ -331,6 +334,7 @@ export default function AdminEmailCampaignsPage() {
   const previewRequestId = useRef(0);
   const audiencePreviewRequestId = useRef(0);
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const libraryUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedCampaign = useMemo(
     () => campaigns.find((campaign) => campaign.id === selectedId) || null,
@@ -655,6 +659,7 @@ export default function AdminEmailCampaignsPage() {
   async function openImagePicker() {
     setImagePickerOpen(true);
     setLibrarySearch('');
+    setLibraryUploadError('');
     if (libraryLoaded || libraryLoading) return;
 
     setLibraryLoading(true);
@@ -668,6 +673,41 @@ export default function AdminEmailCampaignsPage() {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Unable to load images.' });
     } finally {
       setLibraryLoading(false);
+    }
+  }
+
+  async function uploadAndInsertLibraryImage(file: File | null) {
+    if (!file) return;
+
+    setLibraryUploadError('');
+    if (!file.type.startsWith('image/')) {
+      setLibraryUploadError('Only image files can be uploaded here.');
+      if (libraryUploadInputRef.current) libraryUploadInputRef.current.value = '';
+      return;
+    }
+
+    setLibraryUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/admin/library/images', {
+        method: 'POST',
+        body: formData,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to upload image.');
+
+      const uploadedImage = payload.image as LibraryImage;
+      setLibraryImages((current) => [uploadedImage, ...current.filter((image) => image.path !== uploadedImage.path)]);
+      setLibraryLoaded(true);
+      insertBodyImageToken(uploadedImage);
+      setNotice({ type: 'success', message: 'Image uploaded to the library and inserted into the campaign.' });
+    } catch (error) {
+      setLibraryUploadError(error instanceof Error ? error.message : 'Unable to upload image.');
+    } finally {
+      setLibraryUploading(false);
+      if (libraryUploadInputRef.current) libraryUploadInputRef.current.value = '';
     }
   }
 
@@ -1958,19 +1998,46 @@ export default function AdminEmailCampaignsPage() {
             <div className="flex items-start justify-between gap-4 border-b border-cream-200 px-5 py-4">
               <div>
                 <h2 className="font-semibold text-bark-500">Select Image</h2>
-                <p className="mt-1 text-xs text-bark-500/60">Choose an uploaded image to insert into the email body.</p>
+                <p className="mt-1 text-xs text-bark-500/60">Choose an image from the library or upload a new one.</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setImagePickerOpen(false)}
-                className="rounded-lg p-2 text-bark-500/60 hover:bg-cream-100 hover:text-bark-500"
-                aria-label="Close image picker"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={libraryUploadInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(event) => uploadAndInsertLibraryImage(event.target.files?.[0] || null)}
+                  disabled={libraryUploading}
+                />
+                <button
+                  type="button"
+                  onClick={() => libraryUploadInputRef.current?.click()}
+                  disabled={libraryUploading}
+                  className="btn-primary gap-2 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {libraryUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
+                  {libraryUploading ? 'Uploading...' : 'Upload & insert'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImagePickerOpen(false)}
+                  disabled={libraryUploading}
+                  className="rounded-lg p-2 text-bark-500/60 hover:bg-cream-100 hover:text-bark-500 disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Close image picker"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
             <div className="space-y-4 p-5">
+              {libraryUploadError && (
+                <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{libraryUploadError}</span>
+                </div>
+              )}
+
               <div className="relative">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-bark-500/40" />
                 <input
@@ -2009,7 +2076,7 @@ export default function AdminEmailCampaignsPage() {
                 <div className="rounded-xl border border-dashed border-cream-300 bg-cream-50 px-5 py-12 text-center">
                   <ImageIcon className="mx-auto h-10 w-10 text-bark-500/30" />
                   <p className="mt-3 font-semibold text-bark-500">No images found</p>
-                  <p className="mt-1 text-sm text-bark-500/60">Upload images in Library, then select them here.</p>
+                  <p className="mt-1 text-sm text-bark-500/60">Upload a new image here or try a different search.</p>
                 </div>
               )}
             </div>
