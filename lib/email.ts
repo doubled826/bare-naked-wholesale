@@ -96,17 +96,18 @@ export const sendTeamEmail = async (options: {
   subject: string;
   text: string;
   html?: string;
-  to?: string;
-  cc?: string;
+  to?: EmailRecipient;
+  cc?: EmailRecipient;
 }) => {
   const to = options.to || getTeamEmailTo();
   const from = getTeamEmailFrom();
-  const cc = options.cc ?? 'jack@barenakedpet.com';
+  const configuredCc = options.cc ?? 'jack@barenakedpet.com';
+  const cc = Array.isArray(configuredCc) && configuredCc.length === 0 ? undefined : configuredCc;
 
   await sendEmail({
     from,
     to,
-    cc,
+    ...(cc ? { cc } : {}),
     replyTo: getReplyToEmail(),
     subject: options.subject,
     text: options.text,
