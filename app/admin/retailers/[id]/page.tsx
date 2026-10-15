@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { AlertCircle, ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target, Search, X, Unlink, ExternalLink } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowUpRight, Calendar, ClipboardList, Clock, LineChart, Package, TrendingDown, TrendingUp, Plus, Edit2, Trash2, Loader2, Star, CheckCircle, Target, Search, X, Unlink, ExternalLink, Users, RefreshCw, Copy, UserCheck, UserX } from 'lucide-react';
 import { cn, formatCurrency } from '@/lib/utils';
 import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
 import { formatMarketingMaterialsLabel } from '@/lib/marketingMaterials';
@@ -68,9 +68,33 @@ interface Order {
   marketing_materials_type?: string | null;
   promotion_discount_applied?: number | null;
   credit_applied?: number | null;
+  placed_by_name?: string | null;
   created_at: string;
   order_items: OrderItem[];
   shelf_talker_fulfillments?: ShelfTalkerFulfillment[];
+}
+
+interface RetailerTeamMember {
+  id: string;
+  user_id: string;
+  role: 'owner' | 'staff';
+  status: 'active' | 'disabled';
+  display_name: string;
+  email: string;
+  created_at: string;
+  updated_at?: string;
+  last_sign_in_at?: string | null;
+  locations?: Array<{ location_id: string }>;
+}
+
+interface RetailerStaffInvitation {
+  id: string;
+  email: string;
+  display_name: string;
+  status: 'pending' | 'expired';
+  expires_at: string;
+  created_at: string;
+  locations?: Array<{ location_id: string }>;
 }
 
 interface ShelfTalkerAdoptionRow {
@@ -335,6 +359,10 @@ export default function AdminRetailerDetailPage() {
   });
   const [orders, setOrders] = useState<Order[]>([]);
   const [locations, setLocations] = useState<RetailerLocation[]>([]);
+  const [teamMembers, setTeamMembers] = useState<RetailerTeamMember[]>([]);
+  const [staffInvitations, setStaffInvitations] = useState<RetailerStaffInvitation[]>([]);
+  const [teamNotice, setTeamNotice] = useState<Notice | null>(null);
+  const [teamActionKey, setTeamActionKey] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [showAddLocation, setShowAddLocation] = useState(false);
@@ -417,6 +445,85 @@ export default function AdminRetailerDetailPage() {
   const showSuccessNotice = (message: string, type: Notice['type'] = 'success') => {
     setSuccessNotice({ type, message });
     setTimeout(() => setSuccessNotice(null), 3000);
+  };
+
+  const showTeamNotice = (message: string, type: Notice['type'] = 'success') => {
+    setTeamNotice({ type, message });
+    setTimeout(() => setTeamNotice(null), 4000);
+  };
+
+  const updateTeamAccess = async (body: Record<string, unknown>) => {
+    if (!retailerId) throw new Error('Retailer not found.');
+    const response = await fetch(`/api/admin/retailers/${retailerId}/team`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.error || 'Unable to update retailer access.');
+    return payload;
+  };
+
+  const toggleTeamMemberLocation = async (member: RetailerTeamMember, locationId: string) => {
+    const currentIds = (member.locations || []).map((item) => item.location_id);
+    const locationIds = currentIds.includes(locationId)
+      ? currentIds.filter((id) => id !== locationId)
+      : [...currentIds, locationId];
+    if (!locationIds.length) {
+      showTeamNotice('Staff must retain access to at least one location.', 'error');
+      return;
+    }
+
+    const actionKey = `locations:${member.id}`;
+    setTeamActionKey(actionKey);
+    try {
+      await updateTeamAccess({ action: 'member_locations', membershipId: member.id, locationIds });
+      setTeamMembers((current) => current.map((item) => item.id === member.id
+        ? { ...item, locations: locationIds.map((id) => ({ location_id: id })) }
+        : item));
+      showTeamNotice('Staff location access updated.');
+    } catch (teamError) {
+      showTeamNotice(teamError instanceof Error ? teamError.message : 'Unable to update location access.', 'error');
+    } finally {
+      setTeamActionKey('');
+    }
+  };
+
+  const setTeamMemberStatus = async (member: RetailerTeamMember, status: 'active' | 'disabled') => {
+    const actionKey = `status:${member.id}`;
+    setTeamActionKey(actionKey);
+    try {
+      await updateTeamAccess({ action: 'member_status', membershipId: member.id, status });
+      setTeamMembers((current) => current.map((item) => item.id === member.id ? { ...item, status } : item));
+      showTeamNotice(status === 'active' ? 'Staff access restored.' : 'Staff access disabled.');
+    } catch (teamError) {
+      showTeamNotice(teamError instanceof Error ? teamError.message : 'Unable to update staff status.', 'error');
+    } finally {
+      setTeamActionKey('');
+    }
+  };
+
+  const handleInvitationAction = async (invitation: RetailerStaffInvitation, action: 'invitation_resend' | 'invitation_link' | 'invitation_cancel') => {
+    const actionKey = `${action}:${invitation.id}`;
+    setTeamActionKey(actionKey);
+    try {
+      const payload = await updateTeamAccess({ action, invitationId: invitation.id });
+      if (action === 'invitation_cancel') {
+        setStaffInvitations((current) => current.filter((item) => item.id !== invitation.id));
+        showTeamNotice('Invitation canceled.');
+      } else if (action === 'invitation_link') {
+        await navigator.clipboard.writeText(payload.invitationUrl);
+        setStaffInvitations((current) => current.map((item) => item.id === invitation.id ? { ...item, status: 'pending', expires_at: payload.expiresAt } : item));
+        showTeamNotice('A fresh invitation link was copied to your clipboard.');
+      } else {
+        setStaffInvitations((current) => current.map((item) => item.id === invitation.id ? { ...item, status: 'pending', expires_at: payload.expiresAt } : item));
+        showTeamNotice(`Invitation resent to ${invitation.email}.`);
+      }
+    } catch (teamError) {
+      showTeamNotice(teamError instanceof Error ? teamError.message : 'Unable to update invitation.', 'error');
+    } finally {
+      setTeamActionKey('');
+    }
   };
 
   const openBusinessInfoEditor = () => {
@@ -693,6 +800,8 @@ export default function AdminRetailerDetailPage() {
             successProfile: null,
             currentPromo: null,
             shelfTalkerFulfillments: [],
+            teamMembers: [],
+            staffInvitations: [],
           };
         }
 
@@ -704,6 +813,8 @@ export default function AdminRetailerDetailPage() {
         setCurrentPromo(normalizeCurrentAstroPromo(retailerPayload.currentPromo));
         setShelfTalkerFulfillments((retailerPayload.shelfTalkerFulfillments || []) as ShelfTalkerFulfillment[]);
         setLocations(nextLocations);
+        setTeamMembers((retailerPayload.teamMembers || []) as RetailerTeamMember[]);
+        setStaffInvitations((retailerPayload.staffInvitations || []) as RetailerStaffInvitation[]);
 
         if (!hasSyncedProfileLocationRef.current && retailerData?.business_address) {
           const normalizedProfileAddress = retailerData.business_address.trim().toLowerCase();
@@ -2079,6 +2190,158 @@ export default function AdminRetailerDetailPage() {
       </div>
 
       <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-5">
+          <div>
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-bark-600" />
+              <h2 className="text-lg font-semibold text-gray-900">Team &amp; Access</h2>
+            </div>
+            <p className="text-sm text-gray-500 mt-1">Owner and staff logins attached to this retailer account.</p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-emerald-50 px-3 py-1.5 font-medium text-emerald-700">
+              {teamMembers.filter((member) => member.status === 'active').length} active
+            </span>
+            {staffInvitations.length > 0 && (
+              <span className="rounded-full bg-amber-50 px-3 py-1.5 font-medium text-amber-700">
+                {staffInvitations.length} invitation{staffInvitations.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {teamNotice && (
+          <div className={cn(
+            'mb-4 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm',
+            teamNotice.type === 'success'
+              ? 'border-green-200 bg-green-50 text-green-900'
+              : 'border-red-200 bg-red-50 text-red-900',
+          )}>
+            {teamNotice.type === 'success' ? <CheckCircle className="h-4 w-4 text-emerald-600" /> : <AlertCircle className="h-4 w-4 text-red-600" />}
+            {teamNotice.message}
+          </div>
+        )}
+
+        {teamMembers.length === 0 && staffInvitations.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-gray-200 px-4 py-8 text-center text-sm text-gray-500">
+            No team memberships are available yet. Apply the retailer team-access migration to backfill the owner.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {teamMembers.map((member) => {
+              const assignedIds = (member.locations || []).map((assignment) => assignment.location_id);
+              const assignedNames = member.role === 'owner'
+                ? ['All locations']
+                : assignedIds.map((locationId) => locations.find((location) => location.id === locationId)?.location_name).filter(Boolean);
+              const statusBusy = teamActionKey === `status:${member.id}`;
+              const locationsBusy = teamActionKey === `locations:${member.id}`;
+
+              return (
+                <div key={member.id} className={cn('rounded-lg border p-4', member.status === 'disabled' ? 'border-gray-200 bg-gray-50' : 'border-gray-100')}>
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-gray-900">{member.display_name || member.email || 'Unnamed user'}</p>
+                        <span className={cn(
+                          'rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
+                          member.role === 'owner' ? 'bg-bark-100 text-bark-700' : 'bg-blue-50 text-blue-700',
+                        )}>{member.role}</span>
+                        <span className={cn(
+                          'rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
+                          member.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-200 text-gray-600',
+                        )}>{member.status}</span>
+                      </div>
+                      <p className="mt-1 text-sm text-gray-500">{member.email || 'No email recorded'}</p>
+                      <p className="mt-2 text-xs text-gray-500">
+                        Access: {assignedNames.length ? assignedNames.join(', ') : 'No locations assigned'}
+                        {' · '}
+                        Last sign-in: {member.last_sign_in_at ? new Date(member.last_sign_in_at).toLocaleString() : 'Never'}
+                      </p>
+
+                      {member.role === 'staff' && locations.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {locations.map((location) => (
+                            <label key={location.id} className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={assignedIds.includes(location.id)}
+                                disabled={locationsBusy || member.status === 'disabled'}
+                                onChange={() => toggleTeamMemberLocation(member, location.id)}
+                                className="rounded border-gray-300 text-bark-500 focus:ring-bark-500"
+                              />
+                              {location.location_name}
+                            </label>
+                          ))}
+                          {locationsBusy && <Loader2 className="mt-1 h-4 w-4 animate-spin text-gray-400" />}
+                        </div>
+                      )}
+                    </div>
+
+                    {member.role === 'staff' && (
+                      <button
+                        type="button"
+                        disabled={statusBusy}
+                        onClick={() => {
+                          const nextStatus = member.status === 'active' ? 'disabled' : 'active';
+                          if (nextStatus === 'disabled' && !window.confirm(`Disable portal access for ${member.display_name || member.email}?`)) return;
+                          void setTeamMemberStatus(member, nextStatus);
+                        }}
+                        className={cn(
+                          'inline-flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-50',
+                          member.status === 'active'
+                            ? 'border-red-200 text-red-700 hover:bg-red-50'
+                            : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50',
+                        )}
+                      >
+                        {statusBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : member.status === 'active' ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
+                        {member.status === 'active' ? 'Disable access' : 'Restore access'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {staffInvitations.map((invitation) => {
+              const assignedNames = (invitation.locations || [])
+                .map((assignment) => locations.find((location) => location.id === assignment.location_id)?.location_name)
+                .filter(Boolean);
+              const expired = invitation.status === 'expired' || new Date(invitation.expires_at).getTime() < Date.now();
+              return (
+                <div key={invitation.id} className="rounded-lg border border-amber-100 bg-amber-50/50 p-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-gray-900">{invitation.display_name}</p>
+                        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                          {expired ? 'Invitation expired' : 'Invitation pending'}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-gray-500">{invitation.email}</p>
+                      <p className="mt-2 text-xs text-gray-500">
+                        Access: {assignedNames.length ? assignedNames.join(', ') : 'No locations assigned'} · {expired ? 'Expired' : 'Expires'} {new Date(invitation.expires_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" disabled={Boolean(teamActionKey)} onClick={() => void handleInvitationAction(invitation, 'invitation_resend')} className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                        {teamActionKey === `invitation_resend:${invitation.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Resend
+                      </button>
+                      <button type="button" disabled={Boolean(teamActionKey)} onClick={() => void handleInvitationAction(invitation, 'invitation_link')} className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                        {teamActionKey === `invitation_link:${invitation.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />} Copy link
+                      </button>
+                      <button type="button" disabled={Boolean(teamActionKey)} onClick={() => void handleInvitationAction(invitation, 'invitation_cancel')} className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50">
+                        <X className="h-4 w-4" /> Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Locations</h2>
@@ -2548,7 +2811,10 @@ export default function AdminRetailerDetailPage() {
                 <Link key={order.id} href={`/admin/orders?order=${order.id}`} className="flex items-center justify-between gap-4 p-3 rounded-lg border border-gray-100 hover:bg-gray-50">
                   <div>
                     <p className="font-medium text-gray-900">{order.order_number}</p>
-                    <p className="text-sm text-gray-500">{new Date(order.created_at).toLocaleDateString()}</p>
+                    <p className="text-sm text-gray-500">
+                      {new Date(order.created_at).toLocaleDateString()}
+                      {order.placed_by_name ? ` · Placed by ${order.placed_by_name}` : ''}
+                    </p>
                   </div>
                   <div className="flex items-center gap-3">
                     {order.include_samples && <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Samples</span>}

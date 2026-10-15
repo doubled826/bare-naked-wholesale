@@ -1,10 +1,14 @@
 import { create } from 'zustand';
-import type { Retailer, Product, Order, CartItem, NotificationType } from '@/types';
+import type { Retailer, RetailerLocation, RetailerMembership, Product, Order, CartItem, NotificationType } from '@/types';
 
 interface AppState {
   // User & Retailer
   retailer: Retailer | null;
   setRetailer: (retailer: Retailer | null) => void;
+  membership: RetailerMembership | null;
+  setMembership: (membership: RetailerMembership | null) => void;
+  locations: RetailerLocation[];
+  setLocations: (locations: RetailerLocation[]) => void;
 
   // Products
   products: Product[];
@@ -43,6 +47,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   // User & Retailer
   retailer: null,
   setRetailer: (retailer) => set({ retailer }),
+  membership: null,
+  setMembership: (membership) => set({ membership }),
+  locations: [],
+  setLocations: (locations) => set({ locations }),
 
   // Products
   products: [],

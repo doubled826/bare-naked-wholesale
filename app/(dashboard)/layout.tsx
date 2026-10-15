@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Sidebar, MobileHeader } from '@/components/layout/Sidebar';
 import { useAppStore } from '@/lib/store';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
@@ -29,8 +29,9 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const supabase = createClientComponentClient();
-  const { setRetailer, setProducts, setOrders } = useAppStore();
+  const { setRetailer, setMembership, setLocations, setProducts, setOrders } = useAppStore();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -60,19 +61,26 @@ export default function DashboardLayout({
           return;
         }
 
-        // Load retailer data
-        const retailerResponse = await withTimeout(
-          supabase
-            .from('retailers')
-            .select('*')
-            .eq('id', user.id)
-            .single(),
-          'Retailer profile load',
-        );
-        const retailer = retailerResponse?.data;
-
-        if (retailer) {
-          setRetailer({ ...retailer, email: user.email });
+        const contextResponse = await withTimeout(fetch('/api/account/context'), 'Retailer context load');
+        const context = contextResponse?.ok ? await contextResponse.json() : null;
+        if (!context?.retailer || !context?.membership) {
+          if (contextResponse?.status === 403) {
+            await supabase.auth.signOut();
+            router.push('/login?access=removed');
+          } else {
+            router.push('/login');
+          }
+          return;
+        }
+        setRetailer(context.retailer);
+        setMembership(context.membership);
+        setLocations(context.locations || []);
+        if (context.membership.role === 'staff') {
+          const staffRoutes = ['/catalog', '/orders', '/resources', '/account'];
+          if (!staffRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`))) {
+            router.replace('/catalog');
+            return;
+          }
         }
 
         // Load products
@@ -89,21 +97,7 @@ export default function DashboardLayout({
           setProducts(products);
         }
 
-        // Load orders
-        const ordersResponse = await withTimeout(
-          supabase
-            .from('orders')
-            .select(`*, location:retailer_locations(id, location_name, business_address, phone), order_items(*, product_id)`)
-            .eq('retailer_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(50),
-          'Orders load',
-        );
-        const orders = ordersResponse?.data;
-
-        if (orders) {
-          setOrders(orders);
-        }
+        setOrders(context.orders || []);
       } catch (error) {
         console.error('Dashboard load error:', error);
       } finally {
@@ -112,7 +106,7 @@ export default function DashboardLayout({
     };
 
     checkAuth();
-  }, [supabase, router, setRetailer, setProducts, setOrders]);
+  }, [supabase, router, pathname, setRetailer, setMembership, setLocations, setProducts, setOrders]);
 
   if (loading) {
     return (

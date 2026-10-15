@@ -18,16 +18,18 @@ import {
   Trash2,
   Edit2,
   Star,
-  ImagePlus
+  ImagePlus,
+  Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import type { RetailerLocation } from '@/types';
 import { formatBusinessAddress, parseBusinessAddress } from '@/lib/address';
+import { TeamMembers } from '@/components/account/TeamMembers';
 
 export default function AccountPage() {
-  const { retailer, setRetailer } = useAppStore();
+  const { retailer, setRetailer, membership } = useAppStore();
   const [activeTab, setActiveTab] = useState('profile');
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -76,6 +78,13 @@ export default function AccountPage() {
   const [logoError, setLogoError] = useState('');
   
   const supabase = createClientComponentClient();
+  const isOwner = membership?.role === 'owner';
+
+  useEffect(() => {
+    if (membership?.role === 'staff' && (activeTab === 'profile' || activeTab === 'team')) {
+      setActiveTab('locations');
+    }
+  }, [membership?.role, activeTab]);
 
   // Fetch user metadata on mount
   useEffect(() => {
@@ -128,7 +137,7 @@ export default function AccountPage() {
     setLocations(nextLocations);
     setLocationsLoading(false);
 
-    if (!hasSyncedProfileLocation && retailer?.business_address) {
+    if (isOwner && !hasSyncedProfileLocation && retailer?.business_address) {
       const normalizedProfileAddress = retailer.business_address.trim().toLowerCase();
       const matchesProfileAddress = nextLocations.some(
         (location) => location.business_address.trim().toLowerCase() === normalizedProfileAddress
@@ -621,9 +630,10 @@ export default function AccountPage() {
   };
 
   const tabs = [
-    { id: 'profile', label: 'Business Profile', icon: Building },
+    ...(isOwner ? [{ id: 'profile', label: 'Business Profile', icon: Building }] : []),
     { id: 'security', label: 'Security', icon: Lock },
     { id: 'locations', label: 'Locations', icon: MapPin },
+    ...(isOwner ? [{ id: 'team', label: 'Team Members', icon: Users }] : []),
   ];
 
   return (
@@ -659,7 +669,7 @@ export default function AccountPage() {
         {/* Main Content */}
         <div className="flex-1">
           {/* Profile Tab */}
-          {activeTab === 'profile' && (
+          {activeTab === 'profile' && isOwner && (
             <div className="card p-6">
               <h2 className="section-title mb-6">Business Profile</h2>
 
@@ -998,10 +1008,10 @@ export default function AccountPage() {
                   <h2 className="section-title">Locations</h2>
                   <p className="text-sm text-bark-500/70 mt-1">Manage ship-to addresses for your orders</p>
                 </div>
-                <button onClick={() => setShowAddLocation(true)} className="btn-primary">
+                {isOwner && <button onClick={() => setShowAddLocation(true)} className="btn-primary">
                   <Plus className="w-4 h-4 mr-2" />
                   Add Location
-                </button>
+                </button>}
               </div>
 
               {locationNotice && (
@@ -1016,7 +1026,7 @@ export default function AccountPage() {
                 </div>
               )}
 
-              {showAddLocation && (
+              {isOwner && showAddLocation && (
                 <div className="mb-6 p-4 bg-cream-200 rounded-xl space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -1218,7 +1228,7 @@ export default function AccountPage() {
                               <p className="text-sm text-bark-500/70 mt-1">{location.phone}</p>
                             )}
                           </div>
-                          <div className="flex flex-wrap gap-2">
+                          {isOwner && <div className="flex flex-wrap gap-2">
                             {!location.is_default && (
                               <button
                                 onClick={() => handleSetDefaultLocation(location.id)}
@@ -1253,7 +1263,7 @@ export default function AccountPage() {
                                 </>
                               )}
                             </button>
-                          </div>
+                          </div>}
                         </div>
                       )}
                     </div>
@@ -1262,6 +1272,8 @@ export default function AccountPage() {
               )}
             </div>
           )}
+
+          {activeTab === 'team' && isOwner && <TeamMembers locations={locations} />}
 
         </div>
       </div>

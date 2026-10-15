@@ -8,8 +8,8 @@ type RouteContext = {
   };
 };
 
-const ORDERS_SELECT_WITH_SHELF_TALKERS = 'id, order_number, status, total, subtotal, promotion_discount_applied, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category)), shelf_talker_fulfillments(id, retailer_id, location_id, flavor, status, fulfilled_order_id, qualified_at, fulfilled_at)';
-const ORDERS_SELECT = 'id, order_number, status, total, subtotal, promotion_discount_applied, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category))';
+const ORDERS_SELECT_WITH_SHELF_TALKERS = 'id, order_number, status, total, subtotal, promotion_discount_applied, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, placed_by_name, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category)), shelf_talker_fulfillments(id, retailer_id, location_id, flavor, status, fulfilled_order_id, qualified_at, fulfilled_at)';
+const ORDERS_SELECT = 'id, order_number, status, total, subtotal, promotion_discount_applied, credit_applied, include_samples, include_marketing_materials, marketing_materials_type, placed_by_name, created_at, order_items(id, quantity, total_price, product_id, product:products(name, size, category))';
 const LOCATIONS_SELECT = 'id, location_name, business_address, phone, is_default, is_public, public_display_name, public_address, public_phone, website_url, instagram_url, latitude, longitude, public_hours, public_notes, locator_updated_at, locator_verified_at, geocoded_at, geocoding_error, google_place_id, google_place_url, google_place_autofilled_at, google_place_match_confidence, google_place_matched_at, google_place_match_error, created_at';
 const LOCATIONS_SELECT_BASE = 'id, location_name, business_address, phone, is_default, is_public, public_display_name, website_url, instagram_url, latitude, longitude, public_hours, public_notes, locator_updated_at, locator_verified_at, geocoded_at, geocoding_error, google_place_id, google_place_match_confidence, google_place_matched_at, google_place_match_error, created_at';
 const HEARD_ABOUT_US_VALUES = new Set(['facebook_instagram', 'google_search', 'referral', 'team_outreach', 'other']);
@@ -57,6 +57,8 @@ export async function GET(_request: Request, { params }: RouteContext) {
       currentPromoResult,
       shelfTalkerResult,
       sourceResult,
+      teamMembersResult,
+      staffInvitationsResult,
     ] = await Promise.all([
       adminClient
         .from('retailer_onboarding')
@@ -95,6 +97,17 @@ export async function GET(_request: Request, { params }: RouteContext) {
         .select('how_heard_about_us, how_heard_about_us_other')
         .eq('id', retailerId)
         .maybeSingle(),
+      adminClient
+        .from('retailer_memberships')
+        .select('id, user_id, role, status, display_name, email, created_at, updated_at, locations:retailer_member_locations(location_id)')
+        .eq('retailer_id', retailerId)
+        .order('created_at', { ascending: true }),
+      adminClient
+        .from('retailer_staff_invitations')
+        .select('id, email, display_name, status, expires_at, created_at, updated_at, locations:retailer_staff_invitation_locations(location_id)')
+        .eq('retailer_id', retailerId)
+        .in('status', ['pending', 'expired'])
+        .order('created_at', { ascending: false }),
     ]);
 
     let orders = ordersResult.data || [];
@@ -163,6 +176,22 @@ export async function GET(_request: Request, { params }: RouteContext) {
       console.warn(`Retailer ${retailerId} loaded without a matching auth user record.`);
     }
 
+    if (teamMembersResult.error) {
+      console.warn(`Retailer ${retailerId} team members failed to load:`, teamMembersResult.error);
+    }
+    if (staffInvitationsResult.error) {
+      console.warn(`Retailer ${retailerId} staff invitations failed to load:`, staffInvitationsResult.error);
+    }
+
+    const teamMembers = await Promise.all((teamMembersResult.data || []).map(async (membership: any) => {
+      const { data: authUser } = await adminClient.auth.admin.getUserById(membership.user_id);
+      return {
+        ...membership,
+        email: membership.email || authUser?.user?.email || '',
+        last_sign_in_at: authUser?.user?.last_sign_in_at || null,
+      };
+    }));
+
     return NextResponse.json({
       retailer: {
         ...retailer,
@@ -177,6 +206,8 @@ export async function GET(_request: Request, { params }: RouteContext) {
       successProfile: successProfileResult.data || null,
       currentPromo: currentPromoResult.data || null,
       shelfTalkerFulfillments: shelfTalkerResult.data || [],
+      teamMembers,
+      staffInvitations: staffInvitationsResult.data || [],
     });
   } catch (error) {
     if (error instanceof AdminAuthorizationError) {

@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
 import { getOfferResolution } from '@/lib/offerResolver';
+import { getRetailerAccess } from '@/lib/retailerAccess';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,10 +75,12 @@ export async function GET() {
     }
 
     const adminClient = createSupabaseAdminClient();
+    const access = await getRetailerAccess(adminClient, user);
+    if (!access) return NextResponse.json({ error: 'Retailer access not found.' }, { status: 403 });
     const { data: retailer, error: retailerError } = await adminClient
       .from('retailers')
       .select('id, created_at')
-      .eq('id', user.id)
+      .eq('id', access.retailerId)
       .single();
 
     if (retailerError || !retailer) {
@@ -87,7 +90,7 @@ export async function GET() {
     const { count: activeOrderCount, error: orderCountError } = await adminClient
       .from('orders')
       .select('id', { count: 'exact', head: true })
-      .eq('retailer_id', user.id)
+      .eq('retailer_id', access.retailerId)
       .neq('status', 'canceled');
 
     if (orderCountError) throw orderCountError;
@@ -110,7 +113,7 @@ export async function GET() {
       let isEligible = targetingType === 'all_retailers';
 
       if (targetingType === 'manual') {
-        isEligible = (announcement.manual_retailer_ids || []).includes(user.id);
+        isEligible = (announcement.manual_retailer_ids || []).includes(access.retailerId);
       } else if (targetingType === 'new_retailers') {
         const createdAt = retailer.created_at ? new Date(retailer.created_at).getTime() : 0;
         const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -142,7 +145,7 @@ export async function GET() {
       ? await adminClient
           .from('announcement_popup_views')
           .select('announcement_id, version, dismissed_at')
-          .eq('retailer_id', user.id)
+          .eq('retailer_id', access.retailerId)
           .in('announcement_id', popupIds)
       : { data: [], error: null };
 

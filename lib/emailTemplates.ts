@@ -8,6 +8,7 @@ export type EmailTemplateGroup = 'transactional' | 'launch_offer' | 'marketing';
 
 export type EmailTemplateKey =
   | 'order_confirmation'
+  | 'staff_invitation'
   | 'new_order_team'
   | 'shipping_notification'
   | 'invoice_reminder'
@@ -119,6 +120,43 @@ const renderShell = (options: {
   </body>
 </html>`;
 };
+
+export function buildStaffInvitationEmail(options: {
+  staffName: string;
+  inviterName: string;
+  retailerName: string;
+  locationNames: string[];
+  invitationUrl: string;
+}) {
+  const greeting = options.staffName.trim() ? `Hi ${options.staffName.trim()},` : 'Hi,';
+  const accessLabel = options.locationNames.length === 1
+    ? options.locationNames[0]
+    : options.locationNames.join(', ');
+  const subject = `${options.inviterName} invited you to ${options.retailerName}'s wholesale account`;
+  const text = `${greeting}
+
+${options.inviterName} invited you to join ${options.retailerName}'s Bare Naked Pet Co. wholesale account.
+
+You will be able to place orders and view order history for: ${accessLabel}.
+
+Accept your invitation and create your login:
+${options.invitationUrl}
+
+This invitation expires in 7 days.
+
+Bare Naked Pet Co.`;
+
+  return {
+    subject,
+    text,
+    html: renderShell({
+      title: `Join ${options.retailerName}`,
+      preheader: `${options.inviterName} invited you to the Bare Naked Pet Co. wholesale portal.`,
+      text: `${greeting}\n\n${options.inviterName} invited you to join ${options.retailerName}'s Bare Naked Pet Co. wholesale account.\n\nYou will be able to place orders and view order history for: ${accessLabel}.\n\nThis invitation expires in 7 days.`,
+      cta: { href: options.invitationUrl, label: 'Accept invitation' },
+    }),
+  };
+}
 
 function renderShelfTalkerLaunchEmail() {
   const catalogUrl = `${appUrl()}/catalog`;
@@ -383,6 +421,20 @@ function renderBareLaunchOfferShell({
 }
 
 const definitions: EmailTemplateDefinition[] = [
+  {
+    key: 'staff_invitation',
+    name: 'Staff invitation',
+    group: 'transactional',
+    audience: 'retailer',
+    description: 'Sent when an owner invites a staff member to access selected store locations.',
+    render: () => buildStaffInvitationEmail({
+      staffName: 'Maria',
+      inviterName: 'Liz',
+      retailerName: 'The Dog Bakery',
+      locationNames: ['Long Beach'],
+      invitationUrl: `${appUrl()}/accept-invite?invitation=preview`,
+    }),
+  },
   {
     key: 'order_confirmation',
     name: 'Order confirmation',

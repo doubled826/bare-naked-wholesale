@@ -1,6 +1,8 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { createSupabaseAdminClient } from '@/lib/supabaseAdmin';
+import { getRetailerAccess } from '@/lib/retailerAccess';
 
 export async function GET() {
   try {
@@ -14,7 +16,11 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: credits, error } = await supabase
+    const adminClient = createSupabaseAdminClient();
+    const access = await getRetailerAccess(adminClient, user);
+    if (!access) return NextResponse.json({ error: 'Retailer access not found.' }, { status: 403 });
+
+    const { data: credits, error } = await adminClient
       .from('retailer_credits')
       .select(`
         id,
@@ -44,7 +50,7 @@ export async function GET() {
           )
         )
       `)
-      .eq('retailer_id', user.id)
+      .eq('retailer_id', access.retailerId)
       .order('created_at', { ascending: false });
 
     if (error) {
