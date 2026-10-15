@@ -4,7 +4,7 @@ import { defaultEmailCampaign, getCampaignValidationError, renderEmailCampaign }
 
 export const dynamic = 'force-dynamic';
 
-const campaignSelect = 'id, template_key, name, subject, preheader, headline, body, cta_label, cta_url, hero_image_url, audience_filter, manual_recipients, status, scheduled_at, schedule_error, sent_at, created_at, updated_at';
+const campaignSelect = 'id, template_key, name, subject, preheader, headline, body, cta_label, cta_url, hero_image_url, audience_filter, audience_id, manual_recipients, status, scheduled_at, schedule_error, sent_at, created_at, updated_at';
 
 const isMissingCampaignTableError = (error: unknown) => {
   const maybeError = error as { code?: string; message?: string };

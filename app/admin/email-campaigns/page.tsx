@@ -8,6 +8,7 @@ import {
   CheckCircle,
   Clock,
   Eye,
+  Filter,
   FileText,
   Image as ImageIcon,
   Italic,
@@ -19,13 +20,17 @@ import {
   Send,
   Sparkles,
   Type,
+  Trash2,
   Underline,
   Users,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-type AudienceFilter = 'all_retailers' | 'never_ordered' | 'ordered_once' | 'repeat_buyers' | 'manual';
+type AudienceFilter = 'all_retailers' | 'never_ordered' | 'ordered_once' | 'repeat_buyers' | 'lapsed_180_days' | 'saved_audience' | 'manual';
+type AudienceConditionField = 'last_order_days' | 'order_count' | 'lifetime_spend' | 'account_age_days' | 'product_purchased' | 'state';
+type AudienceConditionOperator = 'greater_than' | 'less_than' | 'equal_to' | 'at_least' | 'at_most' | 'has_purchased' | 'has_not_purchased' | 'is' | 'is_not';
+type AudienceCondition = { field: AudienceConditionField; operator: AudienceConditionOperator; value: string | number };
 type PreviewMode = 'html' | 'text';
 
 type Campaign = {
@@ -40,6 +45,7 @@ type Campaign = {
   cta_url?: string | null;
   hero_image_url?: string | null;
   audience_filter: AudienceFilter;
+  audience_id?: string | null;
   manual_recipients?: string | null;
   status?: 'draft' | 'scheduled' | 'sending' | 'sent';
   scheduled_at?: string | null;
@@ -139,11 +145,74 @@ type LibraryImage = {
   updatedAt?: string | null;
 };
 
+type SavedAudience = {
+  id: string;
+  name: string;
+  conditions: AudienceCondition[];
+  created_at?: string;
+  updated_at?: string;
+};
+
+type AudienceProduct = {
+  id: string;
+  name: string;
+  size?: string | null;
+  category?: string | null;
+  is_active?: boolean | null;
+};
+
+const audienceConditionOptions: Array<{ value: AudienceConditionField; label: string }> = [
+  { value: 'last_order_days', label: 'Last order' },
+  { value: 'order_count', label: 'Order count' },
+  { value: 'lifetime_spend', label: 'Lifetime spend' },
+  { value: 'account_age_days', label: 'Account age' },
+  { value: 'product_purchased', label: 'Product purchased' },
+  { value: 'state', label: 'State' },
+];
+
+const audienceOperators: Record<AudienceConditionField, Array<{ value: AudienceConditionOperator; label: string }>> = {
+  last_order_days: [
+    { value: 'greater_than', label: 'was more than' },
+    { value: 'less_than', label: 'was less than' },
+  ],
+  order_count: [
+    { value: 'equal_to', label: 'is exactly' },
+    { value: 'at_least', label: 'is at least' },
+    { value: 'at_most', label: 'is at most' },
+  ],
+  lifetime_spend: [
+    { value: 'at_least', label: 'is at least' },
+    { value: 'at_most', label: 'is at most' },
+  ],
+  account_age_days: [
+    { value: 'greater_than', label: 'is more than' },
+    { value: 'less_than', label: 'is less than' },
+  ],
+  product_purchased: [
+    { value: 'has_purchased', label: 'includes' },
+    { value: 'has_not_purchased', label: 'does not include' },
+  ],
+  state: [
+    { value: 'is', label: 'is' },
+    { value: 'is_not', label: 'is not' },
+  ],
+};
+
+const US_STATE_OPTIONS = [
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS',
+  'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY',
+  'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV',
+  'WI', 'WY',
+];
+
+const defaultAudienceCondition = (): AudienceCondition => ({ field: 'last_order_days', operator: 'greater_than', value: 180 });
+
 const audienceOptions: Array<{ value: AudienceFilter; label: string; description: string }> = [
   { value: 'all_retailers', label: 'All retailers', description: 'Every retailer with a valid email.' },
   { value: 'never_ordered', label: 'Never ordered', description: 'Retailers with no non-canceled orders.' },
   { value: 'ordered_once', label: 'Ordered once', description: 'Retailers with exactly one order.' },
   { value: 'repeat_buyers', label: 'Repeat buyers', description: 'Retailers with two or more orders.' },
+  { value: 'lapsed_180_days', label: 'Lapsed 180+ days', description: 'Past buyers with no order in the last 180 days.' },
   { value: 'manual', label: 'Manual list', description: 'Search and select specific retailers.' },
 ];
 
@@ -248,8 +317,19 @@ export default function AdminEmailCampaignsPage() {
   const [retryDraftCreating, setRetryDraftCreating] = useState(false);
   const [deliveryDetails, setDeliveryDetails] = useState<DeliveryDetails | null>(null);
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>('all');
+  const [savedAudiences, setSavedAudiences] = useState<SavedAudience[]>([]);
+  const [audienceProducts, setAudienceProducts] = useState<AudienceProduct[]>([]);
+  const [audienceSetupMessage, setAudienceSetupMessage] = useState('');
+  const [audienceBuilderOpen, setAudienceBuilderOpen] = useState(false);
+  const [audienceName, setAudienceName] = useState('');
+  const [audienceConditions, setAudienceConditions] = useState<AudienceCondition[]>([defaultAudienceCondition()]);
+  const [audiencePreview, setAudiencePreview] = useState<Pick<Preview, 'recipientCount' | 'sampleRecipients'> | null>(null);
+  const [audiencePreviewLoading, setAudiencePreviewLoading] = useState(false);
+  const [audiencePreviewError, setAudiencePreviewError] = useState('');
+  const [audienceSaving, setAudienceSaving] = useState(false);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const previewRequestId = useRef(0);
+  const audiencePreviewRequestId = useRef(0);
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const selectedCampaign = useMemo(
@@ -299,6 +379,7 @@ export default function AdminEmailCampaignsPage() {
 
   useEffect(() => {
     loadCampaigns();
+    loadAudienceData();
   }, []);
 
   useEffect(() => {
@@ -328,6 +409,97 @@ export default function AdminEmailCampaignsPage() {
 
     return () => window.clearTimeout(timeout);
   }, [form?.audience_filter, manualSearch]);
+
+  useEffect(() => {
+    if (!audienceBuilderOpen) return;
+    const timeout = window.setTimeout(() => previewAudience(audienceConditions), 350);
+    return () => window.clearTimeout(timeout);
+  }, [audienceBuilderOpen, audienceConditions]);
+
+  async function loadAudienceData() {
+    try {
+      const response = await fetch('/api/admin/email-audiences', { cache: 'no-store' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to load saved audiences.');
+      setSavedAudiences((payload.audiences || []) as SavedAudience[]);
+      setAudienceProducts((payload.products || []) as AudienceProduct[]);
+      setAudienceSetupMessage(payload.setupRequired ? payload.setupMessage || 'Run the saved email audiences migration.' : '');
+    } catch (error) {
+      setAudienceSetupMessage(error instanceof Error ? error.message : 'Unable to load saved audiences.');
+    }
+  }
+
+  function openAudienceBuilder() {
+    setAudienceName('');
+    setAudienceConditions([defaultAudienceCondition()]);
+    setAudiencePreview(null);
+    setAudiencePreviewError('');
+    setAudienceBuilderOpen(true);
+  }
+
+  function updateAudienceCondition(index: number, updates: Partial<AudienceCondition>) {
+    setAudienceConditions((current) => current.map((condition, conditionIndex) => {
+      if (conditionIndex !== index) return condition;
+      if (updates.field && updates.field !== condition.field) {
+        const field = updates.field;
+        const firstOperator = audienceOperators[field][0].value;
+        const value = field === 'product_purchased' ? audienceProducts[0]?.id || '' : field === 'state' ? 'MI' : 1;
+        return { field, operator: firstOperator, value };
+      }
+      return { ...condition, ...updates };
+    }));
+  }
+
+  async function previewAudience(conditions: AudienceCondition[]) {
+    const requestId = audiencePreviewRequestId.current + 1;
+    audiencePreviewRequestId.current = requestId;
+    setAudiencePreviewLoading(true);
+    setAudiencePreviewError('');
+    try {
+      const response = await fetch('/api/admin/email-audiences/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conditions }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to preview audience.');
+      if (requestId !== audiencePreviewRequestId.current) return;
+      setAudiencePreview(payload);
+    } catch (error) {
+      if (requestId !== audiencePreviewRequestId.current) return;
+      setAudiencePreview(null);
+      setAudiencePreviewError(error instanceof Error ? error.message : 'Unable to preview audience.');
+    } finally {
+      if (requestId === audiencePreviewRequestId.current) setAudiencePreviewLoading(false);
+    }
+  }
+
+  async function saveAudience() {
+    if (!audienceName.trim()) {
+      setAudiencePreviewError('Give this audience a name.');
+      return;
+    }
+    setAudienceSaving(true);
+    setAudiencePreviewError('');
+    try {
+      const response = await fetch('/api/admin/email-audiences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: audienceName, conditions: audienceConditions }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Unable to save audience.');
+      const audience = payload.audience as SavedAudience;
+      setSavedAudiences((current) => [...current, audience].sort((a, b) => a.name.localeCompare(b.name)));
+      updateForm({ audience_filter: 'saved_audience', audience_id: audience.id });
+      setAudienceBuilderOpen(false);
+      setNotice({ type: 'success', message: `Audience “${audience.name}” saved and selected.` });
+    } catch (error) {
+      setAudiencePreviewError(error instanceof Error ? error.message : 'Unable to save audience.');
+    } finally {
+      setAudienceSaving(false);
+    }
+  }
 
   async function loadCampaigns(nextSelectedId?: string) {
     setLoading(true);
@@ -562,6 +734,7 @@ export default function AdminEmailCampaignsPage() {
         schedule_error: null,
         name: `${form.name} - failed retry`,
         audience_filter: 'manual' as const,
+        audience_id: null,
         manual_recipients: failedRecipients
           .map((recipient) => {
             const label = (recipient.contactName || recipient.companyName || '').trim();
@@ -1110,7 +1283,7 @@ export default function AdminEmailCampaignsPage() {
                     <button
                       key={option.value}
                       type="button"
-                      onClick={() => updateForm({ audience_filter: option.value })}
+                      onClick={() => updateForm({ audience_filter: option.value, audience_id: null })}
                       disabled={isLocked}
                       className={cn(
                         'rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-70',
@@ -1121,6 +1294,54 @@ export default function AdminEmailCampaignsPage() {
                       <p className="mt-1 text-xs leading-relaxed text-bark-500/60">{option.description}</p>
                     </button>
                   ))}
+                </div>
+
+                <div className="rounded-xl border border-cream-200 bg-cream-50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-bark-500">Saved audiences</p>
+                      <p className="mt-1 text-xs text-bark-500/60">Reusable groups that update automatically.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={openAudienceBuilder}
+                      disabled={isLocked || Boolean(audienceSetupMessage)}
+                      className="btn-secondary gap-2 px-3 py-2 text-sm disabled:opacity-60"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Create audience
+                    </button>
+                  </div>
+
+                  {savedAudiences.length > 0 ? (
+                    <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                      {savedAudiences.map((audience) => (
+                        <button
+                          key={audience.id}
+                          type="button"
+                          onClick={() => updateForm({ audience_filter: 'saved_audience', audience_id: audience.id })}
+                          disabled={isLocked}
+                          className={cn(
+                            'rounded-lg border bg-white p-3 text-left transition-colors disabled:opacity-60',
+                            form.audience_filter === 'saved_audience' && form.audience_id === audience.id
+                              ? 'border-bark-500 ring-1 ring-bark-500/10'
+                              : 'border-cream-200 hover:bg-cream-100',
+                          )}
+                        >
+                          <p className="font-semibold text-bark-500">{audience.name}</p>
+                          <p className="mt-1 text-xs text-bark-500/60">
+                            {audience.conditions.length} {audience.conditions.length === 1 ? 'condition' : 'conditions'} · matches all
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  ) : !audienceSetupMessage ? (
+                    <p className="mt-3 text-sm text-bark-500/60">No custom audiences yet.</p>
+                  ) : null}
+
+                  {audienceSetupMessage && (
+                    <p className="mt-3 text-xs leading-5 text-amber-800">{audienceSetupMessage}</p>
+                  )}
                 </div>
 
                 {form.audience_filter === 'manual' && (
@@ -1566,6 +1787,167 @@ export default function AdminEmailCampaignsPage() {
                 </p>
               </div>
             ) : null}
+          </div>
+        </div>
+      )}
+
+      {audienceBuilderOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-bark-900/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl border border-cream-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-cream-200 px-5 py-4">
+              <div>
+                <h2 className="flex items-center gap-2 font-semibold text-bark-500">
+                  <Filter className="h-5 w-5" /> Create audience
+                </h2>
+                <p className="mt-1 text-xs text-bark-500/60">Retailers must match every condition below.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAudienceBuilderOpen(false)}
+                className="rounded-lg p-2 text-bark-500/60 hover:bg-cream-100 hover:text-bark-500"
+                aria-label="Close audience builder"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="max-h-[calc(90vh-74px)] space-y-5 overflow-auto p-5">
+              <Field label="Audience name">
+                <input
+                  value={audienceName}
+                  onChange={(event) => setAudienceName(event.target.value)}
+                  className="input"
+                  placeholder="Example: High-value lapsed retailers"
+                  maxLength={80}
+                  autoFocus
+                />
+              </Field>
+
+              <div className="space-y-3">
+                <div>
+                  <p className="label">Conditions</p>
+                  <p className="text-xs text-bark-500/55">Match all of the following:</p>
+                </div>
+                {audienceConditions.map((condition, index) => (
+                  <div key={`${index}-${condition.field}`} className="rounded-xl border border-cream-200 bg-cream-50 p-3">
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-[170px_160px_minmax(0,1fr)_40px] md:items-center">
+                      <select
+                        value={condition.field}
+                        onChange={(event) => updateAudienceCondition(index, { field: event.target.value as AudienceConditionField })}
+                        className="input"
+                        aria-label={`Condition ${index + 1} field`}
+                      >
+                        {audienceConditionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                      <select
+                        value={condition.operator}
+                        onChange={(event) => updateAudienceCondition(index, { operator: event.target.value as AudienceConditionOperator })}
+                        className="input"
+                        aria-label={`Condition ${index + 1} operator`}
+                      >
+                        {audienceOperators[condition.field].map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+
+                      {condition.field === 'product_purchased' ? (
+                        <select
+                          value={condition.value}
+                          onChange={(event) => updateAudienceCondition(index, { value: event.target.value })}
+                          className="input"
+                          aria-label={`Condition ${index + 1} product`}
+                        >
+                          <option value="">Choose a product</option>
+                          {audienceProducts.map((product) => (
+                            <option key={product.id} value={product.id}>
+                              {product.name}{product.size ? ` · ${product.size}` : ''}{product.is_active === false ? ' (inactive)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      ) : condition.field === 'state' ? (
+                        <select
+                          value={condition.value}
+                          onChange={(event) => updateAudienceCondition(index, { value: event.target.value })}
+                          className="input"
+                          aria-label={`Condition ${index + 1} state`}
+                        >
+                          {US_STATE_OPTIONS.map((state) => <option key={state} value={state}>{state}</option>)}
+                        </select>
+                      ) : (
+                        <div className="relative">
+                          {condition.field === 'lifetime_spend' && (
+                            <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-bark-500/50">$</span>
+                          )}
+                          <input
+                            type="number"
+                            min="0"
+                            step={condition.field === 'lifetime_spend' ? '0.01' : '1'}
+                            value={condition.value}
+                            onChange={(event) => updateAudienceCondition(index, { value: event.target.value })}
+                            className={cn('input', condition.field === 'lifetime_spend' && 'pl-8', ['last_order_days', 'account_age_days'].includes(condition.field) && 'pr-20')}
+                            aria-label={`Condition ${index + 1} value`}
+                          />
+                          {['last_order_days', 'account_age_days'].includes(condition.field) && (
+                            <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs text-bark-500/50">days</span>
+                          )}
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setAudienceConditions((current) => current.filter((_, conditionIndex) => conditionIndex !== index))}
+                        disabled={audienceConditions.length === 1}
+                        className="flex h-10 w-10 items-center justify-center rounded-lg text-bark-500/50 hover:bg-white hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-25"
+                        aria-label={`Remove condition ${index + 1}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => setAudienceConditions((current) => [...current, defaultAudienceCondition()])}
+                  disabled={audienceConditions.length >= 10}
+                  className="btn-secondary gap-2 px-3 py-2 text-sm disabled:opacity-60"
+                >
+                  <Plus className="h-4 w-4" /> Add condition
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[150px_minmax(0,1fr)]">
+                <div className="rounded-xl bg-cream-100 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50">Matches</p>
+                  <p className="mt-1 text-2xl font-bold text-bark-500">
+                    {audiencePreviewLoading ? '...' : audiencePreview?.recipientCount ?? 0}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-cream-100 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-bark-500/50">Sample</p>
+                  <p className="mt-1 text-sm leading-6 text-bark-500/70">
+                    {audiencePreview?.sampleRecipients?.length
+                      ? audiencePreview.sampleRecipients.map((recipient) => recipient.company_name || recipient.email).join(' · ')
+                      : 'No matching retailers.'}
+                  </p>
+                </div>
+              </div>
+
+              {audiencePreviewError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{audiencePreviewError}</div>
+              )}
+
+              <div className="flex flex-col-reverse gap-3 border-t border-cream-200 pt-4 sm:flex-row sm:justify-end">
+                <button type="button" onClick={() => setAudienceBuilderOpen(false)} className="btn-secondary">Cancel</button>
+                <button
+                  type="button"
+                  onClick={saveAudience}
+                  disabled={audienceSaving || audiencePreviewLoading || !audiencePreview}
+                  className="btn-primary gap-2 disabled:opacity-60"
+                >
+                  {audienceSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {audienceSaving ? 'Saving...' : 'Save and use audience'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

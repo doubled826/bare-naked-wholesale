@@ -5,7 +5,23 @@ export type EmailCampaignAudienceFilter =
   | 'never_ordered'
   | 'ordered_once'
   | 'repeat_buyers'
+  | 'lapsed_180_days'
+  | 'saved_audience'
   | 'manual';
+
+export type EmailAudienceConditionField =
+  | 'last_order_days'
+  | 'order_count'
+  | 'lifetime_spend'
+  | 'account_age_days'
+  | 'product_purchased'
+  | 'state';
+
+export type EmailAudienceCondition = {
+  field: EmailAudienceConditionField;
+  operator: 'greater_than' | 'less_than' | 'equal_to' | 'at_least' | 'at_most' | 'has_purchased' | 'has_not_purchased' | 'is' | 'is_not';
+  value: string | number;
+};
 
 export type EmailCampaignInput = {
   id?: string;
@@ -19,6 +35,7 @@ export type EmailCampaignInput = {
   cta_url?: string | null;
   hero_image_url?: string | null;
   audience_filter: EmailCampaignAudienceFilter;
+  audience_id?: string | null;
   manual_recipients?: string | null;
   status?: 'draft' | 'scheduled' | 'sending' | 'sent';
   scheduled_at?: string | null;
@@ -38,6 +55,8 @@ type RetailerRow = {
   company_name?: string | null;
   email?: string | null;
   contact_name?: string | null;
+  business_address?: string | null;
+  created_at?: string | null;
 };
 
 type AuthUser = {
@@ -46,8 +65,11 @@ type AuthUser = {
 };
 
 type OrderRow = {
+  id?: string | null;
   retailer_id?: string | null;
   status?: string | null;
+  created_at?: string | null;
+  total?: number | string | null;
 };
 
 const DEFAULT_APP_URL = 'https://wholesale.barenakedpet.com';
@@ -85,6 +107,7 @@ Thanks for carrying Bare Naked Pet Co. and helping more pet parents discover sim
   cta_url: `${process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL}/catalog`,
   hero_image_url: '',
   audience_filter: 'all_retailers',
+  audience_id: null,
   manual_recipients: '',
   status: 'draft',
   scheduled_at: null,
@@ -232,10 +255,10 @@ async function selectRetailerRows(adminClient: any, columns: string): Promise<Re
 
 async function loadRetailerRows(adminClient: any): Promise<RetailerRow[]> {
   const columnAttempts = [
-    'id, company_name, email, contact_name',
-    'id, company_name, contact_name',
-    'id, company_name, email',
-    'id, company_name',
+    'id, company_name, email, contact_name, business_address, created_at',
+    'id, company_name, contact_name, business_address, created_at',
+    'id, company_name, email, business_address, created_at',
+    'id, company_name, business_address, created_at',
   ];
 
   for (const columns of columnAttempts) {
@@ -262,6 +285,7 @@ const normalizeCampaign = (campaign: Partial<EmailCampaignInput>): EmailCampaign
   cta_url: (campaign.cta_url || '').trim(),
   hero_image_url: (campaign.hero_image_url || '').trim(),
   audience_filter: campaign.audience_filter || defaultEmailCampaign.audience_filter,
+  audience_id: campaign.audience_id || null,
   manual_recipients: campaign.manual_recipients || '',
 });
 
@@ -370,6 +394,170 @@ export function parseManualRecipients(value?: string | null): EmailCampaignRecip
   return Array.from(unique.values());
 }
 
+const MS_IN_DAY = 24 * 60 * 60 * 1000;
+const US_STATE_CODES = new Set([
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS',
+  'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY',
+  'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV',
+  'WI', 'WY', 'DC',
+]);
+
+const parseStateFromAddress = (address?: string | null) => {
+  if (!address) return null;
+  const matches = address.toUpperCase().match(/\b[A-Z]{2}\b/g) || [];
+  return [...matches].reverse().find((value) => US_STATE_CODES.has(value)) || null;
+};
+
+async function loadAllTableRows(adminClient: any, table: string, columns: string) {
+  const rows: any[] = [];
+  const pageSize = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await adminClient
+      .from(table)
+      .select(columns)
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+export function validateEmailAudienceConditions(conditions: unknown): EmailAudienceCondition[] {
+  if (!Array.isArray(conditions) || conditions.length === 0) {
+    throw new Error('Add at least one audience condition.');
+  }
+  if (conditions.length > 10) throw new Error('Audiences can contain up to 10 conditions.');
+
+  const allowedOperators: Record<EmailAudienceConditionField, EmailAudienceCondition['operator'][]> = {
+    last_order_days: ['greater_than', 'less_than'],
+    order_count: ['equal_to', 'at_least', 'at_most'],
+    lifetime_spend: ['at_least', 'at_most'],
+    account_age_days: ['greater_than', 'less_than'],
+    product_purchased: ['has_purchased', 'has_not_purchased'],
+    state: ['is', 'is_not'],
+  };
+
+  return conditions.map((condition: any) => {
+    const field = condition?.field as EmailAudienceConditionField;
+    const operator = condition?.operator as EmailAudienceCondition['operator'];
+    if (!allowedOperators[field]?.includes(operator)) throw new Error('One or more audience conditions is invalid.');
+
+    if (field === 'product_purchased' || field === 'state') {
+      const value = String(condition?.value || '').trim();
+      if (!value) throw new Error('Choose a value for every audience condition.');
+      return { field, operator, value };
+    }
+
+    const value = Number(condition?.value);
+    if (!Number.isFinite(value) || value < 0) throw new Error('Enter a valid positive number for every audience condition.');
+    return { field, operator, value };
+  });
+}
+
+export async function loadAudienceRecipients(
+  adminClient: any,
+  conditionInput: unknown,
+): Promise<EmailCampaignRecipient[]> {
+  const conditions = validateEmailAudienceConditions(conditionInput);
+  const needsProducts = conditions.some((condition) => condition.field === 'product_purchased');
+  const needsStates = conditions.some((condition) => condition.field === 'state');
+
+  const [retailers, orders, orderItems, locations] = await Promise.all([
+    loadRetailerRows(adminClient),
+    loadAllTableRows(adminClient, 'orders', 'id, retailer_id, status, created_at, total'),
+    needsProducts ? loadAllTableRows(adminClient, 'order_items', 'order_id, product_id') : Promise.resolve([]),
+    needsStates ? loadAllTableRows(adminClient, 'retailer_locations', 'retailer_id, business_address') : Promise.resolve([]),
+  ]);
+
+  const validOrders = (orders as OrderRow[]).filter((order) => order.retailer_id && order.status !== 'canceled');
+  const validOrderIds = new Set(validOrders.map((order) => order.id).filter(Boolean));
+  const productsByRetailer = new Map<string, Set<string>>();
+  const retailerIdByOrderId = new Map(validOrders.map((order) => [order.id, order.retailer_id]));
+
+  for (const item of orderItems as Array<{ order_id?: string | null; product_id?: string | null }>) {
+    if (!item.order_id || !item.product_id || !validOrderIds.has(item.order_id)) continue;
+    const retailerId = retailerIdByOrderId.get(item.order_id);
+    if (!retailerId) continue;
+    const productIds = productsByRetailer.get(retailerId) || new Set<string>();
+    productIds.add(item.product_id);
+    productsByRetailer.set(retailerId, productIds);
+  }
+
+  const statesByRetailer = new Map<string, Set<string>>();
+  for (const location of locations as Array<{ retailer_id?: string | null; business_address?: string | null }>) {
+    if (!location.retailer_id) continue;
+    const state = parseStateFromAddress(location.business_address);
+    if (!state) continue;
+    const states = statesByRetailer.get(location.retailer_id) || new Set<string>();
+    states.add(state);
+    statesByRetailer.set(location.retailer_id, states);
+  }
+
+  const now = Date.now();
+  const unique = new Map<string, EmailCampaignRecipient>();
+
+  for (const retailer of retailers) {
+    const email = (retailer.email || '').trim().toLowerCase();
+    if (!email || !isLikelyEmail(email) || unique.has(email)) continue;
+
+    const retailerOrders = validOrders.filter((order) => order.retailer_id === retailer.id);
+    const orderTimes = retailerOrders
+      .map((order) => order.created_at ? new Date(order.created_at).getTime() : Number.NaN)
+      .filter(Number.isFinite);
+    const lastOrderTime = orderTimes.length ? Math.max(...orderTimes) : null;
+    const accountCreatedTime = retailer.created_at ? new Date(retailer.created_at).getTime() : Number.NaN;
+    const orderCount = retailerOrders.length;
+    const lifetimeSpend = retailerOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
+    const productIds = productsByRetailer.get(retailer.id) || new Set<string>();
+    const states = statesByRetailer.get(retailer.id) || new Set<string>();
+    const primaryState = parseStateFromAddress(retailer.business_address);
+    if (primaryState) states.add(primaryState);
+
+    const matches = conditions.every((condition) => {
+      const numericValue = Number(condition.value);
+      if (condition.field === 'last_order_days') {
+        if (lastOrderTime === null) return false;
+        const days = Math.floor((now - lastOrderTime) / MS_IN_DAY);
+        return condition.operator === 'greater_than' ? days > numericValue : days < numericValue;
+      }
+      if (condition.field === 'order_count') {
+        if (condition.operator === 'equal_to') return orderCount === numericValue;
+        return condition.operator === 'at_least' ? orderCount >= numericValue : orderCount <= numericValue;
+      }
+      if (condition.field === 'lifetime_spend') {
+        return condition.operator === 'at_least' ? lifetimeSpend >= numericValue : lifetimeSpend <= numericValue;
+      }
+      if (condition.field === 'account_age_days') {
+        if (!Number.isFinite(accountCreatedTime)) return false;
+        const days = Math.floor((now - accountCreatedTime) / MS_IN_DAY);
+        return condition.operator === 'greater_than' ? days > numericValue : days < numericValue;
+      }
+      if (condition.field === 'product_purchased') {
+        const hasPurchased = productIds.has(String(condition.value));
+        return condition.operator === 'has_purchased' ? hasPurchased : !hasPurchased;
+      }
+      const hasState = states.has(String(condition.value).toUpperCase());
+      return condition.operator === 'is' ? hasState : !hasState;
+    });
+
+    if (!matches) continue;
+    unique.set(email, {
+      retailer_id: retailer.id,
+      email,
+      company_name: retailer.company_name || null,
+      contact_name: retailer.contact_name || null,
+      first_name: getFirstName(retailer.contact_name),
+    });
+  }
+
+  return Array.from(unique.values());
+}
+
 export async function loadCampaignRecipients(
   adminClient: any,
   campaignInput: Partial<EmailCampaignInput>,
@@ -380,18 +568,37 @@ export async function loadCampaignRecipients(
     return parseManualRecipients(campaign.manual_recipients);
   }
 
+  if (campaign.audience_filter === 'saved_audience') {
+    if (!campaign.audience_id) throw new Error('Choose a saved audience.');
+    const { data: audience, error } = await adminClient
+      .from('email_audiences')
+      .select('conditions')
+      .eq('id', campaign.audience_id)
+      .single();
+    if (error) throw error;
+    return loadAudienceRecipients(adminClient, audience?.conditions);
+  }
+
   const [retailers, { data: orders, error: ordersError }] = await Promise.all([
     loadRetailerRows(adminClient),
-    adminClient.from('orders').select('retailer_id, status'),
+    adminClient.from('orders').select('retailer_id, status, created_at'),
   ]);
 
   if (ordersError) throw ordersError;
 
   const orderCounts = new Map<string, number>();
+  const lastOrderTimes = new Map<string, number>();
   for (const order of (orders || []) as OrderRow[]) {
     if (!order.retailer_id || order.status === 'canceled') continue;
     orderCounts.set(order.retailer_id, (orderCounts.get(order.retailer_id) || 0) + 1);
+
+    const orderTime = order.created_at ? new Date(order.created_at).getTime() : Number.NaN;
+    if (Number.isFinite(orderTime)) {
+      lastOrderTimes.set(order.retailer_id, Math.max(lastOrderTimes.get(order.retailer_id) || 0, orderTime));
+    }
   }
+
+  const lapsedCutoff = Date.now() - 180 * 24 * 60 * 60 * 1000;
 
   const unique = new Map<string, EmailCampaignRecipient>();
   for (const retailer of retailers) {
@@ -402,6 +609,10 @@ export async function loadCampaignRecipients(
     if (campaign.audience_filter === 'never_ordered' && orderCount !== 0) continue;
     if (campaign.audience_filter === 'ordered_once' && orderCount !== 1) continue;
     if (campaign.audience_filter === 'repeat_buyers' && orderCount < 2) continue;
+    if (
+      campaign.audience_filter === 'lapsed_180_days' &&
+      (orderCount === 0 || (lastOrderTimes.get(retailer.id) || Number.POSITIVE_INFINITY) > lapsedCutoff)
+    ) continue;
 
     unique.set(email, {
       retailer_id: retailer.id,
@@ -595,6 +806,9 @@ export function getCampaignValidationError(
   }
   if (options.requireRecipients !== false && campaign.audience_filter === 'manual' && parseManualRecipients(campaign.manual_recipients).length === 0) {
     return 'Add at least one valid manual recipient.';
+  }
+  if (options.requireRecipients !== false && campaign.audience_filter === 'saved_audience' && !campaign.audience_id) {
+    return 'Choose a saved audience.';
   }
   return null;
 }
